@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "FhirServer",
+  "title": "FHIR Server Generator",
+  "type": "object",
+  "properties": {
+    "directory": {
+      "type": "string",
+      "description": "The directory to create the server in.",
+      "x-prompt": "Enter the directory for the new server source code",
+      "default": "server"
+    },
+    "packagePath": {
+      "type": "string",
+      "description": "The Java package path for custom code.",
+      "x-prompt": "Enter the Java package path for your custom code",
+      "default": "org.custom.server"
+    },
+    "release": {
+      "type": "string",
+      "description": "The HAPI FHIR JPA Starter release to use."
+    }
+  },
+  "required": ["directory", "packagePath"]
+}

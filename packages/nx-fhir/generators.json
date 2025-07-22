@@ -1,0 +1,14 @@
+{
+  "generators": {
+    "server": {
+      "factory": "./src/generator/server/server",
+      "schema": "./src/generator/server/schema.json",
+      "description": "server generator"
+    },
+    "project": {
+      "factory": "./src/generator/project/project",
+      "schema": "./src/generator/project/schema.json",
+      "description": "project generator"
+    }
+  }
+}
