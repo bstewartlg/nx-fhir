@@ -20,5 +20,9 @@ export default defineConfig(() => ({
       reportsDirectory: '../../coverage/packages/nx-fhir',
       provider: 'v8' as const,
     },
+    globalSetup: [
+      '../../tools/scripts/build-all.ts',
+      '../../tools/scripts/start-local-registry.ts',
+    ],
   },
 }));

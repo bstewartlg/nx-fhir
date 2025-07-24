@@ -1,16 +1,16 @@
 {
-  "name": "@nx-fhir/nx-fhir",
+  "name": "nx-fhir",
   "version": "0.0.1",
   "private": false,
   "type": "commonjs",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
-  "scripts": {
-    "build": "nx build"
-  },
   "dependencies": {
     "@nx/devkit": "21.3.0",
-    "tslib": "^2.8.1"
+    "tslib": "^2.8.1",
+    "axios": "1.10.0",
+    "unzipper": "^0.12.3",
+    "enquirer": "2.3.6"
   },
   "generators": "./generators.json"
 }

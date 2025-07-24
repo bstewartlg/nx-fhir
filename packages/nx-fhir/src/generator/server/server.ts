@@ -76,6 +76,8 @@ export async function serverGenerator(
   const release =
     options.release ?? (await promptForRelease(await getHapiFhirReleases()));
 
+  logger.info(`Using HAPI JPA starter release: ${release}`);
+
   const projectName = path.basename(options.directory);
 
   addProjectConfiguration(tree, projectName, {

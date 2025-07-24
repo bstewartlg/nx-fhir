@@ -3,6 +3,13 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "packages/nx-fhir/src",
   "projectType": "library",
+  "release": {
+    "version": {
+      "manifestRootsToUpdate": ["dist/{projectRoot}"],
+      "currentVersionResolver": "git-tag",
+      "fallbackCurrentVersionResolver": "disk"
+    }
+  },
   "tags": [],
   "targets": {
     "build": {
@@ -40,20 +47,25 @@
     "lint": {
       "executor": "@nx/eslint:lint"
     },
+    "nx-release-publish": {
+      "options": {
+        "packageRoot": "dist/{projectRoot}"
+      }
+    },
     "test": {
       "executor": "@nx/vite:test",
       "options": {
         "include": [
           "src/**/*.spec.ts",
-          "!src/**/*.integration.spec.ts"
+          "!src/**/*.e2e.spec.ts"
         ]
       }
     },
-    "test:integration": {
+    "test:e2e": {
       "executor": "@nx/vite:test",
       "options": {
         "include": [
-          "src/**/*.integration.spec.ts"
+          "src/**/*.e2e.spec.ts"
         ]
       }
     },
@@ -62,7 +74,7 @@
       "options": {
         "include": [
           "src/**/*.spec.ts",
-          "!src/**/*.integration.spec.ts"
+          "!src/**/*.e2e.spec.ts"
         ]
       }
     }
