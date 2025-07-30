@@ -61,20 +61,12 @@
         ]
       }
     },
-    "test:e2e": {
+    "e2e": {
       "executor": "@nx/vite:test",
       "options": {
+        "configFile": "packages/nx-fhir/vite.config.e2e.ts",
         "include": [
           "src/**/*.e2e.spec.ts"
-        ]
-      }
-    },
-    "test:unit": {
-      "executor": "@nx/vite:test",
-      "options": {
-        "include": [
-          "src/**/*.spec.ts",
-          "!src/**/*.e2e.spec.ts"
         ]
       }
     }

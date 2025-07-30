@@ -10,7 +10,7 @@
       "x-prompt": "Enter the directory for the new server source code",
       "default": "server"
     },
-    "packagePath": {
+    "packageBase": {
       "type": "string",
       "description": "The Java package path for custom code.",
       "x-prompt": "Enter the Java package path for your custom code",
@@ -19,7 +19,13 @@
     "release": {
       "type": "string",
       "description": "The HAPI FHIR JPA Starter release to use."
+    },
+    "fhirVersion": {
+      "type": "string",
+      "enum": ["STU3", "R4", "R4B", "R5"],
+      "description": "The FHIR version to use for the server.",
+      "default": "R4"
     }
   },
-  "required": ["directory", "packagePath"]
+  "required": ["directory", "packageBase"]
 }

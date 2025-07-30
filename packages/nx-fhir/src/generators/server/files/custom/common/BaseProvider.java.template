@@ -1,0 +1,18 @@
+package <%= packageBase %>.common;
+
+import org.springframework.beans.factory.annotation.Autowired;
+
+import ca.uhn.fhir.rest.server.RestfulServer;
+import jakarta.annotation.PostConstruct;
+
+public abstract class BaseProvider {
+
+  @Autowired
+  private RestfulServer restfulServer;
+
+  @PostConstruct
+  public void registerProvider() {
+    restfulServer.registerProvider(this);
+  }
+  
+}

@@ -1,14 +1,14 @@
 {
   "generators": {
     "server": {
-      "factory": "./src/generator/server/server",
-      "schema": "./src/generator/server/schema.json",
+      "factory": "./src/generators/server/server",
+      "schema": "./src/generators/server/schema.json",
       "description": "server generator"
     },
-    "project": {
-      "factory": "./src/generator/project/project",
-      "schema": "./src/generator/project/schema.json",
-      "description": "project generator"
+    "operation": {
+      "factory": "./src/generators/operation/operation",
+      "schema": "./src/generators/operation/schema.json",
+      "description": "operation generator"
     }
   }
 }

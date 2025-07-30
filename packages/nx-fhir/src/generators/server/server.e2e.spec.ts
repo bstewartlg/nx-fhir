@@ -9,7 +9,7 @@ describe('server generator e2e test', () => {
   // let tree: Tree;
   const options: ServerGeneratorSchema = {
     directory: 'server',
-    packagePath: 'org.custom.server',
+    packageBase: 'org.custom.server',
     release: 'image/v8.0.0',
   };
   
@@ -45,7 +45,7 @@ describe('server generator e2e test', () => {
 
   // Check that the generator runs
   it('should run the server generator', async () => {
-    execSync(`npx nx generate nx-fhir:server --directory=${options.directory} --packagePath=${options.packagePath} --release=${options.release}`, {
+    execSync(`npx nx generate nx-fhir:server --directory=${options.directory} --packageBase=${options.packageBase} --release=${options.release}`, {
       cwd: projectDirectory,
       stdio: 'inherit',
       env: process.env
@@ -144,6 +144,6 @@ function createTestProject() {
     env: process.env
   });
   logger.info(`Created test project at ${projectDirectory}`);
-
+  
   return projectDirectory;
 }

@@ -11,15 +11,19 @@ export default defineConfig(() => ({
   //  plugins: [ nxViteTsPaths() ],
   // },
   test: {
-    name: 'nx-fhir',
+    name: 'nx-fhir-e2e',
+    watch: false,
     globals: true,
     environment: 'node',
-    include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
-    exclude: ['src/**/*.e2e.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
+    include: ['src/**/*.e2e.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
     reporters: ['default'],
     coverage: {
       reportsDirectory: '../../coverage/packages/nx-fhir',
       provider: 'v8' as const,
-    }
+    },
+    globalSetup: [
+      '../../tools/scripts/build-all.ts',
+      '../../tools/scripts/start-local-registry.ts',
+    ],
   },
 }));

@@ -3,11 +3,13 @@ import {
   formatFiles,
   Tree,
   logger,
+  generateFiles,
 } from '@nx/devkit';
 import * as path from 'path';
 import { ServerGeneratorSchema } from './schema';
 import axios from 'axios';
 import * as unzipper from 'unzipper';
+import { ServerProjectConfiguration } from '../../shared/models';
 
 async function getHapiFhirReleases(): Promise<string[]> {
   try {
@@ -69,6 +71,56 @@ async function downloadAndExtract(
   }
 }
 
+
+/**
+ * Generates files that will sit alongside the downloaded and extracted HAPI FHIR JPA Starter files.
+ */
+function createHapiFiles(
+  tree: Tree,
+  directory: string,
+  packageBase: string
+) {
+  
+  logger.info(`Creating HAPI files in ${directory}`);
+
+  // Generate the Application.java file in the correct package directory
+  generateFiles(
+    tree,
+    path.join(__dirname, 'files', 'hapi-starter'),
+    directory,
+    {
+      packageBase,
+    }
+  );
+}
+
+/**
+ * Generates the custom Java files in the custom package directory in the src/main/java directory.
+ */
+function createCustomSourceFiles(
+  tree: Tree,
+  directory: string,
+  packageBase: string
+) {
+  // Convert package path to directory structure (e.g., "org.custom.server" -> "src/main/java/org/custom/server")
+  const packageDir = packageBase.replace(/\./g, '/');
+  const javaSourceDir = path.join(directory, 'src', 'main', 'java', packageDir);
+  
+  // Generate all custom source files from the files directory structure
+  generateFiles(
+    tree,
+    path.join(__dirname, 'files', 'custom'),
+    javaSourceDir,
+    {
+      packageBase,
+    }
+  );
+}
+
+
+/**
+ * Main server generator entry point.
+ */
 export async function serverGenerator(
   tree: Tree,
   options: ServerGeneratorSchema
@@ -78,9 +130,9 @@ export async function serverGenerator(
 
   logger.info(`Using HAPI JPA starter release: ${release}`);
 
-  const projectName = path.basename(options.directory);
+  const projectName = path.basename(options.directory || 'server');
 
-  addProjectConfiguration(tree, projectName, {
+  const projectConfiguration: ServerProjectConfiguration = {
     root: options.directory,
     projectType: 'application',
     targets: {
@@ -99,9 +151,14 @@ export async function serverGenerator(
         },
       },
     },
-  });
+    packageBase: options.packageBase,
+    fhirVersion: options.fhirVersion,
+  };
+  addProjectConfiguration(tree, projectName, projectConfiguration);
 
   await downloadAndExtract(tree, release, options.directory);
+  createHapiFiles(tree, options.directory, options.packageBase);
+  createCustomSourceFiles(tree, options.directory, options.packageBase);
 
   await formatFiles(tree);
 }

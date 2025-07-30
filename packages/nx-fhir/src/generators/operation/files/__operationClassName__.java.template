@@ -1,0 +1,83 @@
+<%
+  
+  const resourceDataType = operation.resourceDataTypes && operation.resourceDataTypes.length > 0 ? operation.resourceDataTypes[0] : null;
+  const operationsToGenerate = [];
+  let manualResponse = false;
+
+  if (!!operation.system) {
+    operationsToGenerate.push('system');
+  }
+  if (!!operation.type) {
+    operationsToGenerate.push('type');
+  }
+  if (!!operation.instance) {
+    operationsToGenerate.push('instance');
+  }
+
+  if (!operation.outputType || !operation.outputType.dataType) {
+    operation.outputType = { dataType: 'void' }
+  }
+
+  if (operation.outputType.dataType === 'void') {
+    manualResponse = true;
+  }
+
+-%>
+package <%= operation.targetPackage %>;
+
+
+<%_ if (operationsToGenerate.includes('instance')) { -%>
+import ca.uhn.fhir.rest.annotation.IdParam;
+<%_ } -%>
+import ca.uhn.fhir.rest.annotation.Operation;
+<%_ if (operation.inputParameters && operation.inputParameters.length > 0) { -%>
+import ca.uhn.fhir.rest.annotation.OperationParam;
+<% } -%>
+import ca.uhn.fhir.rest.server.exceptions.NotImplementedOperationException;
+<%_ if (manualResponse) { -%>
+import jakarta.servlet.http.HttpServletResponse;
+<%_ } -%>
+<%_ if (manualResponse) { -%>
+import java.io.IOException;
+<%_ } -%>
+<%_ if (resourceDataType === 'IAnyResource' || (operation.inputParameters || []).findIndex(ip => ip.dataType === 'IAnyResource') > -1) { -%>
+import org.hl7.fhir.instance.model.api.IAnyResource;
+<%_ } -%>
+import org.hl7.fhir.<%= operation.modelPackageVersion %>.model.*;
+import org.springframework.stereotype.Component;
+
+import <%= packageBase %>.common.BaseProvider;
+
+@Component
+public class <%= operation.className %> extends BaseProvider {
+  <%_ 
+    for (const operationType of operationsToGenerate) {
+  -%>
+  @Operation(name = "$<%= operation.code %>"<% if (operationType !== 'system' && resourceDataType) { %>, type = <%= resourceDataType %>.class<% } %><% if (locals.manualResponse) {%>, manualResponse = true<% } %>)
+  public <%= operation.outputType.dataType %> <%= operation.methodName %><% if (operationType === 'system' && operationsToGenerate.length > 1) { %>Operation<% } %>(
+    <%_ if (operationType === 'instance') { -%>
+    @IdParam IdType theId,
+    <%_ } -%>
+    <%_ if (operation.inputParameters && operation.inputParameters.length > 0) { -%>
+    <%_ operation.inputParameters.forEach((param, index) => { -%>
+    @OperationParam(name = "<%= param.name %>", min = <%= param.min -%>
+      <%_ if (param.max !== '*') { %>, max = <%= param.max %><% } -%>
+      <%_ if (param.dataType !== 'Object') { %>, type = <%= param.dataType %>.class<% } %>)<% -%>
+      <%_ %> <%= param.dataType %> <%= param.methodParameterName -%>
+      <%_ if (index < operation.inputParameters.length - 1 || manualResponse) { -%>,<% } %>
+    <%_ }); -%>
+    <%_ } -%>
+    <%_ if (manualResponse) { -%>
+    HttpServletResponse theServletResponse
+    <%_ } -%>
+  ) <%_ if (manualResponse) { -%> throws IOException<% } %> {
+    // TODO: Implement operation $<%= operation.code %>
+    throw new NotImplementedOperationException("Operation $<%= operation.code %> is not implemented");
+    <% if (operation.outputType.dataType !== 'void') { %>
+    // <%= operation.outputType.dataType %> retVal = new <%= operation.outputType.dataType %>();
+    // return retVal;
+    <% } %>
+  }
+
+  <%_ } -%>  
+}

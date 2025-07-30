@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "Operation",
+  "title": "",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Name of the Nx server project to add the operation to"
+    },
+    "defLocation": {
+      "type": "string",
+      "description": "Official canonical URL, local file path, or URL to a JSON file for the OperationDefinition"
+    },
+    "defContent": {
+      "type": "string",
+      "description": "Content of the OperationDefinition to use. If provided, this will override the definition URL or file path"
+    },
+    "name": {
+      "type": "string",
+      "description": "Name of the operation to generate",
+      "$default": "my-operation"
+    },
+    "directory": {
+      "type": "string",
+      "description": "Target directory for the generated operation provider source file, relative to the server project source directory"
+    }
+  }
+}

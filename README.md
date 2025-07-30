@@ -24,7 +24,7 @@ npm link nx-fhir
 Generate a server in that workspace:
 
 ```bash
-nx g @nx-fhir/server:server
+npx nx g nx-fhir:server
 ```
 
 ## Testing
@@ -32,7 +32,7 @@ nx g @nx-fhir/server:server
 Run end-to-end server test:
 
 ```bash
-nx run nx-fhir:test:e2e
+npx nx run nx-fhir:e2e
 ```
 
 Test does the following:
