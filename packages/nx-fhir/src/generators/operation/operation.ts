@@ -11,40 +11,9 @@ import * as path from 'path';
 import camelcase from 'camelcase';
 import { OperationGeneratorSchema } from './schema';
 import { ServerProjectConfiguration } from '../../shared/models';
-import { getHapiOperation } from './lib';
+import { getEmptyHapiOperation, getHapiOperation } from './lib';
 import { OperationDefinition } from 'fhir/r5';
-
-async function getServerProjects(tree: Tree): Promise<string[]> {
-  const projects = getProjects(tree);
-  const serverProjects: string[] = [];
-  
-  for (const [projectName, projectConfig] of projects) {
-    if (projectConfig.projectType === 'application') {
-      serverProjects.push(projectName);
-    }
-  }
-  
-  return serverProjects;
-}
-
-async function promptForServerProject(serverProjects: string[]): Promise<string> {
-  if (serverProjects.length === 0) {
-    throw new Error('No server projects found in the workspace. Please create a server project first using the server generator.');
-  }
-  
-  if (serverProjects.length === 1) {
-    logger.info(`Using the only available server project: ${serverProjects[0]}`);
-    return serverProjects[0];
-  }
-
-  const response = await prompt<{ serverProject: string }>({
-    type: 'select',
-    name: 'serverProject',
-    message: 'Select a server project to add the operation to:',
-    choices: serverProjects,
-  });
-  return response.serverProject;
-}
+import { promptForServerProject } from '../../shared/utils';
 
 
 /**
@@ -136,8 +105,7 @@ export async function operationGenerator(
 ) {
 
   // Determine the server project to add the operation to
-  const serverProjects = await getServerProjects(tree);
-  const selectedServerProject = options.project ?? (await promptForServerProject(serverProjects));
+  const selectedServerProject = options.project ?? (await promptForServerProject(tree));
 
   const serverProjectConfig = readProjectConfiguration(tree, selectedServerProject) as ServerProjectConfiguration;
   
@@ -202,19 +170,21 @@ export async function operationGenerator(
 
   let directory = options.directory;
   if (!directory) {
-    const { Input } = require('enquirer');
-    const prompt = new Input({
+    const response = await prompt<{ directory: string }>({
+      type: 'input',
       name: 'directory',
       message: 'Enter the path (relative from src/main/java root) where the operation should be created:',
       initial: serverProjectConfig.packageBase ? path.join(serverProjectConfig.packageBase.replace(/\./g, '/'), 'providers') : 'providers',
       validate: (value: string) => value && value.trim().length > 0 ? true : 'Directory is required',
     });
-    directory = await prompt.run();
+    directory = response.directory;
   }
 
   const targetPath = path.join(javaSourcePath, directory);
-  const hapiOperation = getHapiOperation(operationDefinition, directory.replace(/\//g, '.'), serverProjectConfig.fhirVersion);
+  const targetPackage = directory.replace(/\//g, '.');
+  const hapiOperation = operationDefinition ? getHapiOperation(operationDefinition, targetPackage, serverProjectConfig.fhirVersion) : getEmptyHapiOperation(operationName, targetPackage);
   logger.info(`Generating operation class: ${hapiOperation.className}`);
+
 
   generateFiles(
     tree,

@@ -53,7 +53,18 @@ public class <%= operation.className %> extends BaseProvider {
   <%_ 
     for (const operationType of operationsToGenerate) {
   -%>
-  @Operation(name = "$<%= operation.code %>"<% if (operationType !== 'system' && resourceDataType) { %>, type = <%= resourceDataType %>.class<% } %><% if (locals.manualResponse) {%>, manualResponse = true<% } %>)
+  @Operation(
+    name = "$<%= operation.code %>"<%_
+    if (operationType !== 'system' && resourceDataType) { -%>,
+    type = <%= resourceDataType %>.class<%_
+    } -%><%_
+    if (manualResponse) { -%>,
+    manualResponse = true<%_
+    } -%><%_
+    if (operation.url) { -%>,
+    canonicalUrl = "<%= operation.url %>"<%_
+    } %>
+  )
   public <%= operation.outputType.dataType %> <%= operation.methodName %><% if (operationType === 'system' && operationsToGenerate.length > 1) { %>Operation<% } %>(
     <%_ if (operationType === 'instance') { -%>
     @IdParam IdType theId,

@@ -8,6 +8,27 @@ export function getClassName(id: string, resourceTypes?: string[]): string {
   return `${camelcase(id, { pascalCase: true })}${!!resourceTypes && resourceTypes.length > 0 ? 'Provider' : 'Operation'}`;
 }
 
+
+export function getEmptyHapiOperation(name: string, targetPackage: string): ServerOperation {
+  return {
+    id: name,
+    url: "",
+    name: name,
+    code: name.trim().replace(' ', '-').toLowerCase(),
+    resource: [],
+    system: true,
+    type: false,
+    instance: false,
+    resourceDataTypes: [],
+    className: getClassName(name),
+    targetPackage: targetPackage,
+    methodName: camelcase(name),
+    modelPackageVersion: "r5",
+    inputParameters: [],
+    outputType: undefined
+  };
+}
+
 export function getHapiOperation(operationDefinition: OperationDefinition, targetPackage: string, fhirVersion: FhirVersion): ServerOperation {
 
   const className = getClassName(operationDefinition.id, operationDefinition.resource);
@@ -16,7 +37,7 @@ export function getHapiOperation(operationDefinition: OperationDefinition, targe
     id: operationDefinition.id,
     url: operationDefinition.url,
     name: operationDefinition.name,
-    code: operationDefinition.code,
+    code: operationDefinition.code || operationDefinition.name.trim().replace(' ', '-').toLowerCase(),
     resource: operationDefinition.resource,
     system: operationDefinition.system,
     type: operationDefinition.type,

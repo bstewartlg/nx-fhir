@@ -50,14 +50,23 @@ export interface ServerOperation {
 }
 
 
-export interface ImplementationGuidePackage {
-  id: string;
-  packageUrl?: string;
+export interface ImplementationGuidesHapiConfig {
+  implementationGuides: { [key: string]: ImplementationGuideHapiConfig };
+}
+
+export interface ImplementationGuideHapiConfig {
   name: string;
+  packageUrl?: string;
   version: string;
   installMode?: 'STORE_ONLY' | 'STORE_AND_INSTALL';
   fetchDependencies?: boolean;
   reloadExisting?: boolean;
+}
+
+export interface ImplementationGuidePackage {
+  implementationGuide: ImplementationGuide;
+  capabilityStatements: CapabilityStatement[];
+  operations: OperationDefinition[];
 }
 
 export interface ServerAssets {

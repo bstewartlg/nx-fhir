@@ -4,7 +4,7 @@
   "license": "MIT",
   "scripts": {
     "build": "nx run-many -t build",
-    "watch:build": "nx run-many -t build --watch",
+    "build:watch": "nx run-many -t build --watch",
     "test": "nx run-many -t test",
     "e2e": "nx run-many -t e2e"
   },
@@ -13,6 +13,7 @@
     "@nx/devkit": "21.3.0",
     "camelcase": "^8.0.0",
     "create-nx-workspace": "21.3.0",
+    "tar": "^7.4.3",
     "unzipper": "^0.12.3",
     "yaml": "^2.8.0"
   },
@@ -31,6 +32,7 @@
     "@swc/helpers": "~0.5.11",
     "@types/fhir": "^0.0.41",
     "@types/node": "18.16.9",
+    "@types/tar": "^6.1.13",
     "@types/unzipper": "^0.10.9",
     "@vitest/coverage-v8": "^3.0.5",
     "@vitest/ui": "^3.0.0",

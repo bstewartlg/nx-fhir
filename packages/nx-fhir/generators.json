@@ -9,6 +9,12 @@
       "factory": "./src/generators/operation/operation",
       "schema": "./src/generators/operation/schema.json",
       "description": "operation generator"
+    },
+    "implementation-guide": {
+      "factory": "./src/generators/implementation-guide/implementation-guide",
+      "schema": "./src/generators/implementation-guide/schema.json",
+      "description": "implementation-guide generator",
+      "aliases": ["ig"]
     }
   }
 }

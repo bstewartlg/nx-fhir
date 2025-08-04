@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/schema",
   "$id": "FhirServer",
   "title": "FHIR Server Generator",
+  "description": "Generates a FHIR server project based on the HAPI FHIR JPA Starter",
   "type": "object",
   "properties": {
     "directory": {

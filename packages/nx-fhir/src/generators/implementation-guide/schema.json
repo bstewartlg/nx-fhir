@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "ImplementationGuide",
+  "title": "Impementation Guide Generator",
+  "description": "Adds support for a FHIR implementation guide to an existing server project.",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Name of the Nx server project to add the implementation guide to"
+    },
+    "id": {
+      "type": "string",
+      "description": "ID of the implementation guide to add"
+    },
+    "igVersion": {
+      "type": "string",
+      "description": "Version of the implementation guide to add"
+    },
+    "package": {
+      "type": "string",
+      "description": "URL or file path to the implementation guide package tgz file"
+    },
+    "install": {
+      "type": "boolean",
+      "description": "Whether to install the conformance resources so they are available from their endpoints, otherwise they are only available to the server internally",
+      "default": true
+    },
+    "skipOps": {
+      "type": "boolean",
+      "description": "Skip adding any operations to the server project",
+      "default": false
+    },
+    "opDirectory": {
+      "type": "string",
+      "description": "Directory to place generated operations (relative to the project root)"
+    }
+  },
+  "required": []
+}

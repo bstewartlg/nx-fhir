@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/schema",
   "$id": "Operation",
-  "title": "",
+  "title": "Operation Generator",
+  "description": "Generates a custom FHIR operation for an existing HAPI FHIR server",
   "type": "object",
   "properties": {
     "project": {
