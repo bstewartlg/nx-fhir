@@ -6,4 +6,6 @@ export interface ImplementationGuideGeneratorSchema {
   install?: boolean;
   skipOps?: boolean;
   opDirectory?: string;
+  skipCs?: boolean;
+  csLocation?: string;
 }

@@ -1,0 +1,52 @@
+package <%= packageBase %>.interceptors;
+
+import java.io.InputStream;
+
+import org.custom.server.common.BaseInterceptor;
+import org.hl7.fhir.instance.model.api.IBaseConformance;
+import org.hl7.fhir.<%= modelPackageVersion %>.model.CapabilityStatement;
+import org.springframework.core.io.DefaultResourceLoader;
+import org.springframework.core.io.Resource;
+import org.springframework.stereotype.Component;
+
+import ca.uhn.fhir.interceptor.api.Hook;
+import ca.uhn.fhir.interceptor.api.Pointcut;
+import ca.uhn.fhir.rest.server.servlet.ServletRequestDetails;
+
+@Component
+public class CapabilityStatementCustomizer extends BaseInterceptor {
+
+  private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(CapabilityStatementCustomizer.class);
+
+  @Hook(Pointcut.SERVER_CAPABILITY_STATEMENT_GENERATED)
+  public IBaseConformance customize(IBaseConformance theCapabilityStatement, ServletRequestDetails theServletRequestDetails) {
+
+    String fileName = "<%= capabilityStatementFileName %>";
+
+    try {
+
+      DefaultResourceLoader resourceLoader = new DefaultResourceLoader();
+      Resource resource = resourceLoader.getResource(fileName);
+      InputStream inputStream = resource.getInputStream();
+
+      CapabilityStatement capabilityStatement = (CapabilityStatement) restfulServer.getFhirContext().newJsonParser().parseResource(inputStream);
+
+      if (!capabilityStatement.getKind().equals(CapabilityStatement.CapabilityStatementKind.INSTANCE)) {
+        capabilityStatement.setKind(CapabilityStatement.CapabilityStatementKind.INSTANCE);
+        capabilityStatement.setImplementation(
+          new CapabilityStatement.CapabilityStatementImplementationComponent()
+            .setDescription("FHIR Server")
+            .setUrl(restfulServer.getServerBaseForRequest(theServletRequestDetails))
+        );
+      }
+
+      return capabilityStatement;
+
+    } catch (Exception e) {
+      logger.error("Failed to load CapabilityStatment with filename " + fileName + ": " + e.getMessage(), e);
+      return null;
+    }
+
+  }
+
+}

@@ -1,4 +1,5 @@
 import {
+  generateFiles,
   getProjects,
   logger,
   ProjectConfiguration,
@@ -13,6 +14,7 @@ import { readFileSync } from 'fs';
 import * as tar from 'tar';
 import { OperationGeneratorSchema } from '../operation/schema';
 import { prompt } from 'enquirer';
+import { CapabilityStatement } from 'fhir/r5';
 
 
 
@@ -191,6 +193,68 @@ export async function implementationGuideGenerator(
 
   } else {
     logger.info('Skipping operations generation as requested.');
+  }
+
+  if (!options.skipCs) {
+
+    let capabilityStatement: CapabilityStatement;
+
+    // If a custom CapabilityStatement location is provided, that overrides any possible file from an IG package
+    if (options.csLocation) {
+      readFileSync(options.csLocation, 'utf-8');
+      capabilityStatement = JSON.parse(readFileSync(options.csLocation, 'utf-8'));
+      logger.info(`Using custom CapabilityStatement from: ${options.csLocation}`);
+    }
+
+    // If we have a package with at least one CapabilityStatement, use it
+    else if (parsedPackage && parsedPackage.capabilityStatements.length > 0) {
+
+      // Only one CapabilityStatement found, use it
+      if (parsedPackage.capabilityStatements.length === 1) {
+        capabilityStatement = parsedPackage.capabilityStatements[0];
+      } 
+      
+      // Multiple CapabilityStatements found, prompt user to select one
+      else {
+        const response = await prompt<{ csId: string }>({
+          type: 'select',
+          name: 'csId',
+          message: 'Multiple CapabilityStatements found. Select one to use:',
+          choices: parsedPackage.capabilityStatements.map((cs) => ({
+            name: `${cs.id}: ${cs.title || cs.name || '(no title or name set)'}`,
+            value: cs.id,
+          })),
+          result(name) {
+            return this.find(name, 'value');
+          }
+        });
+        capabilityStatement = parsedPackage.capabilityStatements.find(cs => cs.id === response.csId);
+      }
+
+      logger.info(`Using CapabilityStatement with ID: ${capabilityStatement.id}`);
+    }
+
+    // Write the CapabilityStatement and customizer if we have one to add
+    if (capabilityStatement) {
+      const capabilityStatementFileName = `CapabilityStatement-${capabilityStatement.id}.json`;
+      tree.write(path.join(serverProjectConfig.root, 'src/main/resources', capabilityStatementFileName), JSON.stringify(capabilityStatement, null, 2));
+
+      const directory = path.join(serverProjectConfig.root, 'src/main/java', serverProjectConfig.packageBase ? serverProjectConfig.packageBase.replace(/\./g, '/') : '', 'interceptors');
+      generateFiles(
+        tree,
+        path.join(__dirname, 'files/custom/interceptors'),
+        directory,
+        {
+          packageBase: serverProjectConfig.packageBase,
+          modelPackageVersion: serverProjectConfig.fhirVersion ? serverProjectConfig.fhirVersion.toLowerCase() : 'r4',
+          capabilityStatementFileName,
+        }
+      );
+    }
+    else {
+      logger.info('No CapabilityStatement found to add to the server project.');
+    }
+
   }
 
 }

@@ -34,6 +34,15 @@
     "opDirectory": {
       "type": "string",
       "description": "Directory to place generated operations (relative to the project root)"
+    },
+    "skipCs": {
+      "type": "boolean",
+      "description": "Skip adding custom capability statement to the server project",
+      "default": false
+    },
+    "csLocation": {
+      "type": "string",
+      "description": "Path to the file for the custom capability statement"
     }
   },
   "required": []
