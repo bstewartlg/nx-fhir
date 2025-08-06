@@ -23,7 +23,6 @@ export function getEmptyHapiOperation(name: string, targetPackage: string): Serv
     className: getClassName(name),
     targetPackage: targetPackage,
     methodName: camelcase(name),
-    modelPackageVersion: "r5",
     inputParameters: [],
     outputType: undefined
   };

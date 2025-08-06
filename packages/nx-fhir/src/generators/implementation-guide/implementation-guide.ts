@@ -8,13 +8,13 @@ import {
 import * as path from 'path';
 import { ImplementationGuideGeneratorSchema } from './schema';
 import { ImplementationGuideHapiConfig, ImplementationGuidePackage, ServerProjectConfiguration } from '../../shared/models';
-import { updateServerYaml } from '../../shared/utils';
+import { promptForServerProject, updateServerYaml } from '../../shared/utils';
 import operationGenerator from '../operation/operation';
 import { readFileSync } from 'fs';
 import * as tar from 'tar';
 import { OperationGeneratorSchema } from '../operation/schema';
-import { prompt } from 'enquirer';
 import { CapabilityStatement } from 'fhir/r5';
+import { checkbox, input, select } from '@inquirer/prompts';
 
 
 
@@ -115,18 +115,49 @@ export async function implementationGuideGenerator(
 ) {
 
   if (!options.project) {
-    throw new Error('Project is required for implementation guide generation.');
+    options.project = await promptForServerProject(tree);
   }
 
   const projects = getProjects(tree);
   const serverProjectConfig = projects.get(options.project) as ServerProjectConfiguration;
 
+  // If a package or ID are not provided, prompt for them with package being first and optional
+  if (!options.package && !options.id) {
+    const choice = await select({
+      message: 'Do you want to provide a FHIR Implementation Guide package or an ID and version?',
+      choices: [
+        { name: 'Provide a package URL or local path', value: 'package' },
+        { name: 'Provide an ID and version', value: 'id' },
+        { name: 'Skip', value: 'skip' },
+      ]
+    });
+
+    if (choice === 'package') {
+      const response = await input({
+        message: 'URL or local path to a FHIR Implementation Guide package (optional):',
+      });
+      options.package = response.trim();
+    } else if (choice === 'id') {
+      options.id = (await input({
+        message: 'Enter the ID for the implementation guide:',
+        required: true,
+      })).trim();
+      
+      options.igVersion = (await input({
+        message: 'Enter the version for the implementation guide:',
+        required: true,
+      })).trim();
+    } else {
+      logger.info('Skipping implementation guide generation');
+      return;
+    }
+
+  }
+
   let parsedPackage: ImplementationGuidePackage;
 
-  logger.info(`options check: ${ options.project && options.id && options.igVersion }`);
-
-  // Project and package provided, so we will attempt to fetch the package to obtain the ID and version
-  if (options.project && options.package) {
+  // Package provided, so we will attempt to fetch the package to obtain the ID and version
+  if (options.package) {
     logger.info(
       `Updating project: ${options.project} with implementation guide package: ${options.package}`
     );
@@ -135,7 +166,7 @@ export async function implementationGuideGenerator(
   }
 
   // If all options are provided we will just trust them and write the changes
-  else if (options.project && options.id && options.igVersion) {
+  else if (options.id && options.igVersion) {
     logger.info(
       `Updating project: ${options.project} with provided implementation guide ID: ${options.id} and version: ${options.igVersion}`
     );
@@ -158,27 +189,40 @@ export async function implementationGuideGenerator(
     }
   }
 
+  else {
+    logger.info(`No package or ID provided, skipping implementation guide generation.`);
+    return;
+  }
+
 
   // Prompt to generate operations if not skipping that
   if (!options.skipOps) {
 
     if (parsedPackage && parsedPackage.operations.length > 0) {
       // Call operations generator if we have operations to add
-      logger.info(`Generating operations for implementation guide: ${options.id}`);
+      logger.info(`Generating operations from package`);
+
+      const answer = await checkbox({
+        message: 'Select operations to generate:',
+        choices: parsedPackage.operations.map((op) => ({
+          name: `${op.name} (${op.id})`,
+          value: op.id,
+        })),
+      });
+      logger.info(`Selected operations: ${JSON.stringify(answer, null, 2)}`);
+
       for (const operation of parsedPackage.operations) {
         logger.info(`Generating operation: ${operation.name}`);
 
+        // Prompt for operations directory here so not prompted for each operation
         if (!options.opDirectory) {
-          const response = await prompt<{ directory: string }>({
-            type: 'input',
-            name: 'directory',
+          const response = await input({
             message: 'Enter the path (relative from src/main/java root) where the operation should be created:',
-            initial: serverProjectConfig.packageBase ? path.join(serverProjectConfig.packageBase.replace(/\./g, '/'), 'providers') : 'providers',
-            validate: (value: string) => value && value.trim().length > 0 ? true : 'Directory is required',
+            default: serverProjectConfig.packageBase ? path.join(serverProjectConfig.packageBase.replace(/\./g, '/'), 'providers') : 'providers',
+            required: true,
           });
-          options.opDirectory = response.directory;
+          options.opDirectory = response.trim();
         }
-
 
         const operationOptions: OperationGeneratorSchema = {
           project: options.project,
@@ -216,22 +260,16 @@ export async function implementationGuideGenerator(
       
       // Multiple CapabilityStatements found, prompt user to select one
       else {
-        const response = await prompt<{ csId: string }>({
-          type: 'select',
-          name: 'csId',
+        capabilityStatement = await select({
           message: 'Multiple CapabilityStatements found. Select one to use:',
-          choices: parsedPackage.capabilityStatements.map((cs) => ({
-            name: `${cs.id}: ${cs.title || cs.name || '(no title or name set)'}`,
-            value: cs.id,
-          })),
-          result(name) {
-            return this.find(name, 'value');
-          }
+          choices: [
+            { name: 'None', value: null },
+            ...parsedPackage.capabilityStatements.map((cs) => ({
+              name: `${cs.id}: ${cs.title || cs.name || '(no title or name set)'}`,
+              value: cs
+            }))],
         });
-        capabilityStatement = parsedPackage.capabilityStatements.find(cs => cs.id === response.csId);
       }
-
-      logger.info(`Using CapabilityStatement with ID: ${capabilityStatement.id}`);
     }
 
     // Write the CapabilityStatement and customizer if we have one to add
@@ -252,7 +290,7 @@ export async function implementationGuideGenerator(
       );
     }
     else {
-      logger.info('No CapabilityStatement found to add to the server project.');
+      logger.info('No CapabilityStatement to add to the server project.');
     }
 
   }

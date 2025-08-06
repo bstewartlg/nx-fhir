@@ -46,7 +46,7 @@ export interface ServerOperation {
   methodName: string;
 
   targetPackage: string;
-  modelPackageVersion: string;
+  modelPackageVersion?: string;
 }
 
 

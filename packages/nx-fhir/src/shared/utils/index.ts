@@ -1,5 +1,5 @@
 import { getProjects, logger, Tree } from "@nx/devkit";
-import { prompt } from 'enquirer';
+import { select } from '@inquirer/prompts';
 import * as path from 'path';
 import { parseDocument } from "yaml";
 
@@ -27,13 +27,10 @@ export async function promptForServerProject(tree: Tree): Promise<string> {
     return serverProjects[0];
   }
 
-  const response = await prompt<{ serverProject: string }>({
-    type: 'select',
-    name: 'serverProject',
+  return (await select({
     message: 'Select a server project to add the operation to:',
     choices: serverProjects,
-  });
-  return response.serverProject;
+  }));
 }
 
 

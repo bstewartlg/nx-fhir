@@ -4,6 +4,7 @@ import { ServerGeneratorSchema } from './schema';
 import { existsSync, mkdirSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { execSync } from 'child_process';
+import { FhirVersion } from '../../shared/models';
 
 describe('server generator e2e test', () => {
   // let tree: Tree;
@@ -11,6 +12,7 @@ describe('server generator e2e test', () => {
     directory: 'server',
     packageBase: 'org.custom.server',
     release: 'image/v8.0.0',
+    fhirVersion: FhirVersion.R4,
   };
   
   let projectDirectory: string;

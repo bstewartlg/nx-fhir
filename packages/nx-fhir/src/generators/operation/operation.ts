@@ -6,7 +6,7 @@ import {
   logger,
   readProjectConfiguration,
 } from '@nx/devkit';
-import { prompt } from 'enquirer';
+import { input } from '@inquirer/prompts';
 import * as path from 'path';
 import camelcase from 'camelcase';
 import { OperationGeneratorSchema } from './schema';
@@ -20,26 +20,16 @@ import { promptForServerProject } from '../../shared/utils';
  * Prompt the user for a canonical URL for the operation definition.
  */
 async function promptForDefinition(): Promise<string> {
-  const response = await prompt<{
-    definition: string;
-  }>({
-    type: 'input',
-    name: 'definition',
+  return (await input({
     message: '(optional) Enter the location of a FHIR OperationDefinition to use. This can be a URL or local file path to a JSON file or official canonical URL:',
-  });
-  return response.definition?.trim();
+  })).trim();
 }
 
 async function promptForOperationName(): Promise<string> {
-  const response = await prompt<{
-    name: string;
-  }>({
-    type: 'input',
-    name: 'name',
+  return (await input({
     message: 'What name would you like to use for the operation?',
-    validate: (value: string) => value && value.trim().length > 0 ? true : 'Name is required',
-  });
-  return response.name;
+    required: true,
+  })).trim();
 }
 
 async function getDefinitionFromLocation(location: string): Promise<string> {
@@ -170,14 +160,11 @@ export async function operationGenerator(
 
   let directory = options.directory;
   if (!directory) {
-    const response = await prompt<{ directory: string }>({
-      type: 'input',
-      name: 'directory',
+    directory = await input({
       message: 'Enter the path (relative from src/main/java root) where the operation should be created:',
-      initial: serverProjectConfig.packageBase ? path.join(serverProjectConfig.packageBase.replace(/\./g, '/'), 'providers') : 'providers',
-      validate: (value: string) => value && value.trim().length > 0 ? true : 'Directory is required',
+      default: serverProjectConfig.packageBase ? path.join(serverProjectConfig.packageBase.replace(/\./g, '/'), 'providers') : 'providers',
+      required: true,
     });
-    directory = response.directory;
   }
 
   const targetPath = path.join(javaSourcePath, directory);

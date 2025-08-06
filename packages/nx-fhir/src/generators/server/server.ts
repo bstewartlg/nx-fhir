@@ -10,6 +10,7 @@ import { ServerGeneratorSchema } from './schema';
 import axios from 'axios';
 import * as unzipper from 'unzipper';
 import { ServerProjectConfiguration } from '../../shared/models';
+import { select } from '@inquirer/prompts';
 
 async function getHapiFhirReleases(): Promise<string[]> {
   try {
@@ -25,13 +26,10 @@ async function getHapiFhirReleases(): Promise<string[]> {
 }
 
 async function promptForRelease(releases: string[]): Promise<string> {
-  const { Select } = require('enquirer');
-  const prompt = new Select({
-    name: 'release',
+  return await select({
     message: 'Select a HAPI FHIR JPA Starter release',
     choices: releases,
   });
-  return prompt.run();
 }
 
 async function downloadAndExtract(
@@ -151,6 +149,7 @@ export async function serverGenerator(
         },
       },
     },
+    tags: ['fhir', 'server'],
     packageBase: options.packageBase,
     fhirVersion: options.fhirVersion,
   };
