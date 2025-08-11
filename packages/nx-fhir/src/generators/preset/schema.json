@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "Preset",
+  "title": "",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "",
+      "$default": {
+        "$source": "argv",
+        "index": 0
+      },
+      "x-prompt": "What name would you like to use?"
+    },
+    "server": {
+      "type": "boolean",
+      "description": "Generate a FHIR server (nx-fhir:server) in the workspace",
+      "x-prompt": "Generate a FHIR server project?",
+      "default": true
+    }
+  },
+  "required": ["name"]
+}

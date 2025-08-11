@@ -15,6 +15,12 @@
       "schema": "./src/generators/implementation-guide/schema.json",
       "description": "implementation-guide generator",
       "aliases": ["ig"]
+    },
+    "preset": {
+      "factory": "./src/generators/preset/generator",
+      "schema": "./src/generators/preset/schema.json",
+      "description": "preset generator",
+      "x-use-standalone-layout": true
     }
   }
 }
