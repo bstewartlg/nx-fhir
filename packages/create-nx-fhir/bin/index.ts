@@ -69,9 +69,10 @@ async function main() {
       name,
       nxCloud: 'skip',
       packageManager: 'npm',
+      ...argv
     });
 
-    console.log(`Successfully created the workspace: ${directory}.`);
+    console.log(`Successfully created the workspace here: ${directory}.`);
   } catch (e: any) {
     console.error(e?.message ?? e);
     process.exit(1);

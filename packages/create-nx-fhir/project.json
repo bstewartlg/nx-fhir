@@ -23,9 +23,13 @@
       }
     },
     "nx-release-publish": {
+      "dependsOn": ["build"],
       "options": {
         "packageRoot": "dist/{projectRoot}"
       }
+    },
+    "unpublish": {
+      "command": "npm unpublish create-nx-fhir@$(node -p \"require('./packages/create-nx-fhir/package.json').version\") --force"
     },
     "lint": {
       "executor": "@nx/eslint:lint"

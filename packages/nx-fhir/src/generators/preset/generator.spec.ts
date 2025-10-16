@@ -3,10 +3,14 @@ import { Tree, readProjectConfiguration } from '@nx/devkit';
 
 import { presetGenerator } from './generator';
 import { PresetGeneratorSchema } from './schema';
+import { FhirVersion } from '../../shared/models';
 
 describe('preset generator', () => {
   let tree: Tree;
-  const options: PresetGeneratorSchema = { name: 'test' };
+  const options: PresetGeneratorSchema = {
+    name: 'test',
+    server: false
+  };
 
   beforeEach(() => {
     tree = createTreeWithEmptyWorkspace();

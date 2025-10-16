@@ -11,14 +11,32 @@
         "$source": "argv",
         "index": 0
       },
-      "x-prompt": "What name would you like to use?"
+      "x-prompt": "What is the name of the workspace to create?",
+      "default": "fhir-app"
     },
     "server": {
       "type": "boolean",
       "description": "Generate a FHIR server (nx-fhir:server) in the workspace",
       "x-prompt": "Generate a FHIR server project?",
       "default": true
+    },
+    "directory": {
+      "type": "string",
+      "description": "The directory to create the server in."
+    },
+    "packageBase": {
+      "type": "string",
+      "description": "The Java package path for custom code."
+    },
+    "release": {
+      "type": "string",
+      "description": "The HAPI FHIR JPA Starter release to use."
+    },
+    "fhirVersion": {
+      "type": "string",
+      "enum": ["STU3", "R4", "R4B", "R5"],
+      "description": "The FHIR version to use for the server."
     }
   },
-  "required": ["name"]
+  "required": ["name", "server"]
 }

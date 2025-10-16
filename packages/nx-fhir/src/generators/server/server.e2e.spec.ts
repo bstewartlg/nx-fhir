@@ -5,6 +5,12 @@ import { existsSync, mkdirSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { execSync } from 'child_process';
 import { FhirVersion } from '../../shared/models';
+import { tmpdir } from 'os';
+
+
+const projectName = `test-project-${crypto.randomUUID()}`;
+const projectDirectory = join(tmpdir(), projectName);
+
 
 describe('server generator e2e test', () => {
   // let tree: Tree;
@@ -14,14 +20,11 @@ describe('server generator e2e test', () => {
     release: 'image/v8.0.0',
     fhirVersion: FhirVersion.R4,
   };
-  
-  let projectDirectory: string;
-
 
   // Ensure the test project directory exists before running tests
   beforeAll(async () => {
     logger.info(`Creating test project directory. CWD: ${process.cwd()}`);
-    projectDirectory = createTestProject();
+    createTestProject();
 
     execSync('npm install -D nx-fhir@e2e', {
       cwd: projectDirectory,
@@ -134,8 +137,6 @@ describe('server generator e2e test', () => {
 
 
 function createTestProject() {
-  const projectName = 'test-project';
-  const projectDirectory = join(process.cwd(), 'tmp', projectName);
 
   rmSync(projectDirectory, { recursive: true, force: true });
   mkdirSync(dirname(projectDirectory), { recursive: true });
