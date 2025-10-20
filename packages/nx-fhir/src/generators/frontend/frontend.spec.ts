@@ -1,24 +1,19 @@
 import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
 import { Tree, readProjectConfiguration } from '@nx/devkit';
 
-import { presetGenerator } from './generator';
-import { PresetGeneratorSchema } from './schema';
-import { FhirVersion } from '../../shared/models';
+import { frontendGenerator } from './frontend';
+import { FrontendGeneratorSchema } from './schema';
 
-describe('preset generator', () => {
+describe('frontend generator', () => {
   let tree: Tree;
-  const options: PresetGeneratorSchema = {
-    name: 'test',
-    server: false,
-    directory: 'fhir-app'
-  };
+  const options: FrontendGeneratorSchema = { name: 'test' };
 
   beforeEach(() => {
     tree = createTreeWithEmptyWorkspace();
   });
 
   it('should run successfully', async () => {
-    await presetGenerator(tree, options);
+    await frontendGenerator(tree, options);
     const config = readProjectConfiguration(tree, 'test');
     expect(config).toBeDefined();
   });

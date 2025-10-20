@@ -133,6 +133,7 @@ export async function serverGenerator(
   const projectConfiguration: ServerProjectConfiguration = {
     root: options.directory,
     projectType: 'application',
+    sourceRoot: `${options.directory}/src`,
     targets: {
       serve: {
         executor: 'nx:run-commands',

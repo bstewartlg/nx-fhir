@@ -4,7 +4,7 @@
   "license": "MIT",
   "scripts": {
     "build": "nx run-many -t build",
-    "build:watch": "nx run-many -t build --watch",
+    "build:watch": "nx run-many -t build && nx watch -initialRun --all -- nx affected -t build",
     "test": "nx run-many -t test",
     "e2e": "nx run-many -t e2e"
   },

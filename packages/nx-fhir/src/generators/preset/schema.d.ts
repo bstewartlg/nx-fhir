@@ -6,7 +6,7 @@ export interface PresetGeneratorSchema extends ServerGeneratorSchema {
   /** Whether to also generate a default FHIR server project. */
   server: boolean;
 
-  directory?: string;
+  serverDirectory?: string;
   packageBase?: string;
   release?: string;
   fhirVersion?: FhirVersion;

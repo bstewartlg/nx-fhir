@@ -21,6 +21,11 @@
       "schema": "./src/generators/preset/schema.json",
       "description": "preset generator",
       "x-use-standalone-layout": true
+    },
+    "frontend": {
+      "factory": "./src/generators/frontend/frontend",
+      "schema": "./src/generators/frontend/schema.json",
+      "description": "frontend generator"
     }
   }
 }

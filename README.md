@@ -35,7 +35,6 @@ To continuously build and locally republish all packages as changes are made (no
 npx nx watch --initialRun --all -- npx nx run-many --nx-bail=false -t unpublish,nx-release-publish -- --registry http://localhost:4873
 ```
 
-
 ### Continuous Development
 
 Make `nx-fhir` generators available on local system:

@@ -24,6 +24,12 @@
           {
             "input": "./packages/nx-fhir/src",
             "glob": "**/!(*.ts)",
+            "ignore": ["**/files/**"],
+            "output": "./src"
+          },
+          {
+            "input": "./packages/nx-fhir/src",
+            "glob": "**/files/**/*",
             "output": "./src"
           },
           {

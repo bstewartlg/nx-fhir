@@ -55,7 +55,6 @@ describe('implementation-guide generator', () => {
     expect(igPackagesBefore['initialguide'].install).toBe('STORE_ONLY');
     expect(Object.keys(igPackagesBefore)).toHaveLength(1);
 
-    console.log('options:', options);
     await implementationGuideGenerator(tree, options);
     const serverConfigAfter = parseDocument(tree.read('test-project/src/main/resources/application.yaml', 'utf-8') || '');
     const igPackagesAfter = serverConfigAfter.toJSON().hapi.fhir.implementationguides;

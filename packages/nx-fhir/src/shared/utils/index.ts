@@ -90,3 +90,19 @@ export function updateServerYaml(projectRoot: string, tree: Tree, property: stri
   tree.write(configPath, serverConfigDoc.toString());
 
 }
+
+
+export function removeServerYamlProperty(projectRoot: string, tree: Tree, property: string) {
+
+  const configPath = path.join(projectRoot, 'src/main/resources/application.yaml');
+  const configFile = tree.read(configPath, 'utf-8');
+  
+  if (!configFile) {
+    throw new Error(`Configuration file not found at ${configPath}`);
+  }
+
+  const serverConfigDoc = parseDocument(configFile);
+  serverConfigDoc.deleteIn(property.split('.'));
+  tree.write(configPath, serverConfigDoc.toString());
+
+}
