@@ -24,9 +24,6 @@ export async function frontendGenerator(
 ) {
   const projectRoot = `${options.name}`;
 
-  const projs = getProjects(tree);
-  console.log('Existing projects in workspace:');
-
   // Ensure project root does not already exist
   if (tree.exists(projectRoot)) {
     console.error(`Directory '${projectRoot}' already exists. Aborting.`);
@@ -34,7 +31,8 @@ export async function frontendGenerator(
   }
 
   // Run Next.js generator to bootstrap the frontend. Pegging the version to 15.x currently.
-  execSync(`npx --yes create-next-app@15 ${projectRoot} --eslint --yes`, {
+  console.log('Running:', `npx --yes create-next-app@15 ${projectRoot} --ts --app --tailwind --turbopack --src-dir --eslint --yes`);
+  execSync(`npx --yes create-next-app@15 ${projectRoot} --ts --app --tailwind --turbopack --src-dir --eslint --yes`, {
     stdio: 'inherit',
     cwd: tree.root,
   });
