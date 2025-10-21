@@ -195,10 +195,11 @@ async function integrateFrontendWithServer(
     dependsOn: ['build'],
     options: {
       commands: [
-        `npx rimraf ${serverProject.name}/src/main/resources/static/*`,
-        `npx cpy '${frontendProject.name}/out/**' ${serverProject.name}/src/main/resources/static --parents --cwd=.`,
+        `rimraf ../${serverProject.root}/src/main/resources/static/*`,
+        `cpy 'out/**' ../${serverProject.root}/src/main/resources/static --cwd=.`,
       ],
       parallel: false,
+      cwd: frontendProject.root,
     },
   };
   updateProjectConfiguration(tree, options.name, frontendProject);

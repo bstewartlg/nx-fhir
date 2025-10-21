@@ -11,6 +11,7 @@ import axios from 'axios';
 import * as unzipper from 'unzipper';
 import { ServerProjectConfiguration } from '../../shared/models';
 import { select } from '@inquirer/prompts';
+import { updateServerYaml } from '../../shared/utils';
 
 async function getHapiFhirReleases(): Promise<string[]> {
   try {
@@ -159,6 +160,8 @@ export async function serverGenerator(
   await downloadAndExtract(tree, release, options.directory);
   createHapiFiles(tree, options.directory, options.packageBase);
   createCustomSourceFiles(tree, options.directory, options.packageBase);
+
+  updateServerYaml(projectConfiguration.root, tree, `hapi.fhir.fhir_version`, options.fhirVersion);
 
   await formatFiles(tree);
 }
