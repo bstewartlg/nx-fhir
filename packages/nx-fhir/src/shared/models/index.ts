@@ -76,4 +76,5 @@ export interface ServerAssets {
 export interface ServerProjectConfiguration extends ProjectConfiguration {
   packageBase: string;
   fhirVersion: FhirVersion;
+  hapiReleaseVersion: string;
 }

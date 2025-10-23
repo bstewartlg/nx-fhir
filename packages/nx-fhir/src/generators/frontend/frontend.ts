@@ -1,12 +1,10 @@
 import {
-  addDependenciesToPackageJson,
   addProjectConfiguration,
   formatFiles,
   generateFiles,
   getProjects,
   ProjectConfiguration,
   readJson,
-  readProjectConfiguration,
   Tree,
   updateProjectConfiguration,
   writeJson,
@@ -16,7 +14,7 @@ import { execSync } from 'child_process';
 import { select } from '@inquirer/prompts';
 import path = require('path');
 import { ServerProjectConfiguration } from '../../shared/models';
-import { removeServerYamlProperty, updateServerYaml } from '../../shared/utils';
+import { removeServerYamlProperty } from '../../shared/utils';
 
 export async function frontendGenerator(
   tree: Tree,
@@ -30,12 +28,22 @@ export async function frontendGenerator(
     return;
   }
 
-  // Run Next.js generator to bootstrap the frontend. Pegging the version to 15.x currently.
-  console.log('Running:', `npx --yes create-next-app@15 ${projectRoot} --ts --app --tailwind --turbopack --src-dir --eslint --yes`);
-  execSync(`npx --yes create-next-app@15 ${projectRoot} --ts --app --tailwind --turbopack --src-dir --eslint --yes`, {
-    stdio: 'inherit',
-    cwd: tree.root,
-  });
+  const isDryRun = process.argv.includes('--dry-run');
+
+  // Run Next.js generator to bootstrap the frontend. Pinning the version to 15.x currently until MUI supports 16: https://github.com/mui/material-ui/issues/47109
+  const generateCommand = `npx --yes create-next-app@15 ${projectRoot} --ts --app --tailwind --turbopack --src-dir --eslint --yes`;
+
+  if (isDryRun) {
+    console.log('[Dry Run] Would execute:', generateCommand);
+    // Simulate creation of project directory
+    tree.write(`${projectRoot}/package.json`, '{}');
+  } else {
+    console.log('Running:', generateCommand);
+    execSync(generateCommand, {
+      stdio: 'inherit',
+      cwd: tree.root,
+    });
+  }
 
   // Additional dependencies our custom frontend uses
   const frontendPackageJson = readJson(tree, `${projectRoot}/package.json`);
@@ -52,8 +60,22 @@ export async function frontendGenerator(
   };
   frontendPackageJson.devDependencies = {
     ...frontendPackageJson.devDependencies,
+    '@testing-library/dom': '^10.4.1',
+    '@testing-library/react': '^16.3.0',
     '@types/fhir': '^0.0.41',
+    '@vitejs/plugin-react': '^5.0.4',
+    jsdom: '^27.0.1',
+    'vite-tsconfig-paths': '^5.1.4',
+    vitest: '^4.0.2',
   };
+
+  // Add test script to package.json
+  frontendPackageJson.scripts = {
+    ...frontendPackageJson.scripts,
+    test: 'vitest',
+  };
+
+  // Write the updated package.json
   writeJson(tree, `${projectRoot}/package.json`, frontendPackageJson);
 
   // Clear out the /public directory
@@ -66,24 +88,7 @@ export async function frontendGenerator(
     root: projectRoot,
     projectType: 'application',
     sourceRoot: `${projectRoot}/src`,
-    targets: {
-      start: {
-        executor: 'nx:run-commands',
-        options: {
-          command: 'npm run dev',
-          cwd: `${projectRoot}`,
-        },
-      },
-      build: {
-        executor: 'nx:run-commands',
-        options: {
-          command: 'npm run build',
-          cwd: `${projectRoot}`,
-        },
-        outputs: [`{workspaceRoot}/${projectRoot}/out`],
-      },
-    },
-    tags: ['fhir', 'frontend', 'client'],
+    tags: ['nx-fhir-frontend', 'fhir', 'frontend', 'client'],
   };
   addProjectConfiguration(tree, options.name, projectConfig);
 
@@ -190,6 +195,9 @@ async function integrateFrontendWithServer(
   writeJson(tree, `${frontendProject.root}/package.json`, frontendPackageJson);
 
   // Add copy-to-server target to frontend project
+  if (!frontendProject.targets) {
+    frontendProject.targets = {};
+  }
   frontendProject.targets['copy-to-server'] = {
     executor: 'nx:run-commands',
     dependsOn: ['build'],
@@ -210,12 +218,14 @@ async function integrateFrontendWithServer(
     tree.write(`${staticResourcesDir}/.gitkeep`, '');
   }
 
-
   // Generate Java and Docker files
   generateFiles(
     tree,
     path.join(__dirname, 'files/server'),
-    path.join(serverProject.root, `src/main/java/${serverProject.packageBase.replace(/\./g, '/')}`),
+    path.join(
+      serverProject.root,
+      `src/main/java/${serverProject.packageBase.replace(/\./g, '/')}`
+    ),
     { packageBase: serverProject.packageBase }
   );
   generateFiles(
@@ -230,15 +240,10 @@ async function integrateFrontendWithServer(
 
   // Modify the existing application.yaml to remove the hapi.fhir.tester section.
   // This will prevent Thymeleaf from overriding serving from resources/static by default.
-  removeServerYamlProperty(
-    serverProject.root,
-    tree,
-    'hapi.fhir.tester'
-  );
+  removeServerYamlProperty(serverProject.root, tree, 'hapi.fhir.tester');
 
   console.log(
     `Frontend project '${frontendProject.root}' integrated with server project '${serverProject.root}'.`
   );
-
 }
 export default frontendGenerator;

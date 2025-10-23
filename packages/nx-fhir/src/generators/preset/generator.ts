@@ -1,4 +1,4 @@
-import { addDependenciesToPackageJson, addProjectConfiguration, formatFiles, ProjectConfiguration, removeDependenciesFromPackageJson, Tree, updateProjectConfiguration } from '@nx/devkit';
+import { addDependenciesToPackageJson, addProjectConfiguration, formatFiles, ProjectConfiguration, readNxJson, removeDependenciesFromPackageJson, Tree, updateNxJson, updateProjectConfiguration } from '@nx/devkit';
 import { PresetGeneratorSchema } from './schema';
 import { serverGenerator } from '../server/server';
 import { FhirVersion } from '../../shared/models';
@@ -9,32 +9,27 @@ export async function presetGenerator(
   tree: Tree,
   options: PresetGeneratorSchema
 ) {
-  const projectRoot = ``;
-  // const projectConfig: ProjectConfiguration = {
-  //   root: projectRoot,
-  //   projectType: 'application',
-  //   targets: {
-  //     start: {
-  //       executor: 'nx:run-commands',
-  //       options: {
-  //         commands: [],
-  //         parallel: true,
-  //       },
-  //     },
-  //     build: {
-  //       executor: 'nx:run-commands',
-  //       options: {
-  //         commands: [],
-  //         parallel: false,
-  //       },
-  //     },
-  //   },
-  // };
-  // addProjectConfiguration(tree, options.name, projectConfig);
-  // removeDependenciesFromPackageJson(tree, ["nx-fhir"], []);
-  // addDependenciesToPackageJson(tree, {}, { "nx-fhir": require('../../../package.json').version });
+  
+  const nxJson = readNxJson(tree);
+  if (!nxJson) {
+    throw new Error('nx.json not found');
+  }
 
-  await formatFiles(tree);
+  if (!nxJson.plugins) {
+    nxJson.plugins = [];
+  }
+
+  // Check if nx-fhir plugin is already registered
+  const pluginName = 'nx-fhir';
+  const isPluginRegistered = nxJson.plugins.some(plugin => 
+    typeof plugin === 'string' ? plugin === pluginName : plugin.plugin === pluginName
+  );
+
+  // Add the plugin if it's not already registered
+  if (!isPluginRegistered) {
+    nxJson.plugins.push(pluginName);
+    updateNxJson(tree, nxJson);
+  }
 
   // Generate the server project if requested
   if (options.server) {
@@ -75,10 +70,8 @@ export async function presetGenerator(
     } as ServerGeneratorSchema);
 
 
-    // update the start and build commands to include server commands
-    // projectConfig.targets.start.options.commands.push(`nx start ${options.serverDirectory}`);
-    // projectConfig.targets.build.options.commands.push(`cd ${options.serverDirectory} && mvn clean package`);
-    // updateProjectConfiguration(tree, options.name, projectConfig);
+    await formatFiles(tree);
+    
   }
 }
 

@@ -10,6 +10,7 @@ describe('frontend generator', () => {
 
   beforeEach(() => {
     tree = createTreeWithEmptyWorkspace();
+    process.argv.push('--dry-run'); // Ensure dry-run mode for tests
   });
 
   it('should run successfully', async () => {

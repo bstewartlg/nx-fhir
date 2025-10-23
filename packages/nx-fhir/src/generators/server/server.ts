@@ -124,8 +124,8 @@ export async function serverGenerator(
   tree: Tree,
   options: ServerGeneratorSchema
 ) {
-  const release =
-    options.release ?? (await promptForRelease(await getHapiFhirReleases()));
+  const release = options.release ?? (await promptForRelease(await getHapiFhirReleases()));
+  const isDryRun = process.argv.includes('--dry-run');
 
   logger.info(`Using HAPI JPA starter release: ${release}`);
 
@@ -135,29 +135,19 @@ export async function serverGenerator(
     root: options.directory,
     projectType: 'application',
     sourceRoot: `${options.directory}/src`,
-    targets: {
-      serve: {
-        executor: 'nx:run-commands',
-        options: {
-          command: 'mvn spring-boot:run',
-          cwd: options.directory,
-        },
-      },
-      start: {
-        executor: 'nx:run-commands',
-        options: {
-          command: 'mvn spring-boot:run',
-          cwd: options.directory,
-        },
-      },
-    },
-    tags: ['fhir', 'server'],
+    tags: ['nx-fhir-server', 'fhir', 'server'],
     packageBase: options.packageBase,
     fhirVersion: options.fhirVersion,
+    hapiReleaseVersion: release,
   };
   addProjectConfiguration(tree, projectName, projectConfiguration);
 
-  await downloadAndExtract(tree, release, options.directory);
+  if (isDryRun) {
+    logger.info('Dry-run mode enabled; skipping download and extraction of HAPI FHIR JPA Starter.');
+    tree.write(`${options.directory}/src/main/resources/application.yaml`, 'hapi.fhir.fhir_version: ' + options.fhirVersion);
+  } else {
+    await downloadAndExtract(tree, release, options.directory);
+  }
   createHapiFiles(tree, options.directory, options.packageBase);
   createCustomSourceFiles(tree, options.directory, options.packageBase);
 

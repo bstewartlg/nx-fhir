@@ -7,19 +7,42 @@ import { FhirVersion } from '../../shared/models';
 
 describe('preset generator', () => {
   let tree: Tree;
-  const options: PresetGeneratorSchema = {
-    name: 'test',
-    server: false,
-    directory: 'fhir-app'
-  };
 
   beforeEach(() => {
     tree = createTreeWithEmptyWorkspace();
+    process.argv.push('--dry-run'); // Ensure dry-run mode for tests
   });
 
-  it('should run successfully', async () => {
+  it('should run successfully without server', async () => {
+    const options: PresetGeneratorSchema = {
+      name: 'test',
+      server: false,
+      directory: 'fhir-app'
+    };
+    
     await presetGenerator(tree, options);
-    const config = readProjectConfiguration(tree, 'test');
+    
+    // Check that workspace configuration exists
+    expect(tree.exists('nx.json')).toBe(true);
+  });
+
+  it('should create server project when server option is true', async () => {
+    const options: PresetGeneratorSchema = {
+      name: 'test',
+      server: true,
+      directory: 'fhir-app',
+      serverDirectory: 'server',
+      packageBase: 'org.test.server',
+      fhirVersion: FhirVersion.R4,
+      release: 'image/v7.4.0'
+    };
+    
+    await presetGenerator(tree, options);
+    
+    // The server generator creates a project with name based on the directory basename
+    const config = readProjectConfiguration(tree, 'server');
     expect(config).toBeDefined();
+    expect(config.root).toBe('server');
+    expect(config.tags).toContain('nx-fhir-server');
   });
 });

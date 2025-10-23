@@ -9,11 +9,11 @@ import { tmpdir } from 'os';
 
 
 const projectName = `test-project-${crypto.randomUUID()}`;
-const projectDirectory = join(tmpdir(), projectName);
+// const projectDirectory = join(tmpdir(), projectName);
+const projectDirectory = join('tmp', projectName);
 
 
 describe('server generator e2e test', () => {
-  // let tree: Tree;
   const options: ServerGeneratorSchema = {
     directory: 'server',
     packageBase: 'org.custom.server',
@@ -36,7 +36,7 @@ describe('server generator e2e test', () => {
 
   // Clean up the test project directory after all tests
   afterAll(() => {
-    rmSync(projectDirectory, { recursive: true, force: true });
+    // rmSync(projectDirectory, { recursive: true, force: true });
     logger.info(`Cleaned up test project directory: ${projectDirectory}`);
   });
 
@@ -75,9 +75,9 @@ describe('server generator e2e test', () => {
 
   // Start the server and query the /fhir/metadata endpoint
   it('should start the generated server successfully and provide /fhir/metadata', async () => {
-    logger.info('Starting the server with command: npx nx start server');
+    logger.info('Starting the server with command: npx nx serve server');
     const { spawn } = await import('child_process');
-    const serverProcess = spawn('npx', ['nx', 'start', 'server'], {
+    const serverProcess = spawn('npx', ['nx', 'serve', 'server'], {
       cwd: projectDirectory,
       shell: true
     });
@@ -89,6 +89,7 @@ describe('server generator e2e test', () => {
       serverProcess.stdout?.on('data', (data: Buffer) => {
         const chunk = data.toString();
         output += chunk;
+        console.log(chunk);
         if (chunk.includes('Started Application in')) {
           logger.info(`Found server start message: ${chunk}`);
           resolve();
@@ -141,7 +142,7 @@ function createTestProject() {
   rmSync(projectDirectory, { recursive: true, force: true });
   mkdirSync(dirname(projectDirectory), { recursive: true });
 
-  execSync(`npx --yes create-nx-workspace@latest ${projectName} --preset apps --nxCloud=skip --no-interactive`, {
+  execSync(`npx --yes create-nx-workspace@latest ${projectName} --preset apps --nxCloud=skip --no-interactive --skip-git`, {
     cwd: dirname(projectDirectory),
     stdio: 'inherit',
     env: process.env
