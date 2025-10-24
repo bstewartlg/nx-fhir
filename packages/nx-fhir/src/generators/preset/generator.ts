@@ -4,32 +4,14 @@ import { serverGenerator } from '../server/server';
 import { FhirVersion } from '../../shared/models';
 import { ServerGeneratorSchema } from '../server/schema';
 import { confirm, input, select } from '@inquirer/prompts';
+import { registerNxPlugin } from '../../shared/utils';
 
 export async function presetGenerator(
   tree: Tree,
   options: PresetGeneratorSchema
 ) {
   
-  const nxJson = readNxJson(tree);
-  if (!nxJson) {
-    throw new Error('nx.json not found');
-  }
-
-  if (!nxJson.plugins) {
-    nxJson.plugins = [];
-  }
-
-  // Check if nx-fhir plugin is already registered
-  const pluginName = 'nx-fhir';
-  const isPluginRegistered = nxJson.plugins.some(plugin => 
-    typeof plugin === 'string' ? plugin === pluginName : plugin.plugin === pluginName
-  );
-
-  // Add the plugin if it's not already registered
-  if (!isPluginRegistered) {
-    nxJson.plugins.push(pluginName);
-    updateNxJson(tree, nxJson);
-  }
+  registerNxPlugin(tree);
 
   // Generate the server project if requested
   if (options.server) {

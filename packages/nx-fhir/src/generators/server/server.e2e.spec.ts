@@ -9,8 +9,7 @@ import { tmpdir } from 'os';
 
 
 const projectName = `test-project-${crypto.randomUUID()}`;
-// const projectDirectory = join(tmpdir(), projectName);
-const projectDirectory = join('tmp', projectName);
+const projectDirectory = join(tmpdir(), projectName);
 
 
 describe('server generator e2e test', () => {
@@ -36,7 +35,7 @@ describe('server generator e2e test', () => {
 
   // Clean up the test project directory after all tests
   afterAll(() => {
-    // rmSync(projectDirectory, { recursive: true, force: true });
+    rmSync(projectDirectory, { recursive: true, force: true });
     logger.info(`Cleaned up test project directory: ${projectDirectory}`);
   });
 
@@ -71,15 +70,30 @@ describe('server generator e2e test', () => {
       expect(filePath).toBeTruthy();
       expect(existsSync(filePath)).toBe(true);
     });
-  })
+  });
+
+  it ('should verify server project can be found in workspace', async () => {
+
+    let result = execSync('npx nx reset', {
+      cwd: projectDirectory,
+      env: process.env
+    }).toString();
+    
+    // run nx show projects and verify server is listed
+    result = execSync('npx nx show projects', {
+      cwd: projectDirectory,
+      env: process.env
+    }).toString();
+    expect(result).toContain('server');
+  }, 60000);
 
   // Start the server and query the /fhir/metadata endpoint
   it('should start the generated server successfully and provide /fhir/metadata', async () => {
-    logger.info('Starting the server with command: npx nx serve server');
+    logger.info(`Starting the server with command: npx nx serve server in ${projectDirectory}`);
     const { spawn } = await import('child_process');
     const serverProcess = spawn('npx', ['nx', 'serve', 'server'], {
       cwd: projectDirectory,
-      shell: true
+      // shell: true
     });
 
     let output = '';
@@ -89,7 +103,6 @@ describe('server generator e2e test', () => {
       serverProcess.stdout?.on('data', (data: Buffer) => {
         const chunk = data.toString();
         output += chunk;
-        console.log(chunk);
         if (chunk.includes('Started Application in')) {
           logger.info(`Found server start message: ${chunk}`);
           resolve();

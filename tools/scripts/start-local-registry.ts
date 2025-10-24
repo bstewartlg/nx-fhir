@@ -10,7 +10,7 @@ export default async function globalSetup() {
   const localRegistryTarget = '@nx-fhir/source:local-registry';
 
   // Start the local registry using nx run
-  const registryProcess = spawn('nx', ['run', localRegistryTarget], {
+  const registryProcess = spawn('npx', ['nx', 'run', localRegistryTarget], {
     stdio: 'inherit',
     shell: true,
     env: process.env

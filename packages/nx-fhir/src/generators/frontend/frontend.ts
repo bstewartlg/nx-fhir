@@ -14,7 +14,7 @@ import { execSync } from 'child_process';
 import { select } from '@inquirer/prompts';
 import path = require('path');
 import { ServerProjectConfiguration } from '../../shared/models';
-import { removeServerYamlProperty } from '../../shared/utils';
+import { registerNxPlugin, removeServerYamlProperty } from '../../shared/utils';
 
 export async function frontendGenerator(
   tree: Tree,
@@ -103,6 +103,9 @@ export async function frontendGenerator(
 
   // Perform possible integration with a server project
   await integrateFrontendWithServer(tree, projectConfig, options);
+
+  // Ensure nx-fhir plugin is registered
+  registerNxPlugin(tree);
 
   // Format all the files that were created
   await formatFiles(tree);

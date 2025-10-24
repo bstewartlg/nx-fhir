@@ -1,7 +1,31 @@
-import { getProjects, logger, Tree } from "@nx/devkit";
+import { getProjects, logger, readNxJson, Tree, updateNxJson } from "@nx/devkit";
 import { select } from '@inquirer/prompts';
 import * as path from 'path';
 import { parseDocument } from "yaml";
+
+
+export async function registerNxPlugin(tree: Tree) {
+  const nxJson = readNxJson(tree);
+  if (!nxJson) {
+    throw new Error('nx.json not found');
+  }
+
+  if (!nxJson.plugins) {
+    nxJson.plugins = [];
+  }
+
+  // Check if nx-fhir plugin is already registered
+  const pluginName = 'nx-fhir';
+  const isPluginRegistered = nxJson.plugins.some(plugin => 
+    typeof plugin === 'string' ? plugin === pluginName : plugin.plugin === pluginName
+  );
+
+  // Add the plugin if it's not already registered
+  if (!isPluginRegistered) {
+    nxJson.plugins.push(pluginName);
+    updateNxJson(tree, nxJson);
+  }
+}
 
 export async function getServerProjects(tree: Tree): Promise<string[]> {
   const projects = getProjects(tree);
