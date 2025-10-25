@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "version": 2,
+  "title": "Test FHIR Project",
+  "description": "Run tests for a FHIR server or frontend project",
+  "type": "object",
+  "properties": {
+    "coverage": {
+      "type": "boolean",
+      "description": "Generate code coverage report",
+      "default": false
+    },
+    "watch": {
+      "type": "boolean",
+      "description": "Watch for changes and rerun tests",
+      "default": false
+    },
+    "testFile": {
+      "type": "string",
+      "description": "Run a specific test file"
+    }
+  }
+}

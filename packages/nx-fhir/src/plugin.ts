@@ -93,31 +93,41 @@ function createServerProjectNodes(projectRoot: string, projectJson: any) {
   // Add Maven-based targets if they don't already exist
   if (!projectJson.targets?.build) {
     targets.build = {
-      executor: 'nx:run-commands',
+      executor: 'nx-fhir:build',
+      cache: true,
+      inputs: [
+        'default',
+        '^production',
+        '{projectRoot}/pom.xml',
+        '{projectRoot}/src/**/*.java'
+      ],
+      outputs: ['{projectRoot}/target'],
       options: {
-        command: 'mvn clean package',
-        cwd: projectRoot,
+        production: true,
+        skipTests: false,
       },
     };
   }
 
   if (!projectJson.targets?.test) {
     targets.test = {
-      executor: 'nx:run-commands',
-      options: {
-        command: 'mvn test',
-        cwd: projectRoot,
-      },
+      executor: 'nx-fhir:test',
+      cache: true,
+      inputs: [
+        'default',
+        '^production',
+        '{projectRoot}/pom.xml',
+        '{projectRoot}/src/**/*.java'
+      ],
+      outputs: ['{projectRoot}/target/surefire-reports'],
+      options: {},
     };
   }
 
   if (!projectJson.targets?.serve) {
     targets.serve = {
-      executor: 'nx:run-commands',
-      options: {
-        command: 'mvn spring-boot:run',
-        cwd: projectRoot,
-      },
+      executor: 'nx-fhir:serve',
+      options: {},
     };
   }
 
@@ -138,6 +148,10 @@ function createServerProjectNodes(projectRoot: string, projectJson: any) {
       [projectRoot]: {
         targets,
         tags,
+        metadata: {
+          description: 'HAPI FHIR based server application',
+          technologies: ['hapi', 'java', 'spring-boot', 'fhir']
+        }
       },
     },
   };
@@ -154,30 +168,42 @@ function createFrontendProjectNodes(projectRoot: string, projectJson: any) {
   // Add frontend build target if it doesn't already exist
   if (!projectJson.targets?.build) {
     targets.build = {
-      executor: 'nx:run-commands',
+      executor: 'nx-fhir:build',
+      cache: true,
+      inputs: [
+        'production',
+        '^production',
+        '{projectRoot}/package.json',
+        '{projectRoot}/next.config.js',
+        '{projectRoot}/tsconfig.json'
+      ],
+      outputs: ['{projectRoot}/out', '{projectRoot}/.next'],
       options: {
-        command: 'npm run build',
-        cwd: projectRoot,
+        production: true,
       },
     };
   }
 
   if (!projectJson.targets?.test) {
     targets.test = {
-      executor: 'nx:run-commands',
-      options: {
-        command: 'npm test',
-        cwd: projectRoot,
-      },
+      executor: 'nx-fhir:test',
+      cache: true,
+      inputs: [
+        'default',
+        '^production',
+        '{projectRoot}/package.json',
+        '{projectRoot}/jest.config.js',
+        '{projectRoot}/vitest.config.ts'
+      ],
+      options: {},
     };
   }
 
   if (!projectJson.targets?.serve) {
     targets.serve = {
-      executor: 'nx:run-commands',
+      executor: 'nx-fhir:serve',
       options: {
-        command: 'npm run dev',
-        cwd: projectRoot,
+        port: 3000,
       },
     };
   }
@@ -199,6 +225,10 @@ function createFrontendProjectNodes(projectRoot: string, projectJson: any) {
       [projectRoot]: {
         targets,
         tags,
+        metadata: {
+          description: 'Next.js based FHIR client application',
+          technologies: ['nextjs', 'react', 'typescript', 'fhir']
+        }
       },
     },
   };

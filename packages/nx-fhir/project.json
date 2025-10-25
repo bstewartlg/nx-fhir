@@ -46,6 +46,11 @@
             "input": "./packages/nx-fhir",
             "glob": "executors.json",
             "output": "."
+          },
+          {
+            "input": "./packages/nx-fhir",
+            "glob": "migrations.json",
+            "output": "."
           }
         ]
       }

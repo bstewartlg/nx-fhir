@@ -3,6 +3,7 @@ import {
   formatFiles,
   generateFiles,
   getProjects,
+  logger,
   ProjectConfiguration,
   readJson,
   Tree,
@@ -24,7 +25,7 @@ export async function frontendGenerator(
 
   // Ensure project root does not already exist
   if (tree.exists(projectRoot)) {
-    console.error(`Directory '${projectRoot}' already exists. Aborting.`);
+    logger.error(`Directory '${projectRoot}' already exists. Aborting.`);
     return;
   }
 
@@ -34,11 +35,11 @@ export async function frontendGenerator(
   const generateCommand = `npx --yes create-next-app@15 ${projectRoot} --ts --app --tailwind --turbopack --src-dir --eslint --yes`;
 
   if (isDryRun) {
-    console.log('[Dry Run] Would execute:', generateCommand);
+    logger.info(`[Dry Run] Would execute: ${generateCommand}`);
     // Simulate creation of project directory
     tree.write(`${projectRoot}/package.json`, '{}');
   } else {
-    console.log('Running:', generateCommand);
+    logger.info(`Running: ${generateCommand}`);
     execSync(generateCommand, {
       stdio: 'inherit',
       cwd: tree.root,
@@ -63,7 +64,8 @@ export async function frontendGenerator(
     '@testing-library/dom': '^10.4.1',
     '@testing-library/react': '^16.3.0',
     '@types/fhir': '^0.0.41',
-    '@vitejs/plugin-react': '^5.0.4',
+    '@vitejs/plugin-react': '^5.1.0',
+    '@vitest/coverage-v8': '^4.0.3',
     jsdom: '^27.0.1',
     'vite-tsconfig-paths': '^5.1.4',
     vitest: '^4.0.2',
@@ -99,7 +101,7 @@ export async function frontendGenerator(
     options
   );
 
-  console.log(`Frontend project '${options.name}' has been created.`);
+  logger.info(`Frontend project '${options.name}' has been created.`);
 
   // Perform possible integration with a server project
   await integrateFrontendWithServer(tree, projectConfig, options);
@@ -112,7 +114,7 @@ export async function frontendGenerator(
 
   // Re-run npm install after generating files to get all of the new dependencies
   return () => {
-    console.log(`Installing additional dependencies for '${options.name}'...`);
+    logger.info(`Installing additional dependencies for '${options.name}'...`);
     execSync(`npm install`, {
       stdio: 'inherit',
       cwd: `${tree.root}/${projectRoot}`,
@@ -156,16 +158,16 @@ async function integrateFrontendWithServer(
           options.server = selectedServer;
         }
       } else {
-        console.log('No FHIR server projects found in the workspace.');
+        logger.info('No FHIR server projects found in the workspace.');
       }
     } catch (error) {
-      console.error('Error selecting server project:', error);
+      logger.error(`Error selecting server project: ${error}`);
     }
   }
 
   // Still not server to integrate with, nothing more to do
   if (!options.server) {
-    console.log(
+    logger.info(
       'No server project selected for integration. Skipping integration step.'
     );
     return;
@@ -176,11 +178,11 @@ async function integrateFrontendWithServer(
   ) as ServerProjectConfiguration;
 
   if (!serverProject) {
-    console.error(`Server project '${options.server}' not found.`);
+    logger.error(`Server project '${options.server}' not found.`);
     return;
   }
 
-  console.log(
+  logger.info(
     `Integrating frontend with server project in ${serverProject.root}`
   );
 
@@ -245,7 +247,7 @@ async function integrateFrontendWithServer(
   // This will prevent Thymeleaf from overriding serving from resources/static by default.
   removeServerYamlProperty(serverProject.root, tree, 'hapi.fhir.tester');
 
-  console.log(
+  logger.info(
     `Frontend project '${frontendProject.root}' integrated with server project '${serverProject.root}'.`
   );
 }

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "version": 2,
+  "title": "Build FHIR Project",
+  "description": "Build a FHIR server or frontend project",
+  "type": "object",
+  "properties": {
+    "outputPath": {
+      "type": "string",
+      "description": "Output path for the build (frontend only)"
+    },
+    "production": {
+      "type": "boolean",
+      "description": "Build for production",
+      "default": false
+    },
+    "skipTests": {
+      "type": "boolean",
+      "description": "Skip running tests (server only)",
+      "default": false
+    },
+    "clean": {
+      "type": "boolean",
+      "description": "Clean before building",
+      "default": true
+    }
+  }
+}

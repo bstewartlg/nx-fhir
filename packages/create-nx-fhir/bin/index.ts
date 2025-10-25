@@ -4,6 +4,7 @@ import { createWorkspace } from 'create-nx-workspace';
 import { input } from '@inquirer/prompts';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import { logger } from '@nx/devkit';
 
 interface CliArgs {
   directory?: string;
@@ -60,7 +61,7 @@ async function resolveDirectory(): Promise<string> {
 async function main() {
   try {
     const name = await resolveDirectory();
-    console.log(`Creating the workspace: ${name}`);
+    logger.info(`Creating the workspace: ${name}`);
 
     // This assumes "nx-fhir" and "create-nx-fhir" are at the same version
     const presetVersion = require('../package.json').version;
@@ -72,9 +73,9 @@ async function main() {
       ...argv
     });
 
-    console.log(`Successfully created the workspace here: ${directory}.`);
+    logger.info(`Successfully created the workspace here: ${directory}.`);
   } catch (e: any) {
-    console.error(e?.message ?? e);
+    logger.error(e?.message ?? e);
     process.exit(1);
   }
 }

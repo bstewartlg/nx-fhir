@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "version": 2,
+  "title": "Serve FHIR Project",
+  "description": "Serve a FHIR server or frontend project",
+  "type": "object",
+  "properties": {
+    "port": {
+      "type": "number",
+      "description": "Port to serve on (frontend only)",
+      "default": 3000
+    },
+    "host": {
+      "type": "string",
+      "description": "Host to serve on (frontend only)",
+      "default": "localhost"
+    },
+    "open": {
+      "type": "boolean",
+      "description": "Open browser on startup (frontend only)",
+      "default": false
+    },
+    "profile": {
+      "type": "string",
+      "description": "Spring Boot profile to use (server only)"
+    },
+    "debug": {
+      "type": "boolean",
+      "description": "Enable debug mode",
+      "default": false
+    }
+  }
+}

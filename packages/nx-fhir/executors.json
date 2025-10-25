@@ -1,3 +1,19 @@
 {
-  "executors": {}
+  "executors": {
+    "serve": {
+      "implementation": "./src/executors/serve/executor",
+      "schema": "./src/executors/serve/schema.json",
+      "description": "Serve a FHIR server and/or frontend project"
+    },
+    "build": {
+      "implementation": "./src/executors/build/executor",
+      "schema": "./src/executors/build/schema.json",
+      "description": "Build a FHIR server and/or frontend project"
+    },
+    "test": {
+      "implementation": "./src/executors/test/executor",
+      "schema": "./src/executors/test/schema.json",
+      "description": "Run tests for a FHIR server and/or frontend project"
+    }
+  }
 }
