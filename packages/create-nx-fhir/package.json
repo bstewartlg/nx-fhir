@@ -1,8 +1,29 @@
 {
   "name": "create-nx-fhir",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "private": false,
+  "description": "CLI tool to create Nx workspaces with FHIR projects",
+  "license": "Apache-2.0",
+  "author": "Brandon Stewart",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bstewartlg/nx-fhir.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bstewartlg/nx-fhir/issues"
+  },
+  "homepage": "https://github.com/bstewartlg/nx-fhir#readme",
+  "keywords": [
+    "nx",
+    "nx-plugin",
+    "nx-fhir",
+    "fhir",
+    "hapi-fhir",
+    "nextjs",
+    "spring-boot"
+  ],
   "dependencies": {
     "@inquirer/prompts": "^7.8.1",
     "@nx/devkit": "^22.0.1",

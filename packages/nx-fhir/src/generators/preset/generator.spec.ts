@@ -34,7 +34,7 @@ describe('preset generator', () => {
       serverDirectory: 'server',
       packageBase: 'org.test.server',
       fhirVersion: FhirVersion.R4,
-      release: 'image/v7.4.0'
+      release: '8.4.0'
     };
     
     await presetGenerator(tree, options);

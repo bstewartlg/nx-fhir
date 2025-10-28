@@ -4,7 +4,8 @@
     "outDir": "../../dist/out-tsc",
     "declaration": true,
     "types": ["node"],
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "module": "nodenext"
   },
   "include": ["src/**/*.ts", "bin/**/*.ts"],
   "exclude": [

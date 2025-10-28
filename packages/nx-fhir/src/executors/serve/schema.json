@@ -7,8 +7,7 @@
   "properties": {
     "port": {
       "type": "number",
-      "description": "Port to serve on (frontend only)",
-      "default": 3000
+      "description": "Port to serve on"
     },
     "host": {
       "type": "string",

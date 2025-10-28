@@ -16,7 +16,7 @@ describe('server generator e2e test', () => {
   const options: ServerGeneratorSchema = {
     directory: 'server',
     packageBase: 'org.custom.server',
-    release: 'image/v8.0.0',
+    release: '8.4.0',
     fhirVersion: FhirVersion.R4,
   };
 

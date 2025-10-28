@@ -201,10 +201,7 @@ function createFrontendProjectNodes(projectRoot: string, projectJson: any) {
 
   if (!projectJson.targets?.serve) {
     targets.serve = {
-      executor: 'nx-fhir:serve',
-      options: {
-        port: 3000,
-      },
+      executor: 'nx-fhir:serve'
     };
   }
 

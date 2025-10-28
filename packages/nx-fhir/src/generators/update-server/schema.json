@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "UpdateServer",
+  "title": "Update Server",
+  "type": "object",
+  "description": "Update a FHIR server project to a newer HAPI FHIR version",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "The name of the server project to update",
+      "$default": {
+        "$source": "projectName",
+        "index": 0
+      }
+    },
+    "targetVersion": {
+      "type": "string",
+      "description": "The HAPI FHIR version to update the server to"
+    },
+    "force": {
+      "type": "boolean",
+      "description": "Force update and override safety checks (not recommended)",
+      "default": false
+    }
+  },
+  "required": []
+}

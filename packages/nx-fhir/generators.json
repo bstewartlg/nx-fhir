@@ -26,6 +26,11 @@
       "factory": "./src/generators/frontend/frontend",
       "schema": "./src/generators/frontend/schema.json",
       "description": "frontend generator"
+    },
+    "update-server": {
+      "factory": "./src/generators/update-server/update-server",
+      "schema": "./src/generators/update-server/schema.json",
+      "description": "update-server generator"
     }
   }
 }

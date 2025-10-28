@@ -77,4 +77,5 @@ export interface ServerProjectConfiguration extends ProjectConfiguration {
   packageBase: string;
   fhirVersion: FhirVersion;
   hapiReleaseVersion: string;
+  pluginVersion: string;
 }

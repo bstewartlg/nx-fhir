@@ -1,4 +1,10 @@
 {
   "migrations": [],
-  "packageJsonUpdates": {}
+  "generators": {
+    "migration": {
+      "version": "0.2.0",
+      "description": "Migration for v0.2.0",
+      "implementation": "./src/migrations/hapi-server/8.2.0-to-8.4.0/migration"
+    }
+  }
 }
