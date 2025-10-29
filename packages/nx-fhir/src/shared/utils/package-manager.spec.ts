@@ -34,7 +34,7 @@ describe('package-manager utils', () => {
 
   describe('getListCommand', () => {
     it('should return correct bun list command', () => {
-      expect(getListCommand('bun', 'some-package')).toBe('bun pm ls | grep some-package');
+      expect(getListCommand('bun', 'some-package')).toMatch(/^bun pm ls \| (grep|findstr) some-package$/);
     });
 
     it('should return correct npm list command', () => {

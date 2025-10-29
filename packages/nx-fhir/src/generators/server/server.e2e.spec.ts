@@ -1,17 +1,18 @@
 // vitest-environment node
-import { detectPackageManager, logger, } from '@nx/devkit';
+import { logger } from '@nx/devkit';
 import { ServerGeneratorSchema } from './schema';
 import { existsSync, mkdirSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { execSync } from 'child_process';
 import { FhirVersion } from '../../shared/models';
 import { tmpdir } from 'os';
-import { getExecuteCommand, getInstallCommand, getListCommand } from '../../shared/utils/package-manager';
+import { getExecuteCommand, getInstallCommand, getListCommand, getPackageManager } from '../../shared/utils/package-manager';
 
 
 const projectName = `test-project-${crypto.randomUUID()}`;
 const projectDirectory = join(tmpdir(), projectName);
 
+const packageManager = getPackageManager();
 
 describe('server generator e2e test', () => {
   const options: ServerGeneratorSchema = {
@@ -21,14 +22,11 @@ describe('server generator e2e test', () => {
     fhirVersion: FhirVersion.R4,
   };
 
-  const packageManager = detectPackageManager();
-
   // Ensure the test project directory exists before running tests
   beforeAll(async () => {
+    logger.info(`Running server e2e test with package manager: ${packageManager}`);
     logger.info(`Creating test project directory. CWD: ${process.cwd()}`);
     createTestProject();
-
-    logger.info(`Using package manager: ${packageManager}`);
     
     const installCommand = getInstallCommand(packageManager, 'nx-fhir@e2e', true);
     execSync(installCommand, {
@@ -183,7 +181,7 @@ function createTestProject() {
   rmSync(projectDirectory, { recursive: true, force: true });
   mkdirSync(dirname(projectDirectory), { recursive: true });
 
-  execSync(getExecuteCommand(detectPackageManager(), `create-nx-workspace@latest ${projectName} --preset apps --nxCloud=skip --no-interactive --skip-git`), {
+  execSync(getExecuteCommand(packageManager, `create-nx-workspace@latest ${projectName} --preset apps --nxCloud=skip --no-interactive --skip-git`), {
     cwd: dirname(projectDirectory),
     stdio: 'inherit',
     env: process.env

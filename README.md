@@ -63,6 +63,13 @@ Run end-to-end server test:
 npx nx run nx-fhir:e2e
 ```
 
+To run the e2e tests with a specific package manager (bun or npm):
+
+```bash
+# Or using the root package.json script
+PACKAGE_MANAGER=npm npm run e2e
+```
+
 Test does the following:
 - builds the `nx-fhir` package
 - stands up a local npm repository

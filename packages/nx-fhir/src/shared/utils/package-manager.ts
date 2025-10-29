@@ -1,5 +1,19 @@
-import { PackageManager } from '@nx/devkit';
+import { detectPackageManager, PackageManager } from '@nx/devkit';
 import { execSync } from 'child_process';
+
+
+export function getPackageManager(): PackageManager {
+  const envPm = process.env.PACKAGE_MANAGER;
+  if (envPm) {
+    const value = envPm.toLowerCase();
+    if (value === 'npm' || value === 'bun') {
+      return value as PackageManager;
+    }
+  }
+  
+  // Fallback to auto-detection or bun if detection fails
+  return detectPackageManager() || 'bun';
+}
 
 
 /**
@@ -37,7 +51,9 @@ export function getListCommand(
 ): string {
   switch (packageManager) {
     case 'bun':
-      return `bun pm ls | grep ${packageName}`;
+      return process.platform === 'win32'
+        ? `bun pm ls | findstr ${packageName}`
+        : `bun pm ls | grep ${packageName}`;
     case 'npm':
       return `npm ls ${packageName}`;
   }
