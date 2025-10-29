@@ -1,5 +1,6 @@
 import {
   addProjectConfiguration,
+  detectPackageManager,
   formatFiles,
   generateFiles,
   getProjects,
@@ -16,6 +17,7 @@ import { select } from '@inquirer/prompts';
 import path = require('path');
 import { ServerProjectConfiguration } from '../../shared/models';
 import { registerNxPlugin, removeServerYamlProperty } from '../../shared/utils';
+import { getExecuteCommand, getInstallCommand } from '../../shared/utils/package-manager';
 
 export async function frontendGenerator(
   tree: Tree,
@@ -32,7 +34,8 @@ export async function frontendGenerator(
   const isDryRun = process.argv.includes('--dry-run');
 
   // Run Next.js generator to bootstrap the frontend. Pinning the version to 15.x currently until MUI supports 16: https://github.com/mui/material-ui/issues/47109
-  const generateCommand = `npx --yes create-next-app@15 ${projectRoot} --ts --app --tailwind --turbopack --src-dir --eslint --yes`;
+  const packageManager = detectPackageManager();
+  const generateCommand = getExecuteCommand(packageManager, `--yes create-next-app@15 ${projectRoot} --ts --app --tailwind --turbopack --src-dir --eslint --use-${packageManager} --yes`);
 
   if (isDryRun) {
     logger.info(`[Dry Run] Would execute: ${generateCommand}`);
@@ -112,10 +115,10 @@ export async function frontendGenerator(
   // Format all the files that were created
   await formatFiles(tree);
 
-  // Re-run npm install after generating files to get all of the new dependencies
+  // Re-run package install after generating files to get all of the new dependencies
   return () => {
     logger.info(`Installing additional dependencies for '${options.name}'...`);
-    execSync(`npm install`, {
+    execSync(`${getInstallCommand(packageManager)}`, {
       stdio: 'inherit',
       cwd: `${tree.root}/${projectRoot}`,
     });

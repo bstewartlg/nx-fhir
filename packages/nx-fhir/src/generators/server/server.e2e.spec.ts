@@ -1,11 +1,12 @@
 // vitest-environment node
-import { logger, } from '@nx/devkit';
+import { detectPackageManager, logger, } from '@nx/devkit';
 import { ServerGeneratorSchema } from './schema';
 import { existsSync, mkdirSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { execSync } from 'child_process';
 import { FhirVersion } from '../../shared/models';
 import { tmpdir } from 'os';
+import { getExecuteCommand, getInstallCommand, getListCommand } from '../../shared/utils/package-manager';
 
 
 const projectName = `test-project-${crypto.randomUUID()}`;
@@ -20,12 +21,17 @@ describe('server generator e2e test', () => {
     fhirVersion: FhirVersion.R4,
   };
 
+  const packageManager = detectPackageManager();
+
   // Ensure the test project directory exists before running tests
   beforeAll(async () => {
     logger.info(`Creating test project directory. CWD: ${process.cwd()}`);
     createTestProject();
 
-    execSync('npm install -D nx-fhir@e2e', {
+    logger.info(`Using package manager: ${packageManager}`);
+    
+    const installCommand = getInstallCommand(packageManager, 'nx-fhir@e2e', true);
+    execSync(installCommand, {
       cwd: projectDirectory,
       stdio: 'inherit',
       env: process.env
@@ -41,7 +47,8 @@ describe('server generator e2e test', () => {
 
   // Ensure package has been locally installed
   it('nx-fhir package should be installed', () => {
-    execSync('npm ls nx-fhir', {
+    const listCommand = getListCommand(packageManager, 'nx-fhir');
+    execSync(listCommand, {
       cwd: projectDirectory,
       stdio: 'inherit'
     });
@@ -49,7 +56,7 @@ describe('server generator e2e test', () => {
 
   // Check that the generator runs
   it('should run the server generator', async () => {
-    execSync(`npx nx generate nx-fhir:server --directory=${options.directory} --packageBase=${options.packageBase} --release=${options.release}`, {
+    execSync(getExecuteCommand(packageManager, `nx generate nx-fhir:server --directory=${options.directory} --packageBase=${options.packageBase} --release=${options.release}`), {
       cwd: projectDirectory,
       stdio: 'inherit',
       env: process.env
@@ -74,13 +81,13 @@ describe('server generator e2e test', () => {
 
   it ('should verify server project can be found in workspace', async () => {
 
-    let result = execSync('npx nx reset', {
+    let result = execSync(getExecuteCommand(packageManager, 'nx reset'), {
       cwd: projectDirectory,
       env: process.env
     }).toString();
     
     // run nx show projects and verify server is listed
-    result = execSync('npx nx show projects', {
+    result = execSync(getExecuteCommand(packageManager, 'nx show projects'), {
       cwd: projectDirectory,
       env: process.env
     }).toString();
@@ -89,12 +96,16 @@ describe('server generator e2e test', () => {
 
   // Start the server and query the /fhir/metadata endpoint
   it('should start the generated server successfully and provide /fhir/metadata', async () => {
-    logger.info(`Starting the server with command: npx nx serve server in ${projectDirectory}`);
+    logger.info(`Starting the server with command: ${getExecuteCommand(packageManager)} nx serve server in ${projectDirectory}`);
     const { spawn } = await import('child_process');
-    const serverProcess = spawn('npx', ['nx', 'serve', 'server'], {
+    const serverProcess = spawn(getExecuteCommand(packageManager), ['nx', 'serve', 'server'], {
       cwd: projectDirectory,
-      // shell: true
+      shell: true,
+      detached: true,
     });
+
+    // Unref so the parent process can exit independently
+    serverProcess.unref();
 
     let output = '';
 
@@ -136,13 +147,30 @@ describe('server generator e2e test', () => {
       throw error;
     }
     finally {
+      // Kill the entire process tree to ensure Java server is terminated
       if (serverProcess.pid) {
         try {
-          process.kill(serverProcess.pid, 0); // Check if process exists
-          process.kill(serverProcess.pid, 'SIGKILL');
-        } catch (e) {
-          logger.warn(`Failed to kill server process: ${e}`);
-          // Process already exited, ignore
+          // Try to kill the process group first (negative PID)
+          process.kill(-serverProcess.pid, 'SIGTERM');
+          
+          // Give it a moment to clean up gracefully
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          
+          // Force kill if still running
+          try {
+            process.kill(-serverProcess.pid, 'SIGKILL');
+          } catch (e) {
+            // Process already terminated, ignore
+          }
+        } catch (err) {
+          // If process group kill fails, fall back to killing just the main process
+          try {
+            serverProcess.kill('SIGTERM');
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            serverProcess.kill('SIGKILL');
+          } catch (e) {
+            logger.warn(`Failed to kill server process: ${e}`);
+          }
         }
       }
     }
@@ -155,7 +183,7 @@ function createTestProject() {
   rmSync(projectDirectory, { recursive: true, force: true });
   mkdirSync(dirname(projectDirectory), { recursive: true });
 
-  execSync(`npx --yes create-nx-workspace@latest ${projectName} --preset apps --nxCloud=skip --no-interactive --skip-git`, {
+  execSync(getExecuteCommand(detectPackageManager(), `create-nx-workspace@latest ${projectName} --preset apps --nxCloud=skip --no-interactive --skip-git`), {
     cwd: dirname(projectDirectory),
     stdio: 'inherit',
     env: process.env
@@ -164,3 +192,5 @@ function createTestProject() {
   
   return projectDirectory;
 }
+
+

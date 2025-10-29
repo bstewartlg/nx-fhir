@@ -15,7 +15,8 @@
     "skipDefaultLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@nx-fhir/nx-fhir": ["packages/nx-fhir/src/index.ts"]
+      "@nx-fhir/nx-fhir": ["packages/nx-fhir/src/index.ts"],
+      "@nx-fhir/*": ["packages/nx-fhir/src/*"]
     }
   },
   "exclude": ["node_modules", "tmp"]

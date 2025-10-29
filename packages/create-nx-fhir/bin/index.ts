@@ -5,10 +5,17 @@ import { input } from '@inquirer/prompts';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { logger } from '@nx/devkit';
+import { execSync } from 'child_process';
 
 interface CliArgs {
   directory?: string;
   server?: boolean; // true => auto-generate, false => skip, undefined => prompt
+  packageManager?: 'bun' | 'npm';
+  serverDirectory?: string;
+  packageBase?: string;
+  release?: string;
+  fhirVersion?: 'STU3' | 'R4' | 'R4B' | 'R5';
+  verbose?: boolean;
   _?: (string | number)[];
 }
 
@@ -24,9 +31,36 @@ const argv: CliArgs = yargs(hideBin(process.argv))
     description:
       'Whether to generate a FHIR server (true = generate, false = skip). If omitted you will be prompted.',
   })
+  .option('packageManager', {
+    type: 'string',
+    description: 'Package manager to use',
+    choices: ['bun', 'npm'],
+    default: 'bun'
+  })
+  .option('serverDirectory', {
+    type: 'string',
+    description: 'The directory to create the server in'
+  })
+  .option('packageBase', {
+    type: 'string',
+    description: 'The Java package path for custom code'
+  })
+  .option('release', {
+    type: 'string',
+    description: 'The HAPI FHIR JPA Starter release to use'
+  })
+  .option('fhirVersion', {
+    type: 'string',
+    description: 'The FHIR version to use for the server',
+    choices: ['STU3', 'R4', 'R4B', 'R5']
+  })
+  .option('verbose', {
+    type: 'boolean',
+    description: 'Enable verbose logging'
+  })
   .help()
   .alias('h', 'help')
-  .parseSync();
+  .parseSync() as CliArgs;
 
 function sanitizeDirectory(raw: string): string {
   return raw
@@ -58,6 +92,34 @@ async function resolveDirectory(): Promise<string> {
   }).then(sanitizeDirectory);
 }
 
+function isPackageManagerAvailable(pm: string): boolean {
+  try {
+    execSync(`${pm} --version`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolvePackageManager(requested?: 'bun' | 'npm'): 'bun' | 'npm' {
+  if (!requested) {
+    requested = 'bun';
+  }
+
+  if (isPackageManagerAvailable(requested)) {
+    return requested;
+  }
+
+  logger.warn(`Package manager '${requested}' is not available. Falling back to 'npm'.`);
+  
+  if (!isPackageManagerAvailable('npm')) {
+    logger.error('npm is not available. Please install npm to continue.');
+    process.exit(1);
+  }
+
+  return 'npm';
+}
+
 async function main() {
   try {
     const name = await resolveDirectory();
@@ -66,11 +128,23 @@ async function main() {
     // This assumes "nx-fhir" and "create-nx-fhir" are at the same version
     const presetVersion = require('../package.json').version;
 
+    const packageManager = resolvePackageManager(argv.packageManager);
+
+    logger.info(`Using package manager: ${packageManager}`);
+
+    // Extract only the preset-specific options
+    const { server, serverDirectory, packageBase, release, fhirVersion } = argv;
+    const presetOptions: Record<string, any> = { server };
+    if (serverDirectory !== undefined) presetOptions.serverDirectory = serverDirectory;
+    if (packageBase !== undefined) presetOptions.packageBase = packageBase;
+    if (release !== undefined) presetOptions.release = release;
+    if (fhirVersion !== undefined) presetOptions.fhirVersion = fhirVersion;
+
     const { directory } = await createWorkspace(`nx-fhir@${presetVersion}`, {
       name,
       nxCloud: 'skip',
-      packageManager: 'npm',
-      ...argv
+      packageManager,
+      ...presetOptions
     });
 
     logger.info(`Successfully created the workspace here: ${directory}.`);

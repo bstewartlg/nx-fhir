@@ -3,6 +3,7 @@ import { ExecutorContext } from '@nx/devkit';
 import executor from './executor';
 import * as fs from 'fs';
 import * as child_process from 'child_process';
+import * as path from 'path';
 
 // Mock dependencies
 vi.mock('fs');
@@ -58,11 +59,12 @@ describe('Serve Executor', () => {
 
     const result = await executor({}, context);
 
+    const expectedCwd = path.join('/workspace', 'apps/test-project');
     expect(child_process.spawn).toHaveBeenCalledWith(
       'mvn',
       ['spring-boot:run'],
       expect.objectContaining({
-        cwd: '/workspace/apps/test-project',
+        cwd: expectedCwd,
       })
     );
     expect(result.success).toBe(true);
@@ -82,11 +84,12 @@ describe('Serve Executor', () => {
 
     const result = await executor({ port: 3000 }, context);
 
+    const expectedCwd = path.join('/workspace', 'apps/test-project');
     expect(child_process.spawn).toHaveBeenCalledWith(
-      'npm',
+      expect.stringMatching(/^(npm|pnpm|bun)$/),
       ['run', 'dev', '--', '--port', '3000'],
       expect.objectContaining({
-        cwd: '/workspace/apps/test-project',
+        cwd: expectedCwd,
       })
     );
     expect(result.success).toBe(true);
@@ -163,11 +166,12 @@ describe('Serve Executor', () => {
 
     await executor({ port: 4200, host: '0.0.0.0' }, context);
 
+    const expectedCwd = path.join('/workspace', 'apps/test-project');
     expect(child_process.spawn).toHaveBeenCalledWith(
-      'npm',
+      expect.stringMatching(/^(npm|pnpm|bun)$/),
       ['run', 'dev', '--', '--port', '4200', '--hostname', '0.0.0.0'],
       expect.objectContaining({
-        cwd: '/workspace/apps/test-project',
+        cwd: expectedCwd,
       })
     );
   });

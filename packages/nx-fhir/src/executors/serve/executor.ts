@@ -1,4 +1,4 @@
-import { ExecutorContext, logger } from '@nx/devkit';
+import { detectPackageManager, ExecutorContext, logger } from '@nx/devkit';
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -102,7 +102,7 @@ async function serveFrontend(
 ): Promise<{ success: boolean }> {
   logger.info('🚀 Starting Next.js Frontend...');
 
-  // Build npm command
+  // Build command
   const args = ['run', 'dev', '--'];
   
   if (options.port) {
@@ -118,7 +118,7 @@ async function serveFrontend(
   }
 
   return new Promise((resolve) => {
-    const child = spawn('npm', args, {
+    const child = spawn(detectPackageManager(), args, {
       cwd: projectPath,
       stdio: 'inherit',
       shell: true,

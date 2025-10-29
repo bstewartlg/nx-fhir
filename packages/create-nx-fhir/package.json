@@ -1,6 +1,6 @@
 {
   "name": "create-nx-fhir",
-  "version": "0.1.0",
+  "version": "0.0.0-dev",
   "private": false,
   "description": "CLI tool to create Nx workspaces with FHIR projects",
   "license": "Apache-2.0",

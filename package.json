@@ -1,6 +1,6 @@
 {
   "name": "@nx-fhir/source",
-  "version": "0.0.0",
+  "version": "0.0.0-dev",
   "license": "MIT",
   "scripts": {
     "build": "nx run-many -t build",
@@ -9,6 +9,9 @@
     "e2e": "nx run-many -t e2e"
   },
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "dependencies": {
     "@inquirer/prompts": "^7.9.0",
     "@nx/devkit": "22.0.1",

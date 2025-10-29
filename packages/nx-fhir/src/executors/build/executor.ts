@@ -1,8 +1,9 @@
-import { ExecutorContext, logger } from '@nx/devkit';
+import { detectPackageManager, ExecutorContext, logger } from '@nx/devkit';
 import { execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { BuildExecutorSchema } from './schema';
+import { getRunCommand } from '../../shared/utils/package-manager';
 
 export default async function buildExecutor(
   options: BuildExecutorSchema,
@@ -97,8 +98,10 @@ function buildFrontend(
 ): { success: boolean } {
   logger.info('🔨 Building Next.js Frontend...');
 
+  const packageManager = detectPackageManager();
+
   try {
-    execSync('npm run build', {
+    execSync(getRunCommand(packageManager, 'build'), {
       cwd: projectPath,
       stdio: 'inherit',
       env: {
@@ -111,7 +114,7 @@ function buildFrontend(
     return { success: true };
   } catch (error) {
     logger.error(
-      `npm build failed: ${error instanceof Error ? error.message : String(error)}`,
+      `Build failed: ${error instanceof Error ? error.message : String(error)}`,
     );
     return { success: false };
   }

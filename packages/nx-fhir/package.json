@@ -1,6 +1,6 @@
 {
   "name": "nx-fhir",
-  "version": "0.1.0",
+  "version": "0.0.0-dev",
   "private": false,
   "description": "Nx plugin for generating FHIR servers and frontends",
   "license": "Apache-2.0",
