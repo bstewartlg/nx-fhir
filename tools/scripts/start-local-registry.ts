@@ -32,7 +32,7 @@ export default async function globalSetup() {
   // Wait for the registry to be ready with retries
   logger.info('Waiting for local registry to start...');
   let registryReady = false;
-  let seconds = 30;
+  let seconds = 150;
   for (let i = 0; i < seconds; i++) {
     try {
       await fetch(registryUrl);
@@ -40,8 +40,8 @@ export default async function globalSetup() {
       logger.info('Local registry is ready');
       break;
     } catch (error) {
-      logger.warn(`Local registry not ready yet (${(error as Error).message}), retrying in 1 second... (${i + 1}/${seconds})`);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      logger.warn(`Local registry not ready yet (${(error as Error).message}), retrying in 2 seconds... (${i + 1}/${seconds})`);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
   }
 
