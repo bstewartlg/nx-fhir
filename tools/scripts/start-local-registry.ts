@@ -5,29 +5,6 @@
 import { releasePublish, releaseVersion } from 'nx/release';
 import { spawn } from 'child_process';
 import { logger } from '@nx/devkit';
-import * as http from 'http';
-
-/**
- * Check if the registry is available using http.get
- */
-function checkRegistryWithHttp(url: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const request = http.get(url, (res) => {
-      // Any response means the server is up
-      resolve(res.statusCode !== undefined);
-      res.resume(); // Consume response data to free up memory
-    });
-    
-    request.on('error', () => {
-      resolve(false);
-    });
-    
-    request.setTimeout(2000, () => {
-      request.destroy();
-      resolve(false);
-    });
-  });
-}
 
 export default async function globalSetup() {
   // Local registry target to run
@@ -69,6 +46,7 @@ export default async function globalSetup() {
 
   // Add a longer initial delay in CI to allow the process to fully start
   const initialDelay = isCI ? 5000 : 2000;
+  logger.info(`Waiting ${initialDelay}ms for Verdaccio to initialize...`);
   await new Promise((resolve) => setTimeout(resolve, initialDelay));
 
   // Verify the process started
@@ -80,33 +58,87 @@ export default async function globalSetup() {
     logger.error(`Failed to start registry process: ${e}`);
     throw e;
   }
+  
+  // In CI, try to get network diagnostic info
+  if (isCI) {
+    try {
+      const { execSync } = await import('child_process');
+      logger.info('Network diagnostic - checking if port 4873 is listening:');
+      const netstat = execSync('netstat -tuln | grep 4873 || ss -tuln | grep 4873 || echo "netstat/ss not available"').toString();
+      logger.info(netstat);
+    } catch (e) {
+      logger.warn('Could not run network diagnostic');
+    }
+  }
 
   // Wait for the registry to be ready with retries
   logger.info('Waiting for local registry to start...');
+  logger.info(`CI environment: ${isCI}, Registry URL: ${registryUrl}`);
   let registryReady = false;
   let maxAttempts = 60;
+  let lastError: Error | null = null;
+  
+  // Try multiple addresses in case of container networking issues
+  const urlsToTry = [
+    registryUrl,
+    'http://127.0.0.1:4873',
+  ];
+  
   for (let i = 0; i < maxAttempts; i++) {
-    try {
-      // Use http.get instead of fetch for better compatibility in containers
-      const isUp = await checkRegistryWithHttp(registryUrl);
-      if (isUp) {
-        registryReady = true;
-        logger.info('Local registry is ready');
-        break;
+    // Try each URL until one works
+    for (const url of urlsToTry) {
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          signal: AbortSignal.timeout(2000), // 2 second timeout
+        });
+        // Any response (even error status) means the server is up
+        if (response.status) {
+          registryReady = true;
+          logger.info(`Local registry is ready at ${url} (HTTP ${response.status})`);
+          break;
+        }
+      } catch (error) {
+        lastError = error as Error;
+        // Continue to next URL
       }
-      logger.warn(`Local registry not ready yet, retrying in 1 second... (${i + 1}/${maxAttempts})`);
-    } catch (error) {
-      logger.warn(`Local registry check failed (${(error as Error).message}), retrying in 1 second... (${i + 1}/${maxAttempts})`);
+    }
+    
+    if (registryReady) {
+      break;
+    }
+    
+    if (i === 0 || i % 10 === 0 || i === maxAttempts - 1) {
+      // Log more detailed error every 10 attempts and on first/last attempt
+      const errorDetails = lastError ? `${lastError.name}: ${lastError.message}` : 'Unknown error';
+      logger.warn(`Attempt ${i + 1}/${maxAttempts} - Local registry not ready yet. Last error: ${errorDetails}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
   if (!registryReady) {
-    // Log more diagnostic info before failing
-    logger.error('Local registry failed to start. Verdaccio process output captured above.');
-    logger.error(`Attempted to connect to: ${registryUrl}`);
-    logger.error(`CI environment: ${isCI}`);
-    throw new Error(`Local registry failed to start within ${maxAttempts} seconds`);
+    // Log comprehensive diagnostic info before failing
+    logger.error('❌ Local registry failed to start within timeout period.');
+    logger.error('');
+    logger.error('Diagnostic Information:');
+    logger.error(`  • CI environment: ${isCI}`);
+    logger.error(`  • Attempted URLs: ${urlsToTry.join(', ')}`);
+    logger.error(`  • Max attempts: ${maxAttempts} (${maxAttempts} seconds total)`);
+    logger.error(`  • Last error: ${lastError?.name || 'Unknown'} - ${lastError?.message || 'No error details'}`);
+    logger.error('');
+    logger.error('Possible causes:');
+    logger.error('  1. Verdaccio process failed to start (check output above)');
+    logger.error('  2. Port 4873 is already in use');
+    logger.error('  3. Network/firewall blocking localhost connections');
+    logger.error('  4. Container networking issue (check Verdaccio is listening on 0.0.0.0:4873)');
+    logger.error('');
+    logger.error('Verdaccio process output should be visible above this error.');
+    
+    throw new Error(
+      `Local registry failed to start within ${maxAttempts} seconds. ` +
+      `Last error: ${lastError?.message || 'Connection failed'}. ` +
+      `Tried URLs: ${urlsToTry.join(', ')}`
+    );
   }
 
   logger.info('Versioning packages...');
