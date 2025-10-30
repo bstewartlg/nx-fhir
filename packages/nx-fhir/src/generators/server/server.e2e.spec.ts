@@ -234,7 +234,7 @@ describe('server generator e2e test', () => {
 });
 
 async function waitForRegistry() {
-  const urlsToTry = [localRegistryUrl, 'http://127.0.0.1:4873'];
+  const urlsToTry = [localRegistryUrl, 'http://127.0.0.1:4873', `http://${require('os').hostname()}:4873`];
   let registryReady = false;
   let maxAttempts = 60;
 
