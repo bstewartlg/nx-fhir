@@ -5,6 +5,29 @@
 import { releasePublish, releaseVersion } from 'nx/release';
 import { spawn } from 'child_process';
 import { logger } from '@nx/devkit';
+import * as http from 'http';
+
+/**
+ * Check if the registry is available using http.get
+ */
+function checkRegistryWithHttp(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const request = http.get(url, (res) => {
+      // Any response means the server is up
+      resolve(res.statusCode !== undefined);
+      res.resume(); // Consume response data to free up memory
+    });
+    
+    request.on('error', () => {
+      resolve(false);
+    });
+    
+    request.setTimeout(2000, () => {
+      request.destroy();
+      resolve(false);
+    });
+  });
+}
 
 export default async function globalSetup() {
   // Local registry target to run
@@ -44,8 +67,9 @@ export default async function globalSetup() {
     });
   }
 
-  // Add a small delay to allow the process to start
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  // Add a longer initial delay in CI to allow the process to fully start
+  const initialDelay = isCI ? 5000 : 2000;
+  await new Promise((resolve) => setTimeout(resolve, initialDelay));
 
   // Verify the process started
   try {
@@ -63,17 +87,25 @@ export default async function globalSetup() {
   let maxAttempts = 60;
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      await fetch(registryUrl);
-      registryReady = true;
-      logger.info('Local registry is ready');
-      break;
+      // Use http.get instead of fetch for better compatibility in containers
+      const isUp = await checkRegistryWithHttp(registryUrl);
+      if (isUp) {
+        registryReady = true;
+        logger.info('Local registry is ready');
+        break;
+      }
+      logger.warn(`Local registry not ready yet, retrying in 1 second... (${i + 1}/${maxAttempts})`);
     } catch (error) {
-      logger.warn(`Local registry not ready yet (${(error as Error).message}), retrying in 1 second... (${i + 1}/${maxAttempts})`);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      logger.warn(`Local registry check failed (${(error as Error).message}), retrying in 1 second... (${i + 1}/${maxAttempts})`);
     }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
   if (!registryReady) {
+    // Log more diagnostic info before failing
+    logger.error('Local registry failed to start. Verdaccio process output captured above.');
+    logger.error(`Attempted to connect to: ${registryUrl}`);
+    logger.error(`CI environment: ${isCI}`);
     throw new Error(`Local registry failed to start within ${maxAttempts} seconds`);
   }
 
