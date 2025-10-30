@@ -3,10 +3,8 @@
  */
 
 import { releasePublish, releaseVersion } from 'nx/release';
-import { spawn, execSync } from 'child_process';
+import { spawn } from 'child_process';
 import { logger } from '@nx/devkit';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
 
 export default async function globalSetup() {
   // Local registry target to run
@@ -34,19 +32,21 @@ export default async function globalSetup() {
   // Wait for the registry to be ready with retries
   logger.info('Waiting for local registry to start...');
   let registryReady = false;
-  for (let i = 0; i < 30; i++) {
+  let seconds = 30;
+  for (let i = 0; i < seconds; i++) {
     try {
       await fetch(registryUrl);
       registryReady = true;
       logger.info('Local registry is ready');
       break;
-    } catch {
+    } catch (error) {
+      logger.warn(`Local registry not ready yet (${(error as Error).message}), retrying in 1 second... (${i + 1}/${seconds})`);
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 
   if (!registryReady) {
-    throw new Error('Local registry failed to start within 30 seconds');
+    throw new Error(`Local registry failed to start within ${seconds} seconds`);
   }
 
   logger.info('Versioning packages...');
