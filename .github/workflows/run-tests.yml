@@ -18,5 +18,4 @@ jobs:
       - name: Run E2E Tests
         env:
           PACKAGE_MANAGER: npm
-          CI: true
         run: npm run e2e --verbose

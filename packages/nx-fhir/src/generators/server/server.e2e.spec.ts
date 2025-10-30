@@ -1,17 +1,18 @@
 // vitest-environment node
-import { logger } from '@nx/devkit';
+import { logger, workspaceRoot } from '@nx/devkit';
 import { ServerGeneratorSchema } from './schema';
-import { existsSync, mkdirSync, rmSync, writeFileSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { execSync, spawn } from 'child_process';
 import { FhirVersion } from '../../shared/models';
-import { tmpdir } from 'os';
-import { getExecuteCommand, getInstallCommand, getListCommand, getPackageManager } from '../../shared/utils/package-manager';
-import { releasePublish, releaseVersion } from 'nx/release';
+import { hostname, networkInterfaces, tmpdir } from 'os';
+import { getExecuteCommand, getInstallCommand, getPackageManager, getPackCommand } from '../../shared/utils/package-manager';
 
+const pluginVersion = require('../../../package.json').version;
 const projectName = `test-project-${crypto.randomUUID()}`;
 const projectDirectory = join(tmpdir(), projectName);
-const localRegistryUrl = 'http://localhost:4873';
+const nxFhirBuildPath = join(workspaceRoot, 'dist/packages/nx-fhir');
+const nxFhirPackPath = join(nxFhirBuildPath, `nx-fhir-${pluginVersion}.tgz`);
 
 const packageManager = getPackageManager();
 
@@ -23,77 +24,35 @@ describe('server generator e2e test', () => {
     fhirVersion: FhirVersion.R4,
   };
 
-  let registryProcess: any;
-
   beforeAll(async () => {
     logger.info(`Running server e2e test with package manager: ${packageManager}`);
     logger.info(`Creating test project directory. CWD: ${process.cwd()}`);
-    logger.info(`Local hostname: ${require('os').hostname()}`);
-    logger.info(`Local addresses: ${JSON.stringify(require('os').networkInterfaces())}`);
+    logger.info(`Workspace root: ${workspaceRoot}`);
+    logger.info(`Local hostname: ${hostname()}`);
+    logger.info(`Network interfaces: ${JSON.stringify(networkInterfaces())}`);
 
-    // Step 1: Build the nx-fhir package
-    logger.info('Building nx-fhir package...');
+    // Build the nx-fhir package
+    logger.info(`Building nx-fhir package using command: ${getExecuteCommand(packageManager, 'nx build nx-fhir')}`);
     execSync(getExecuteCommand(packageManager, 'nx build nx-fhir'), {
+      stdio: 'inherit',
+      cwd: workspaceRoot,
+      env: process.env
+    });
+
+    // Pack the nx-fhir package
+    const packCommand = getPackCommand(packageManager);
+    logger.info(`Packing nx-fhir package: ${packCommand}`);
+    execSync(packCommand, {
+      cwd: nxFhirBuildPath,
       stdio: 'inherit',
       env: process.env
     });
 
-    // Step 2: Start local registry
-    logger.info('Starting local registry...');
-    registryProcess = spawn(getExecuteCommand(packageManager), ['nx', 'run', '@nx-fhir/source:local-registry'], {
-      stdio: 'inherit',
-      shell: true,
-      env: process.env,
-      detached: true,
-    });
-    registryProcess.unref();
-
-    // Wait for registry to be ready
-    await waitForRegistry();
-
-    // Step 3: Publish nx-fhir to local registry
-    logger.info('Publishing nx-fhir to local registry...');
-    await releaseVersion({
-      specifier: '0.0.0-dev',
-      stageChanges: false,
-      gitCommit: false,
-      gitTag: false,
-      firstRelease: true,
-      versionActionsOptionsOverrides: {
-        skipLockFileUpdate: true,
-      },
-    });
-
-    await releasePublish({
-      tag: 'e2e',
-      firstRelease: true,
-      registry: localRegistryUrl
-    });
-
+    expect(existsSync(nxFhirPackPath)).toBe(true);
+    logger.info(`Built package located at: ${nxFhirPackPath}`);
   }, 300000);
 
   afterAll(async () => {
-    // Cleanup registry process
-    if (registryProcess && registryProcess.pid) {
-      try {
-        process.kill(-registryProcess.pid, 'SIGTERM');
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        try {
-          process.kill(-registryProcess.pid, 'SIGKILL');
-        } catch (e) {
-          // Process already terminated
-        }
-      } catch (err) {
-        try {
-          registryProcess.kill('SIGTERM');
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          registryProcess.kill('SIGKILL');
-        } catch (e) {
-          // Ignore
-        }
-      }
-    }
-
     // Cleanup test project
     try {
       rmSync(projectDirectory, { recursive: true, force: true });
@@ -103,30 +62,25 @@ describe('server generator e2e test', () => {
     }
   });
 
-  it('should complete full e2e flow: build -> publish -> create workspace -> generate server -> start and query', async () => {
-    // Step 4: Create a new Nx workspace
+  it('should complete full e2e flow: create workspace -> link local package -> generate server -> start and query', async () => {
+    // Create a new Nx workspace
     logger.info('Creating new Nx workspace...');
     createTestProject();
 
-    // Step 5: Add nx-fhir as a dev dependency from local registry
-    logger.info('Installing nx-fhir@e2e from local registry...');
-    const installCommand = `${getInstallCommand(packageManager, 'nx-fhir@e2e', true)} --registry=${localRegistryUrl}`;
+    // Install nx-fhir as a dev dependency
+    const installCommand = getInstallCommand(packageManager, nxFhirPackPath, true);
+    logger.info(`Installing nx-fhir package into test workspace: ${installCommand}`);
     execSync(installCommand, {
       cwd: projectDirectory,
       stdio: 'inherit',
       env: process.env
     });
 
-    // Verify package is installed
-    const listCommand = getListCommand(packageManager, 'nx-fhir');
-    execSync(listCommand, {
-      cwd: projectDirectory,
-      stdio: 'inherit'
-    });
-
-    // Step 6: Generate a FHIR server
-    logger.info('Generating FHIR server...');
-    execSync(getExecuteCommand(packageManager, `nx generate nx-fhir:server --directory=${options.directory} --packageBase=${options.packageBase} --release=${options.release}`), {
+    // Generate a FHIR server
+    const generateCommand = getExecuteCommand(packageManager, `nx generate nx-fhir:server --directory=${options.directory} --packageBase=${options.packageBase} --release=${options.release}`);
+    logger.info(`Operating in project directory: ${projectDirectory}`);
+    logger.info(`Generating FHIR server: ${generateCommand}`);
+    execSync(generateCommand, {
       cwd: projectDirectory,
       stdio: 'inherit',
       env: process.env
@@ -157,11 +111,11 @@ describe('server generator e2e test', () => {
     }).toString();
     expect(result).toContain('server');
 
-    // Step 7: Start the server
+    // Start the server
     logger.info('Starting the generated server...');
     const serverProcess = spawn(getExecuteCommand(packageManager), ['nx', 'serve', 'server'], {
       cwd: projectDirectory,
-      shell: true,
+      // shell: true,
       detached: true,
     });
     serverProcess.unref();
@@ -202,7 +156,7 @@ describe('server generator e2e test', () => {
       });
     });
 
-    // Step 8: Query the /fhir/metadata endpoint
+    // Query the /fhir/metadata endpoint
     logger.info('Querying /fhir/metadata endpoint...');
     const response = await fetch('http://localhost:8080/fhir/metadata');
     expect(response.status).toBe(200);
@@ -233,58 +187,17 @@ describe('server generator e2e test', () => {
   }, 300000);
 });
 
-async function waitForRegistry() {
-  const urlsToTry = [localRegistryUrl, 'http://127.0.0.1:4873', `http://${require('os').hostname()}:4873`];
-  let registryReady = false;
-  let maxAttempts = 60;
-
-  for (let i = 0; i < maxAttempts; i++) {
-    for (const url of urlsToTry) {
-      try {
-        const response = await fetch(url, {
-          method: 'GET',
-          signal: AbortSignal.timeout(2000),
-        });
-        if (response.status) {
-          registryReady = true;
-          logger.info(`Local registry is ready at ${url}`);
-          break;
-        }
-      } catch (error) {
-        // Continue
-      }
-    }
-    if (registryReady) break;
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-  }
-
-  if (!registryReady) {
-    throw new Error(`Local registry failed to start within ${maxAttempts} seconds`);
-  }
-}
-
 function createTestProject() {
+  logger.info(`Creating project directory at: ${projectDirectory} -- ${dirname(projectDirectory)}`);
   rmSync(projectDirectory, { recursive: true, force: true });
   mkdirSync(dirname(projectDirectory), { recursive: true });
 
-  // Create .npmrc to use local registry
-  const npmrcPath = join(dirname(projectDirectory), '.npmrc');
-  writeFileSync(npmrcPath, `registry=${localRegistryUrl}\n`);
-
-  try {
-    execSync(getExecuteCommand(packageManager, `create-nx-workspace@latest ${projectName} --preset apps --nxCloud=skip --no-interactive --skip-git`), {
-      cwd: dirname(projectDirectory),
-      stdio: 'inherit',
-      env: process.env
-    });
-    logger.info(`Created test project at ${projectDirectory}`);
-  } finally {
-    try {
-      unlinkSync(npmrcPath);
-    } catch (e) {
-      // Ignore
-    }
-  }
+  execSync(getExecuteCommand(packageManager, `create-nx-workspace@latest ${projectName} --preset apps --nxCloud=skip --no-interactive --skip-git`), {
+    cwd: dirname(projectDirectory),
+    stdio: 'inherit',
+    env: process.env
+  });
+  logger.info(`Created test project at ${projectDirectory}`);
 }
 
 

@@ -88,3 +88,14 @@ export function getExecuteCommand(
       return `npx ${command ?? ''}`.trim();
   }
 }
+
+export function getPackCommand(
+  packageManager: PackageManager
+): string {
+  switch (packageManager) {
+    case 'bun':
+      return `bun pm pack`;
+    case 'npm':
+      return `npm pack`;
+  }
+}
