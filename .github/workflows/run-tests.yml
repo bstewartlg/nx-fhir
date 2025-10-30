@@ -5,25 +5,17 @@ jobs:
     name: Run Tests
     runs-on: ubuntu-latest
     container:
-      image: node:24
+      image: maven:3.9-eclipse-temurin-17
     steps:
       - uses: actions/checkout@v2
       - run: apt update
-      - run: apt install -y openjdk-17-jre maven
+      - run: apt install -y curl
+      - run: curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+      - run: apt install -y nodejs
+      - run: rm bun.lock
       - run: npm i
       - run: npm test
       - name: Run E2E Tests
         env:
           PACKAGE_MANAGER: npm
         run: npm run e2e --verbose
-
-    # steps:
-    #   - uses: actions/checkout@v4
-    #   - uses: oven-sh/setup-bun@v2
-    #   - run: apt update
-    #   - run: apt install -y openjdk-17-jre maven
-    #   - run: bun install --frozen-lockfile --verbose
-    #     timeout-minutes: 2
-    #   - run: bun run build
-    #   - run: bun run test
-    #   - run: bun run e2e

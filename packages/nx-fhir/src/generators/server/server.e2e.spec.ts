@@ -1,7 +1,7 @@
 // vitest-environment node
 import { logger } from '@nx/devkit';
 import { ServerGeneratorSchema } from './schema';
-import { existsSync, mkdirSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { execSync } from 'child_process';
 import { FhirVersion } from '../../shared/models';
@@ -11,6 +11,7 @@ import { getExecuteCommand, getInstallCommand, getListCommand, getPackageManager
 
 const projectName = `test-project-${crypto.randomUUID()}`;
 const projectDirectory = join(tmpdir(), projectName);
+const localRegistryUrl = 'http://localhost:4873';
 
 const packageManager = getPackageManager();
 
@@ -26,16 +27,19 @@ describe('server generator e2e test', () => {
   beforeAll(async () => {
     logger.info(`Running server e2e test with package manager: ${packageManager}`);
     logger.info(`Creating test project directory. CWD: ${process.cwd()}`);
+    
     createTestProject();
     
-    const installCommand = getInstallCommand(packageManager, 'nx-fhir@e2e', true);
+    // Install nx-fhir@e2e from local registry
+    const installCommand = `${getInstallCommand(packageManager, 'nx-fhir@e2e', true)} --registry=${localRegistryUrl}`;
+    logger.info(`Installing nx-fhir@e2e with command: ${installCommand}`);
     execSync(installCommand, {
       cwd: projectDirectory,
       stdio: 'inherit',
       env: process.env
     });
     
-  }, 120000);
+  }, 300000);
 
   // Clean up the test project directory after all tests
   afterAll(() => {
@@ -181,12 +185,25 @@ function createTestProject() {
   rmSync(projectDirectory, { recursive: true, force: true });
   mkdirSync(dirname(projectDirectory), { recursive: true });
 
-  execSync(getExecuteCommand(packageManager, `create-nx-workspace@latest ${projectName} --preset apps --nxCloud=skip --no-interactive --skip-git`), {
-    cwd: dirname(projectDirectory),
-    stdio: 'inherit',
-    env: process.env
-  });
-  logger.info(`Created test project at ${projectDirectory}`);
+  // Create .npmrc in parent directory to use local registry for create-nx-workspace
+  const npmrcPath = join(dirname(projectDirectory), '.npmrc');
+  writeFileSync(npmrcPath, `registry=${localRegistryUrl}\n`);
+  
+  try {
+    execSync(getExecuteCommand(packageManager, `create-nx-workspace@latest ${projectName} --preset apps --nxCloud=skip --no-interactive --skip-git`), {
+      cwd: dirname(projectDirectory),
+      stdio: 'inherit',
+      env: process.env
+    });
+    logger.info(`Created test project at ${projectDirectory}`);
+  } finally {
+    // Clean up .npmrc
+    try {
+      unlinkSync(npmrcPath);
+    } catch (e) {
+      // Ignore if file doesn't exist
+    }
+  }
   
   return projectDirectory;
 }
