@@ -28,6 +28,8 @@ describe('server generator e2e test', () => {
   beforeAll(async () => {
     logger.info(`Running server e2e test with package manager: ${packageManager}`);
     logger.info(`Creating test project directory. CWD: ${process.cwd()}`);
+    logger.info(`Local hostname: ${require('os').hostname()}`);
+    logger.info(`Local addresses: ${JSON.stringify(require('os').networkInterfaces())}`);
 
     // Step 1: Build the nx-fhir package
     logger.info('Building nx-fhir package...');
@@ -39,7 +41,7 @@ describe('server generator e2e test', () => {
     // Step 2: Start local registry
     logger.info('Starting local registry...');
     registryProcess = spawn(getExecuteCommand(packageManager), ['nx', 'run', '@nx-fhir/source:local-registry'], {
-      stdio: 'ignore',
+      stdio: 'inherit',
       shell: true,
       env: process.env,
       detached: true,
@@ -253,7 +255,7 @@ async function waitForRegistry() {
       }
     }
     if (registryReady) break;
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 
   if (!registryReady) {
