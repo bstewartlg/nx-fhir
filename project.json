@@ -11,7 +11,9 @@
       }
     },
     "test": {
-      "command": "npx nx test nx-fhir"
+      "executor": "nx:noop",
+      "cache": true,
+      "outputs": []
     }
   }
 }

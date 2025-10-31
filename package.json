@@ -6,6 +6,7 @@
     "build": "nx run-many -t build",
     "build:watch": "nx watch --initialRun --all -- nx affected -t build",
     "test": "nx run-many -t test",
+    "test:coverage": "nx run-many -t test -- --coverage",
     "e2e": "nx run-many -t e2e"
   },
   "private": true,
@@ -14,7 +15,7 @@
   ],
   "dependencies": {
     "@inquirer/prompts": "^7.9.0",
-    "@nx/devkit": "22.0.1",
+    "@nx/devkit": "22.0.2",
     "camelcase": "^8.0.0",
     "create-nx-workspace": "22.0.1",
     "diff": "^8.0.2",

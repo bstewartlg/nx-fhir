@@ -20,6 +20,7 @@ export default defineConfig(() => ({
     coverage: {
       reportsDirectory: '../../coverage/packages/nx-fhir',
       provider: 'v8' as const,
+      exclude: ['src/**/files/**'],
     }
   },
 }));

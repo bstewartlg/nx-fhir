@@ -66,16 +66,14 @@ npx nx run nx-fhir:e2e
 To run the e2e tests with a specific package manager (bun or npm):
 
 ```bash
-# Or using the root package.json script
 PACKAGE_MANAGER=npm npm run e2e
 ```
 
 Test does the following:
 - builds the `nx-fhir` package
-- stands up a local npm repository
-- publishes `nx-fhir` to local npm repository
-- creates a new Nx workspace
-- adds `nx-fhir` as a dev devependency
+- packs the `nx-fhir` package into a tarball
+- creates a new empty Nx workspace
+- adds `nx-fhir` as a dev devependency using the tarball
 - generates a FHIR server
 - ensures that the server can be started
 - queries the `/fhir/metadata` endpoint for a valid `CapabilityStatement`

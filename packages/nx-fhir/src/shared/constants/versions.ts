@@ -1,7 +1,9 @@
 export const PLUGIN_VERSION = require('../../../package.json').version;
 
+export const SUPPORTED_PACKAGE_MANAGERS = ['bun', 'npm'] as const;
+
 export const DEFAULT_HAPI_VERSION = '8.4.0';
-export const SUPPORTED_HAPI_VERSIONS = ['8.2.0', '8.4.0', '8.6.0', '9.0.0'];
+export const SUPPORTED_HAPI_VERSIONS = ['8.2.0', '8.4.0'];
 
 export const HAPI_RELEASE_URLS: Record<string, string> = {
   '8.2.0':

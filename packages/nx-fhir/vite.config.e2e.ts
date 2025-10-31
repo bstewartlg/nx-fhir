@@ -18,7 +18,6 @@ export default defineConfig(() => ({
     include: ['src/**/*.e2e.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
     reporters: ['default'],
     coverage: {
-      reportsDirectory: '../../coverage/packages/nx-fhir',
       provider: 'v8' as const,
     },
   },
