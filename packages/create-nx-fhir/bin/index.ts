@@ -6,8 +6,8 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { logger } from '@nx/devkit';
 import { execSync } from 'child_process';
-import { SUPPORTED_PACKAGE_MANAGERS } from '@nx-fhir/shared/constants/versions';
 
+export const SUPPORTED_PACKAGE_MANAGERS = ['bun', 'npm'] as const;
 
 export type PackageManager = typeof SUPPORTED_PACKAGE_MANAGERS[number];
 

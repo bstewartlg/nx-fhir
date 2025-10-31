@@ -4,9 +4,9 @@ import {
   resolveDirectory,
   resolvePackageManager,
   sanitizeDirectory,
+  SUPPORTED_PACKAGE_MANAGERS,
 } from './index';
 import type { CliArgs, PackageManager } from './index';
-import { SUPPORTED_PACKAGE_MANAGERS } from '@nx-fhir/shared/constants/versions';
 
 vi.mock('@inquirer/prompts', () => ({
   input: vi.fn(),
