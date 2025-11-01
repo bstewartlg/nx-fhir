@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../dist/out-tsc/e2e/nx-fhir",
+    "module": "nodenext",
+    "types": ["vitest/globals", "node"]
+  },
+  "include": [
+    "vite.config.ts",
+    "tests/**/*.ts",
+    "tests/**/*.spec.ts",
+    "tests/**/*.e2e.spec.ts"
+  ]
+}

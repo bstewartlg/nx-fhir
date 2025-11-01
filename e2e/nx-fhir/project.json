@@ -1,0 +1,17 @@
+{
+  "name": "nx-fhir-e2e",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "e2e/nx-fhir/tests",
+  "projectType": "application",
+  "tags": ["e2e"],
+  "implicitDependencies": ["nx-fhir"],
+  "targets": {
+    "e2e": {
+      "executor": "@nx/vite:test",
+      "options": {
+        "configFile": "e2e/nx-fhir/vite.config.ts",
+        "include": ["tests/**/*.e2e.spec.ts"]
+      }
+    }
+  }
+}

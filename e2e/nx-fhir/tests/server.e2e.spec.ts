@@ -1,14 +1,14 @@
 // vitest-environment node
 import { logger, workspaceRoot } from '@nx/devkit';
-import { ServerGeneratorSchema } from './schema';
+import { ServerGeneratorSchema } from '../../../packages/nx-fhir/src/generators/server/schema';
 import { existsSync, mkdirSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { execSync, spawn } from 'child_process';
-import { FhirVersion } from '../../shared/models';
+import { FhirVersion } from '../../../packages/nx-fhir/src/shared/models';
 import { hostname, networkInterfaces, tmpdir } from 'os';
-import { getExecuteCommand, getInstallCommand, getPackageManager, getPackCommand } from '../../shared/utils/package-manager';
+import { getExecuteCommand, getInstallCommand, getPackageManager, getPackCommand } from '../../../packages/nx-fhir/src/shared/utils/package-manager';
 
-const pluginVersion = require('../../../package.json').version;
+const pluginVersion = require('../../../packages/nx-fhir/package.json').version;
 const projectName = `test-project-${crypto.randomUUID()}`;
 const projectDirectory = join(tmpdir(), projectName);
 const nxFhirBuildPath = join(workspaceRoot, 'dist/packages/nx-fhir');

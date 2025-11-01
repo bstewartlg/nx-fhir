@@ -7,7 +7,7 @@ export default defineConfig({
     projects: [
       'packages/create-nx-fhir/vite.config.ts',
       'packages/nx-fhir/vite.config.ts',
-      'packages/nx-fhir/vite.config.e2e.ts',
+      'e2e/nx-fhir/vite.config.ts'
     ],
   },
 });

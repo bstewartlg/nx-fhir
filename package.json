@@ -11,7 +11,8 @@
   },
   "private": true,
   "workspaces": [
-    "packages/*"
+    "e2e/**",
+    "packages/**"
   ],
   "dependencies": {
     "@inquirer/prompts": "^7.9.0",

@@ -108,7 +108,7 @@ export function isPackageManagerAvailable(pm: PackageManager): boolean {
   }
 
   try {
-    console.log(`Checking availability of package manager: ${pm} --version`);
+    logger.info(`Checking availability of package manager: ${pm} --version`);
     execSync(`${pm} --version`, { stdio: 'ignore' });
     return true;
   } catch {

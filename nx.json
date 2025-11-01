@@ -1,5 +1,15 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "release": {
+    "projects":["packages/*"],
+    "version": {
+      "preVersionCommand": "bunx nx run-many -t build"
+    }
+  },
+  "workspaceLayout": {
+    "appsDir": "e2e",
+    "libsDir": "packages"
+  },
   "namedInputs": {
     "default": ["{projectRoot}/**/*", "sharedGlobals"],
     "production": [
@@ -33,11 +43,6 @@
       "inputs": ["default", "^production"]
     }
   },
-  "release": {
-    "version": {
-      "preVersionCommand": "npx nx run-many -t build"
-    }
-  },
   "plugins": [
     {
       "plugin": "@nx/vite/plugin",
@@ -51,8 +56,14 @@
         "typecheckTargetName": "typecheck",
         "buildDepsTargetName": "build-deps",
         "watchDepsTargetName": "watch-deps"
-      }
-    },
-    "nx-fhir"
-  ]
+      },
+      "include": [
+        "e2e/**",
+        "packages/**"
+      ]
+    }
+  ],
+  "cli": {
+    "packageManager": "bun"
+  }
 }
