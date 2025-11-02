@@ -186,7 +186,7 @@ export async function serverGenerator(
           continue;
         }
         tree.write(
-          path.join(options.directory, filePath.replace(`${tempDir}/`, '')),
+          path.join(options.directory, filePath.replace(`${tempDir}`, '')),
           readFileSync(filePath),
         );
       }

@@ -75,6 +75,16 @@
           "!src/**/*.e2e.spec.ts"
         ]
       }
+    },
+    "build-install": {
+      "executor": "nx:run-commands",
+      "options": {
+        "parallel": false,
+        "commands": [
+          "nx build nx-fhir",
+          "cd dist/packages/nx-fhir && bun install"
+        ]
+      }
     }
   }
 }

@@ -115,10 +115,8 @@ describe('server generator e2e test', () => {
     logger.info('Starting the generated server...');
     const serverProcess = spawn(getExecuteCommand(packageManager), ['nx', 'serve', 'server'], {
       cwd: projectDirectory,
-      // shell: true,
-      detached: true,
+      shell: true,
     });
-    serverProcess.unref();
 
     let output = '';
     let serverStarted = false;
@@ -167,21 +165,21 @@ describe('server generator e2e test', () => {
     // Cleanup server process
     if (serverProcess.pid) {
       try {
-        process.kill(-serverProcess.pid, 'SIGTERM');
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        try {
-          process.kill(-serverProcess.pid, 'SIGKILL');
-        } catch (e) {
-          // Ignore
-        }
-      } catch (err) {
-        try {
+        if (process.platform === 'win32') {
+          // Use taskkill on Windows to terminate the process tree
+          execSync(`taskkill /pid ${serverProcess.pid} /T /F`, { stdio: 'ignore' });
+        } else {
+          // On Unix-like systems, send SIGTERM and wait, then force kill if needed
           serverProcess.kill('SIGTERM');
           await new Promise((resolve) => setTimeout(resolve, 2000));
-          serverProcess.kill('SIGKILL');
-        } catch (e) {
-          // Ignore
+          try {
+            serverProcess.kill('SIGKILL');
+          } catch (e) {
+            // Ignore
+          }
         }
+      } catch (err) {
+        logger.warn(`Failed to cleanly kill server process: ${err}`);
       }
     }
   }, 300000);
@@ -199,5 +197,3 @@ function createTestProject() {
   });
   logger.info(`Created test project at ${projectDirectory}`);
 }
-
-
