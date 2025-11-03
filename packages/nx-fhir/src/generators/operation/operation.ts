@@ -168,7 +168,10 @@ export async function operationGenerator(
   }
 
   const targetPath = path.join(javaSourcePath, directory);
-  const targetPackage = directory.replace(/\//g, '.');
+  const targetPackage = directory
+    .replace(/[\\/]+/g, '.')     // replace both forward and back slashes with dots
+    .replace(/^\.+|\.+$/g, '')   // trim leading/trailing dots
+    .replace(/\.+/g, '.');       // collapse multiple dots
   const hapiOperation = operationDefinition ? getHapiOperation(operationDefinition, targetPackage, serverProjectConfig.fhirVersion) : getEmptyHapiOperation(operationName, targetPackage);
   logger.info(`Generating operation class: ${hapiOperation.className}`);
 

@@ -2,7 +2,7 @@ package <%= packageBase %>.interceptors;
 
 import java.io.InputStream;
 
-import org.custom.server.common.BaseInterceptor;
+import <%= packageBase %>.common.BaseInterceptor;
 import org.hl7.fhir.instance.model.api.IBaseConformance;
 import org.hl7.fhir.<%= modelPackageVersion %>.model.CapabilityStatement;
 import org.springframework.core.io.DefaultResourceLoader;

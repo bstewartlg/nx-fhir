@@ -1,16 +1,16 @@
-import { addDependenciesToPackageJson, addProjectConfiguration, formatFiles, ProjectConfiguration, readNxJson, removeDependenciesFromPackageJson, Tree, updateNxJson, updateProjectConfiguration } from '@nx/devkit';
+import { addDependenciesToPackageJson, addProjectConfiguration, formatFiles, logger, ProjectConfiguration, readNxJson, removeDependenciesFromPackageJson, Tree, updateNxJson, updateProjectConfiguration } from '@nx/devkit';
 import { PresetGeneratorSchema } from './schema';
 import { serverGenerator } from '../server/server';
 import { FhirVersion } from '../../shared/models';
 import { ServerGeneratorSchema } from '../server/schema';
-import { confirm, input, select } from '@inquirer/prompts';
+import { input, select } from '@inquirer/prompts';
 import { registerNxPlugin } from '../../shared/utils';
 
 export async function presetGenerator(
   tree: Tree,
   options: PresetGeneratorSchema
 ) {
-  
+
   registerNxPlugin(tree);
 
   // Generate the server project if requested

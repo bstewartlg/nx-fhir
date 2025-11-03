@@ -1,10 +1,15 @@
-import { getProjects, logger, readNxJson, Tree, updateNxJson } from "@nx/devkit";
+import { getProjects, logger, readJson, readNxJson, Tree, updateNxJson } from "@nx/devkit";
 import { select } from '@inquirer/prompts';
 import * as path from 'path';
 import { parseDocument } from "yaml";
 
 
+/**
+ * Registers the nx-fhir plugin in the workspace's nx.json file if not already registered.
+ * Also adds common scripts to the root package.json if they are not already present.
+ */
 export async function registerNxPlugin(tree: Tree) {
+
   const nxJson = readNxJson(tree);
   if (!nxJson) {
     throw new Error('nx.json not found');
@@ -25,6 +30,33 @@ export async function registerNxPlugin(tree: Tree) {
     nxJson.plugins.push(pluginName);
     updateNxJson(tree, nxJson);
   }
+
+  
+  // Add scripts to root package.json if not present;
+  const packageJson = readJson(tree, 'package.json');
+
+  if (!packageJson) {
+    throw new Error('package.json not found');
+  }
+
+  if (!packageJson.scripts) {
+    packageJson.scripts = {};
+  }
+
+  if (!packageJson.scripts['build']) {
+    packageJson.scripts['build'] = 'nx run-many -t build';
+  }
+
+  if (!packageJson.scripts['serve']) {
+    packageJson.scripts['serve'] = 'nx run-many -t serve';
+  }
+
+  if (!packageJson.scripts['test']) {
+    packageJson.scripts['test'] = 'nx run-many -t test';
+  }
+
+  tree.write('package.json', JSON.stringify(packageJson, null, 2));
+
 }
 
 export async function getServerProjects(tree: Tree): Promise<string[]> {

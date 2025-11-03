@@ -33,6 +33,8 @@ function writeConfigChanges(project: ProjectConfiguration, tree: Tree, options: 
   }
   const key = newPackage.name.toLowerCase().replace(/[^a-z0-9]+/g, '');
 
+  logger.info(`Updating server config for implementation guide: ${newPackage}`);
+
   updateServerYaml(project.root, tree, `hapi.fhir.implementationguides.${key}`, newPackage);
 }
 
@@ -155,6 +157,10 @@ export async function implementationGuideGenerator(
   }
 
   let parsedPackage: ImplementationGuidePackage;
+  const projectConfig = getProjects(tree).get(options.project);
+  if (!projectConfig) {
+    throw new Error(`Project "${options.project}" not found in workspace.`);
+  }
 
   // Package provided, so we will attempt to fetch the package to obtain the ID and version
   if (options.package) {
@@ -162,7 +168,17 @@ export async function implementationGuideGenerator(
       `Updating project: ${options.project} with implementation guide package: ${options.package}`
     );
 
-    parsedPackage = await parsePackage(options.package);
+    try {
+      parsedPackage = await parsePackage(options.package);
+    }
+    catch (error) {
+      logger.error(`Could not fetch or parse IG package: ${error.message}`);
+      return;
+    }
+
+    options.id = parsedPackage.implementationGuide?.id;
+    options.igVersion = parsedPackage.implementationGuide?.version;
+    
   }
 
   // If all options are provided we will just trust them and write the changes
@@ -171,21 +187,11 @@ export async function implementationGuideGenerator(
       `Updating project: ${options.project} with provided implementation guide ID: ${options.id} and version: ${options.igVersion}`
     );
 
-    const projectConfig = getProjects(tree).get(options.project);
-    if (!projectConfig) {
-      throw new Error(`Project "${options.project}" not found in workspace.`);
-    }
-
-    writeConfigChanges(projectConfig, tree, options);
-
-    // If not skipping operations, we will try and fetch the package from the public FHIR registry
-    if (!options.skipOps) {
-      try {
-        parsedPackage = await parsePackage(`https://packages.fhir.org/${options.id}/${options.igVersion}`);
-      } catch (error) {
-        // logger.error(`Could not fetch IG package`);
-        logger.error(error.message);
-      }
+    // Try and fetch the package from the public FHIR registry
+    try {
+      parsedPackage = await parsePackage(`https://packages.fhir.org/${options.id}/${options.igVersion}`);
+    } catch (error) {
+      logger.error(error.message);
     }
   }
 
@@ -193,6 +199,14 @@ export async function implementationGuideGenerator(
     logger.info(`No package or ID provided, skipping implementation guide generation.`);
     return;
   }
+
+  if (!parsedPackage || !parsedPackage.implementationGuide) {
+    logger.error('No ImplementationGuide found in the provided package, cannot proceed.');
+    return;
+  }
+
+  // Write the changes to the server config YAML to load the IG package
+  writeConfigChanges(projectConfig, tree, options);
 
 
   // Prompt to generate operations if not skipping that
