@@ -45,10 +45,9 @@ jobs:
       - name: Version packages with Nx
         run: bun nx release version "${{ steps.extract_version.outputs.version }}" --verbose
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish packages with Nx
         run: bun nx release publish --verbose
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: true
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
