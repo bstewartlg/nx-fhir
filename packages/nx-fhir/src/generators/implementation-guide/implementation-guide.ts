@@ -168,12 +168,14 @@ export async function implementationGuideGenerator(
       `Updating project: ${options.project} with implementation guide package: ${options.package}`
     );
 
-    try {
-      parsedPackage = await parsePackage(options.package);
-    }
-    catch (error) {
-      logger.error(`Could not fetch or parse IG package: ${error.message}`);
-      return;
+    if (options.validate) {
+      try {
+        parsedPackage = await parsePackage(options.package);
+      }
+      catch (error) {
+        logger.error(`Could not fetch or parse IG package: ${error.message}`);
+        return;
+      }
     }
 
     options.id = parsedPackage.implementationGuide?.id;
@@ -188,10 +190,12 @@ export async function implementationGuideGenerator(
     );
 
     // Try and fetch the package from the public FHIR registry
-    try {
-      parsedPackage = await parsePackage(`https://packages.fhir.org/${options.id}/${options.igVersion}`);
-    } catch (error) {
-      logger.error(error.message);
+    if (options.validate) {
+      try {
+        parsedPackage = await parsePackage(`https://packages.fhir.org/${options.id}/${options.igVersion}`);
+      } catch (error) {
+        logger.error(error.message);
+      }
     }
   }
 
@@ -200,7 +204,7 @@ export async function implementationGuideGenerator(
     return;
   }
 
-  if (!parsedPackage || !parsedPackage.implementationGuide) {
+  if (options.validate && (!parsedPackage || !parsedPackage.implementationGuide)) {
     logger.error('No ImplementationGuide found in the provided package, cannot proceed.');
     return;
   }

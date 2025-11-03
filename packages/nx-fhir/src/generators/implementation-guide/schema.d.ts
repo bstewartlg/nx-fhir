@@ -8,4 +8,5 @@ export interface ImplementationGuideGeneratorSchema {
   opDirectory?: string;
   skipCs?: boolean;
   csLocation?: string;
+  validate?: boolean;
 }

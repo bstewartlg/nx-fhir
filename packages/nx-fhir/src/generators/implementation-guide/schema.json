@@ -43,6 +43,11 @@
     "csLocation": {
       "type": "string",
       "description": "Path to the file for the custom capability statement"
+    },
+    "validate": {
+      "type": "boolean",
+      "description": "Whether to verify the implementation guide package before adding it",
+      "default": true
     }
   },
   "required": []

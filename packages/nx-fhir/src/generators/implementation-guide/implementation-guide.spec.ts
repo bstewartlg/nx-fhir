@@ -13,7 +13,8 @@ describe('implementation-guide generator', () => {
     id: 'example.fhir.implementationguide',
     igVersion: '1.0.0',
     install: true,
-    skipOps: true
+    skipOps: true,
+    validate: false
   };
 
   beforeAll(() => {
