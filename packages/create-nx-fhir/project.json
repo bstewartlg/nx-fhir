@@ -19,11 +19,17 @@
         "outputPath": "dist/packages/create-nx-fhir",
         "main": "packages/create-nx-fhir/bin/index.ts",
         "tsConfig": "packages/create-nx-fhir/tsconfig.lib.json",
-        "assets": ["packages/create-nx-fhir/*.md"]
+        "assets": [
+          "packages/create-nx-fhir/*.md",
+          {
+            "input": "./packages/create-nx-fhir",
+            "glob": "package.json",
+            "output": "."
+          }
+        ]
       }
     },
     "nx-release-publish": {
-      "dependsOn": ["build"],
       "options": {
         "packageRoot": "dist/{projectRoot}"
       }

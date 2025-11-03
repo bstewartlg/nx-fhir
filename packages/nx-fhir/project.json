@@ -22,6 +22,11 @@
         "assets": [
           "packages/nx-fhir/*.md",
           {
+            "input": "./packages/nx-fhir",
+            "glob": "package.json",
+            "output": "."
+          },
+          {
             "input": "./packages/nx-fhir/src",
             "glob": "**/!(*.ts)",
             "ignore": ["**/files/**"],
@@ -62,7 +67,6 @@
       "command": "npm unpublish nx-fhir@$(node -p \"require('./packages/nx-fhir/package.json').version\") --force"
     },
     "nx-release-publish": {
-      "dependsOn": ["build"],
       "options": {
         "packageRoot": "dist/{projectRoot}"
       }

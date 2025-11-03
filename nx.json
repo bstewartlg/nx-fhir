@@ -3,7 +3,12 @@
   "release": {
     "projects":["packages/*"],
     "version": {
-      "preVersionCommand": "bunx nx run-many -t build"
+      "preVersionCommand": "bunx nx run-many -t build",
+      "conventionalCommits": false
+    },
+    "changelog": {
+      "workspaceChangelog": false,
+      "projectChangelogs": false
     }
   },
   "workspaceLayout": {
