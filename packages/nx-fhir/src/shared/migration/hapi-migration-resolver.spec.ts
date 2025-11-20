@@ -72,9 +72,9 @@ describe('hapi-migration-resolver', () => {
       expect(reachable).not.toContain('8.6.0');
     });
 
-    it('should find limited reachable versions from 8.4.0', () => {
-      const reachable = getReachableVersions('8.4.0');
-      
+    it('should find limited reachable versions from 8.4.0-3', () => {
+      const reachable = getReachableVersions('8.4.0-3');
+
       expect(reachable).toHaveLength(0);
     });
 

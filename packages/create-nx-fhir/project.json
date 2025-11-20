@@ -38,7 +38,7 @@
       "command": "npm unpublish create-nx-fhir@$(node -p \"require('./packages/create-nx-fhir/package.json').version\") --force"
     },
     "test": {
-      "executor": "@nx/vite:test",
+      "executor": "@nx/vitest:test",
       "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
         "configFile": "packages/create-nx-fhir/vite.config.ts"

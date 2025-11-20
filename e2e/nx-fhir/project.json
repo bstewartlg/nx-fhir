@@ -7,10 +7,10 @@
   "implicitDependencies": ["nx-fhir"],
   "targets": {
     "e2e": {
-      "executor": "@nx/vite:test",
+      "executor": "@nx/vitest:test",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
-        "configFile": "e2e/nx-fhir/vite.config.ts",
-        "include": ["tests/**/*.e2e.spec.ts"]
+        "configFile": "e2e/nx-fhir/vite.config.ts"
       }
     }
   }

@@ -72,12 +72,10 @@
       }
     },
     "test": {
-      "executor": "@nx/vite:test",
+      "executor": "@nx/vitest:test",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
-        "include": [
-          "src/**/*.spec.ts",
-          "!src/**/*.e2e.spec.ts"
-        ]
+        "configFile": "packages/nx-fhir/vite.config.ts"
       }
     },
     "build-install": {

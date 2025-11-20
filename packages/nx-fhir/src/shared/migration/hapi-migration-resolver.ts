@@ -22,6 +22,11 @@ export const HAPI_MIGRATIONS: HapiMigration[] = [
     from: '8.2.0',
     to: '8.4.0',
     implementation: 'migrations/hapi-server/8.2.0-to-8.4.0/migration'
+  },
+  {
+    from: '8.4.0',
+    to: '8.4.0-3',
+    implementation: 'migrations/hapi-server/8.4.0-to-8.4.0-3/migration'
   }
 ];
 
