@@ -23,7 +23,8 @@ export default [
     files: [
       '**/package.json',
       '**/generators.json',
-      '**/migrations.json'
+      '**/migrations.json',
+      '**/migrations.json',
     ],
     rules: {
       '@nx/nx-plugin-checks': 'error',

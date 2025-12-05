@@ -36,7 +36,8 @@ export async function registerNxPlugin(tree: Tree) {
   const packageJson = readJson(tree, 'package.json');
 
   if (!packageJson) {
-    throw new Error('package.json not found');
+    logger.info('No package.json found at the workspace root. Skipping script additions.');
+    return;
   }
 
   if (!packageJson.scripts) {

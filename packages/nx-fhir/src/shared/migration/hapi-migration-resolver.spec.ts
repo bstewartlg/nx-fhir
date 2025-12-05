@@ -72,14 +72,14 @@ describe('hapi-migration-resolver', () => {
       expect(reachable).not.toContain('8.6.0');
     });
 
-    it('should find limited reachable versions from 8.4.0-3', () => {
-      const reachable = getReachableVersions('8.4.0-3');
+    it('should find limited reachable versions from 8.6.0-1', () => {
+      const reachable = getReachableVersions('8.6.0-1');
 
       expect(reachable).toHaveLength(0);
     });
 
     it('should return empty array for version with no migrations', () => {
-      const reachable = getReachableVersions('8.8.0');
+      const reachable = getReachableVersions('9.0.0');
       
       expect(reachable).toHaveLength(0);
     });

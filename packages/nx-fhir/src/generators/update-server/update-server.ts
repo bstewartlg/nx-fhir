@@ -7,12 +7,13 @@ import {
 import * as path from 'path';
 import { UpdateServerGeneratorSchema } from './schema';
 import { ServerProjectConfiguration } from '../../shared/models';
-import { select } from '@inquirer/prompts';
+import { select, confirm } from '@inquirer/prompts';
 import {
   validateMigrationPath,
   getReachableVersions,
 } from '../../shared/migration/hapi-migration-resolver';
 import { ensureGitRepositoryClean, getUncommittedFiles } from '../../shared/utils/git';
+import { runHapiMigration } from '../../shared/migration/hapi-migration';
 
 export async function updateServerGenerator(
   tree: Tree,
@@ -20,10 +21,13 @@ export async function updateServerGenerator(
 ) {
 
   // Check git repository status before proceeding
+  // When called from nx migrate, exclude expected migrate files (package.json, lock files, migrations.json)
+  const excludeNxMigrateFiles = options.fromNxMigrate ?? false;
+  
   try {
-    ensureGitRepositoryClean(tree.root, options.force);
+    ensureGitRepositoryClean(tree.root, options.force, excludeNxMigrateFiles);
   } catch (error) {
-    const uncommittedFiles = getUncommittedFiles(tree.root);
+    const uncommittedFiles = getUncommittedFiles(tree.root, excludeNxMigrateFiles);
     if (uncommittedFiles.length > 0) {
       logger.error('\nUncommitted files:');
       uncommittedFiles.slice(0, 10).forEach(file => logger.error(`  - ${file}`));
@@ -129,27 +133,48 @@ export async function updateServerGenerator(
     );
   }
 
-  // Execute migrations in order
-  for (const migration of migrationPath) {
-    logger.info(`\nExecuting migration: ${migration.from} → ${migration.to}`);
+  // Execute migrations in order, prompting after conflicts
+  for (let i = 0; i < migrationPath.length; i++) {
+    const migration = migrationPath[i];
+    const isLastMigration = i === migrationPath.length - 1;
 
-    try {
-      // Resolve migration path from the plugin source root
-      const migrationPath = path.join(
-        __dirname,
-        '../..',
-        migration.implementation
-      );
-      const migrationModule = require(migrationPath);
-      const migrationFn = migrationModule.default;
-      await migrationFn(tree, options);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to execute migration: ${errorMessage}`);
-      throw new Error(
-        `Migration ${migration.from} → ${migration.to} failed: ${errorMessage}`,
-      );
+    logger.info(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    logger.info(`Migration step ${i + 1}/${migrationPath.length}: ${migration.from} → ${migration.to}`);
+    logger.info(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+
+    const result = await runHapiMigration(tree, {
+      fromVersion: migration.from,
+      toVersion: migration.to,
+      project: options.project,
+    });
+
+    if (!result.success) {
+      throw new Error(`Migration ${migration.from} → ${migration.to} failed`);
+    }
+
+    // If there were conflicts and more migrations remain, prompt user
+    if (result.hasConflicts && !isLastMigration) {
+      const remainingMigrations = migrationPath.slice(i + 1);
+      const nextMigration = remainingMigrations[0];
+
+      logger.warn(`\n⚠️  Merge conflicts were found in this migration step.`);
+      logger.warn(`    It's recommended to resolve conflicts before continuing.`);
+      logger.warn(`    Look for <<<<<<< markers in your files.`);
+
+      const shouldContinue = await confirm({
+        message: `Continue to the next migration (${nextMigration.from} → ${nextMigration.to})? (${remainingMigrations.length} step(s) remaining)`,
+        default: false,
+      });
+
+      if (!shouldContinue) {
+        logger.info('\nMigration chain paused.');
+        logger.info(`Project ${options.project} is now at version ${migration.to}.`);
+        logger.info('After resolving conflicts, run the update-server generator again to continue.');
+        
+        // Still format files and exit successfully - partial migration is valid
+        await formatFiles(tree);
+        return;
+      }
     }
   }
 

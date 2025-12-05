@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "Update",
+  "title": "Update nx-fhir plugin",
+  "type": "object",
+  "properties": {
+    "force": {
+      "type": "boolean",
+      "description": "Force update and override safety checks (e.g., uncommitted files warning)",
+      "default": false
+    }
+  },
+  "required": []
+}

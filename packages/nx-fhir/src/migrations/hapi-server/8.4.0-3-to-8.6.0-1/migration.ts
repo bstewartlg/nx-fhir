@@ -7,8 +7,8 @@ export default async function update(
   options: UpdateServerGeneratorSchema = {}
 ) {
   await runHapiMigration(tree, {
-    fromVersion: '8.2.0',
-    toVersion: '8.4.0',
+    fromVersion: '8.4.0-3',
+    toVersion: '8.6.0-1',
     project: options.project,
   });
 }

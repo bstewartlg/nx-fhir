@@ -21,6 +21,12 @@
       "type": "boolean",
       "description": "Force update and override safety checks (not recommended)",
       "default": false
+    },
+    "fromNxMigrate": {
+      "type": "boolean",
+      "description": "Internal flag: Set when called from nx migrate (ignores expected migrate file changes)",
+      "default": false,
+      "x-priority": "internal"
     }
   },
   "required": []

@@ -31,6 +31,11 @@
       "factory": "./src/generators/update-server/update-server",
       "schema": "./src/generators/update-server/schema.json",
       "description": "update-server generator"
+    },
+    "update": {
+      "factory": "./src/generators/update/update",
+      "schema": "./src/generators/update/schema.json",
+      "description": "Update nx-fhir plugin and check for server updates"
     }
   }
 }

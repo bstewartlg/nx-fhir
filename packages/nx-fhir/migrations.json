@@ -1,16 +1,77 @@
 {
-  "migrations": [],
   "generators": {
-    "migration": {
-      "version": "0.1.1",
-      "description": "Migration for v0.1.1",
-      "implementation": "./src/migrations/hapi-server/8.4.0-to-8.4.0-3/migration"
+    "check-server-updates": {
+      "version": "0.1.2",
+      "description": "Check for available HAPI FHIR server updates",
+      "implementation": "./src/migrations/check-server-updates/migration"
     }
   },
   "packageJsonUpdates": {
     "0.1.1": {
       "version": "0.1.1",
-      "packages": {}
+      "packages": {
+        "nx": {
+          "version": "22.1.0",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/workspace": {
+          "version": "22.1.0",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/devkit": {
+          "version": "22.1.0",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/eslint": {
+          "version": "22.1.0",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/js": {
+          "version": "22.1.0",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/vite": {
+          "version": "22.1.0",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/plugin": {
+          "version": "22.1.0",
+          "alwaysAddToPackageJson": false
+        }
+      }
+    },
+    "0.1.2": {
+      "version": "0.1.2",
+      "packages": {
+        "nx": {
+          "version": "22.1.3",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/workspace": {
+          "version": "22.1.3",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/devkit": {
+          "version": "22.1.3",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/eslint": {
+          "version": "22.1.3",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/js": {
+          "version": "22.1.3",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/vite": {
+          "version": "22.1.3",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/plugin": {
+          "version": "22.1.3",
+          "alwaysAddToPackageJson": false
+        }
+      }
     }
   }
 }
