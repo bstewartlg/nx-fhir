@@ -33,9 +33,9 @@ export async function frontendGenerator(
 
   const isDryRun = process.argv.includes('--dry-run');
 
-  // Run Next.js generator to bootstrap the frontend. Pinning the version to 15.x currently until MUI supports 16: https://github.com/mui/material-ui/issues/47109
+  // Run Next.js generator to bootstrap the frontend.
   const packageManager = detectPackageManager();
-  const generateCommand = getExecuteCommand(packageManager, `--yes create-next-app@15 ${projectRoot} --ts --app --tailwind --turbopack --src-dir --eslint --use-${packageManager} --yes`);
+  const generateCommand = getExecuteCommand(packageManager, `--yes create-next-app@16 ${projectRoot} --ts --app --tailwind --src-dir --eslint --yes`);
 
   if (isDryRun) {
     logger.info(`[Dry Run] Would execute: ${generateCommand}`);
