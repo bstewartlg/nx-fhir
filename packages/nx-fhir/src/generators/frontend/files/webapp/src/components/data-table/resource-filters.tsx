@@ -152,7 +152,7 @@ export const ResourceFilters = memo(function ResourceFilters({
           <Tooltip>
             <TooltipTrigger asChild>
               <Input
-                placeholder="FHIR search params (e.g., name=John&status=active)"
+                placeholder="FHIR search params (e.g., name=John&gender=female)"
                 value={searchString}
                 onChange={(e) => setSearchString(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -181,7 +181,7 @@ export const ResourceFilters = memo(function ResourceFilters({
                 </li>
                 <li>
                   <code className="bg-foreground/20 px-1 rounded">
-                    status=active
+                    gender=female
                   </code>{" "}
                   - token match
                 </li>

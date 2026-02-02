@@ -153,5 +153,5 @@ This plugin makes use of several external projects. For more information, please
 
 - [Nx Documentation](https://nx.dev)
 - [HAPI FHIR JPA Server Starter](https://github.com/hapifhir/hapi-fhir-jpaserver-starter)
-- [Next.js Documentation](https://nextjs.org/docs)
+- [TanStack Documentation](https://tanstack.com)
 

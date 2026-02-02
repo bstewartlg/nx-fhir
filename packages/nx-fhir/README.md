@@ -5,7 +5,7 @@ An Nx plugin for building FHIR servers and frontends.
 ## Features
 
 - 🚀 **Quick Start**: Generate complete FHIR server projects based on [HAPI FHIR JPA Starter](https://github.com/hapifhir/hapi-fhir-jpaserver-starter)
-- 🎨 **Frontend**: Scaffold Next.js frontend that integrates with the FHIR server
+- 🎨 **Frontend**: Scaffold TanStack Router-based React frontend SPA that integrates with the FHIR server
 - ⚡ **Custom Operations**: Generate custom FHIR operations from OperationDefinition resources
 - 📚 **Implementation Guides**: Add FHIR Implementation Guides to your server
 - 🔄 **Updates**: Keep your HAPI FHIR server up to date with the newer releases
@@ -53,7 +53,7 @@ nx g nx-fhir:server --directory=my-fhir-server --packageBase=com.myorg.fhir --fh
 
 ### Frontend
 
-Generate a basic Next.js frontend application that can be packaged with the FHIR server:
+Generate a basic TanStack Router-based React SPA that can be packaged with the FHIR server:
 
 ```sh
 nx g nx-fhir:frontend
@@ -194,6 +194,6 @@ This plugin makes use of several external projects. For more information, please
 
 - [Nx Documentation](https://nx.dev)
 - [HAPI FHIR JPA Server Starter](https://github.com/hapifhir/hapi-fhir-jpaserver-starter)
-- [Next.js Documentation](https://nextjs.org/docs)
+- [TanStack Documentation](https://tanstack.com)
 
 

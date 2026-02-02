@@ -72,6 +72,39 @@
           "alwaysAddToPackageJson": false
         }
       }
+    },
+    "0.2.0": {
+      "version": "0.2.0",
+      "packages": {
+        "nx": {
+          "version": "22.4.4",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/workspace": {
+          "version": "22.4.4",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/devkit": {
+          "version": "22.4.4",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/eslint": {
+          "version": "22.4.4",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/js": {
+          "version": "22.4.4",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/vite": {
+          "version": "22.4.4",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/plugin": {
+          "version": "22.4.4",
+          "alwaysAddToPackageJson": false
+        }
+      }
     }
   }
 }
