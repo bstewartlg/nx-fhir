@@ -71,7 +71,6 @@ async function serveServer(
     const child = spawn('mvn', args, {
       cwd: projectPath,
       stdio: 'inherit',
-      shell: true,
     });
 
     // Handle process termination
@@ -100,7 +99,7 @@ async function serveFrontend(
   options: ServeExecutorSchema,
   projectPath: string
 ): Promise<{ success: boolean }> {
-  logger.info('🚀 Starting Next.js Frontend...');
+  logger.info('🚀 Starting Vite Frontend...');
 
   // Build command
   const args = ['run', 'dev', '--'];
@@ -110,7 +109,7 @@ async function serveFrontend(
   }
   
   if (options.host) {
-    args.push('--hostname', options.host);
+    args.push('--host', options.host);
   }
 
   if (options.debug) {
@@ -121,7 +120,6 @@ async function serveFrontend(
     const child = spawn(detectPackageManager(), args, {
       cwd: projectPath,
       stdio: 'inherit',
-      shell: true,
     });
 
     // Handle process termination
@@ -139,7 +137,7 @@ async function serveFrontend(
       if (code === 0 || code === null) {
         resolve({ success: true });
       } else {
-        logger.error(`npm process exited with code ${code}`);
+        logger.error(`Vite process exited with code ${code}`);
         resolve({ success: false });
       }
     });

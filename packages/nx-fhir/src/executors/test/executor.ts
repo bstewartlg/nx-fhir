@@ -81,7 +81,7 @@ function testFrontend(
   options: TestExecutorSchema,
   projectPath: string
 ): { success: boolean } {
-  logger.info('🧪 Running Next.js Frontend tests...');
+  logger.info('🧪 Running Vitest Frontend tests...');
 
   const args = ['run', 'test'];
   

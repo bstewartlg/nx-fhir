@@ -10,7 +10,7 @@ export function getPackageManager(): PackageManager {
       return value as PackageManager;
     }
   }
-  
+
   // Fallback to auto-detection or bun if detection fails
   return detectPackageManager() || 'bun';
 }
@@ -35,7 +35,7 @@ export function getInstallCommand(
       baseCommand = 'npm install';
       break;
   }
-  
+
   if (!packageName) {
     return baseCommand;
   }
@@ -97,5 +97,41 @@ export function getPackCommand(
       return `bun pm pack`;
     case 'npm':
       return `npm pack`;
+  }
+}
+
+/**
+ * Gets the CI install command for the specified package manager (frozen lockfile)
+ */
+export function getCiInstallCommand(packageManager: PackageManager): string {
+  switch (packageManager) {
+    case 'bun':
+      return 'bun install --frozen-lockfile';
+    case 'npm':
+      return 'npm ci';
+  }
+}
+
+/**
+ * Gets the Docker base image for the specified package manager
+ */
+export function getDockerBaseImage(packageManager: PackageManager): string {
+  switch (packageManager) {
+    case 'bun':
+      return 'oven/bun:1-slim';
+    case 'npm':
+      return 'node:24-slim';
+  }
+}
+
+/**
+ * Gets the lockfile name for the specified package manager
+ */
+export function getLockfileName(packageManager: PackageManager): string {
+  switch (packageManager) {
+    case 'bun':
+      return 'bun.lock';
+    case 'npm':
+      return 'package-lock.json';
   }
 }

@@ -162,10 +162,8 @@ function createServerProjectNodes(projectRoot: string, projectJson: any) {
  * Create frontend project nodes for the project graph to add Nx targets and tags
  */
 function createFrontendProjectNodes(projectRoot: string, projectJson: any) {
-  // Enhance the project configuration
   const targets: Record<string, TargetConfiguration> = {};
 
-  // Add frontend build target if it doesn't already exist
   if (!projectJson.targets?.build) {
     targets.build = {
       executor: 'nx-fhir:build',
@@ -174,10 +172,10 @@ function createFrontendProjectNodes(projectRoot: string, projectJson: any) {
         'production',
         '^production',
         '{projectRoot}/package.json',
-        '{projectRoot}/next.config.js',
+        '{projectRoot}/vite.config.ts',
         '{projectRoot}/tsconfig.json'
       ],
-      outputs: ['{projectRoot}/out', '{projectRoot}/.next'],
+      outputs: ['{projectRoot}/dist'],
       options: {
         production: true,
       },
@@ -192,7 +190,6 @@ function createFrontendProjectNodes(projectRoot: string, projectJson: any) {
         'default',
         '^production',
         '{projectRoot}/package.json',
-        '{projectRoot}/jest.config.js',
         '{projectRoot}/vitest.config.ts'
       ],
       options: {},
@@ -205,7 +202,6 @@ function createFrontendProjectNodes(projectRoot: string, projectJson: any) {
     };
   }
 
-  // Add missing tags
   const tags: string[] = projectJson.tags || [];
   if (!tags.includes('fhir')) {
     tags.push('fhir');
@@ -223,8 +219,8 @@ function createFrontendProjectNodes(projectRoot: string, projectJson: any) {
         targets,
         tags,
         metadata: {
-          description: 'Next.js based FHIR client application',
-          technologies: ['nextjs', 'react', 'typescript', 'fhir']
+          description: 'TanStack Router based FHIR client application',
+          technologies: ['vite', 'tanstack', 'react', 'typescript', 'fhir']
         }
       },
     },

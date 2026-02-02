@@ -96,7 +96,7 @@ function buildFrontend(
   options: BuildExecutorSchema,
   projectPath: string,
 ): { success: boolean } {
-  logger.info('🔨 Building Next.js Frontend...');
+  logger.info('🔨 Building Vite Frontend...');
 
   const packageManager = detectPackageManager();
 

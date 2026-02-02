@@ -1,29 +1,27 @@
-# Multi-stage Dockerfile for FHIR Server with Next.js Static Export Frontend
+# Multi-stage Dockerfile for FHIR Server with TanStack SPA Frontend
 
 ##########################################################################
-# Stage 1: Build the Next.js frontend
+# Stage 1: Build the TanStack SPA frontend
 ##########################################################################
-FROM node:24-slim AS build-frontend
+FROM <%= dockerBaseImage %> AS build-frontend
 
 WORKDIR /app
 
-# Copy package files
-COPY <%= frontendRoot %>/package*.json ./<%= frontendRoot %>/
+# Copy package files and lockfile
+COPY <%= frontendRoot %>/package.json ./<%= frontendRoot %>/
+COPY <%= frontendRoot %>/<%= lockfileName %> ./<%= frontendRoot %>/
 
 # Install dependencies
 WORKDIR /app/<%= frontendRoot %>
-RUN npm ci --verbose
-
+RUN <%= ciInstallCommand %>
 
 # Copy frontend source code
 WORKDIR /app
 COPY <%= frontendRoot %>/ ./<%= frontendRoot %>/
-COPY nx.json ./
-COPY tsconfig*.json ./
 
-# Build the frontend for production (static export)
+# Build the frontend for production
 WORKDIR /app/<%= frontendRoot %>
-RUN npm run build
+RUN <%= buildCommand %>
 
 ##########################################################################
 # Stage 2: Build the HAPI FHIR Server
@@ -44,7 +42,7 @@ RUN mvn -ntp dependency:go-offline
 COPY <%= serverRoot %>/src/ /tmp/hapi-fhir-jpaserver-starter/src/
 
 # Copy frontend build artifacts to server's static resources directory
-COPY --from=build-frontend /app/<%= frontendRoot %>/out/ /tmp/hapi-fhir-jpaserver-starter/src/main/resources/static/
+COPY --from=build-frontend /app/<%= frontendRoot %>/dist/ /tmp/hapi-fhir-jpaserver-starter/src/main/resources/static/
 
 # Build the server
 RUN mvn clean install -DskipTests -Djdk.lang.Process.launchMechanism=vfork

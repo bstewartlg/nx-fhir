@@ -115,7 +115,6 @@ describe('server generator e2e test', () => {
     logger.info('Starting the generated server...');
     const serverProcess = spawn(getExecuteCommand(packageManager), ['nx', 'serve', 'server'], {
       cwd: projectDirectory,
-      shell: true,
     });
 
     let output = '';

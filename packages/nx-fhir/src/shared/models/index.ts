@@ -79,3 +79,8 @@ export interface ServerProjectConfiguration extends ProjectConfiguration {
   hapiReleaseVersion: string;
   pluginVersion: string;
 }
+
+export interface FrontendProjectConfiguration extends ProjectConfiguration {
+  frontendVersion: string;
+  pluginVersion: string;
+}

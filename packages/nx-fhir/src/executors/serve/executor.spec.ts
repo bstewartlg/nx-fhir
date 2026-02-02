@@ -169,7 +169,7 @@ describe('Serve Executor', () => {
     const expectedCwd = path.join('/workspace', 'apps/test-project');
     expect(child_process.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^(npm|pnpm|bun)$/),
-      ['run', 'dev', '--', '--port', '4200', '--hostname', '0.0.0.0'],
+      ['run', 'dev', '--', '--port', '4200', '--host', '0.0.0.0'],
       expect.objectContaining({
         cwd: expectedCwd,
       })
