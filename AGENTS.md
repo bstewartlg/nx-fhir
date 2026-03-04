@@ -9,6 +9,7 @@ nx-fhir is an Nx plugin for building FHIR healthcare interoperability projects. 
 ## Commands
 
 ### Build & Test
+
 ```sh
 bun install                    # Install dependencies
 bun run build                  # Build all packages (nx run-many -t build)
@@ -17,6 +18,7 @@ bun run e2e                    # Run e2e tests (creates temp workspace, generate
 ```
 
 ### Single Package Operations
+
 ```sh
 nx build nx-fhir               # Build the main plugin
 nx test nx-fhir                # Run unit tests for nx-fhir
@@ -24,6 +26,7 @@ nx lint nx-fhir                # Lint the plugin
 ```
 
 ### Local Development
+
 ```sh
 # Start local npm registry (Verdaccio)
 bun nx run @nx-fhir/source:local-registry
@@ -39,6 +42,7 @@ bun run build && cd dist/packages/nx-fhir && bun link && bun install --productio
 ```
 
 ### E2E Testing with Specific Package Manager
+
 ```sh
 PACKAGE_MANAGER=npm npm run e2e    # Use npm instead of bun for e2e
 ```
@@ -46,31 +50,38 @@ PACKAGE_MANAGER=npm npm run e2e    # Use npm instead of bun for e2e
 ## Architecture
 
 ### Packages
+
 - **`packages/nx-fhir`**: Main Nx plugin with generators, executors, and migrations
 - **`packages/create-nx-fhir`**: CLI tool (`npx create-nx-fhir`) to scaffold new workspaces
 
 ### Generators (`packages/nx-fhir/src/generators/`)
-| Generator | Purpose |
-|-----------|---------|
-| `server` | Creates HAPI FHIR JPA server from hapi-fhir-jpaserver-starter |
-| `frontend` | Scaffolds TanStack Router/Query frontend with Vite |
-| `operation` | Generates custom FHIR operation stubs from OperationDefinition JSON |
-| `implementation-guide` | Adds FHIR IG artifacts to server (alias: `ig`) |
-| `update-server` | Updates existing server to newer HAPI version |
-| `preset` | Used by create-nx-fhir for workspace initialization |
+
+| Generator              | Purpose                                                             |
+| ---------------------- | ------------------------------------------------------------------- |
+| `server`               | Creates HAPI FHIR JPA server from hapi-fhir-jpaserver-starter       |
+| `frontend`             | Scaffolds TanStack Router/Query frontend with Vite                  |
+| `operation`            | Generates custom FHIR operation stubs from OperationDefinition JSON |
+| `implementation-guide` | Adds FHIR IG artifacts to server (alias: `ig`)                      |
+| `update-server`        | Updates existing server to newer HAPI version                       |
+| `preset`               | Used by create-nx-fhir for workspace initialization                 |
 
 ### Executors (`packages/nx-fhir/src/executors/`)
+
 - `serve`: Runs Maven spring-boot:run for servers, Vite dev for frontends
 - `build`: Runs Maven package or Vite build
 - `test`: Runs Maven test or Vitest
 
 ### Project Detection (`packages/nx-fhir/src/plugin.ts`)
+
 The plugin auto-detects project types:
+
 - **Server**: Has `pom.xml` + `fhirVersion` in project.json
 - **Frontend**: Has `package.json` with `@types/fhir` or `nx-fhir-frontend` tag
 
 ### Migrations (`packages/nx-fhir/src/migrations/`)
+
 HAPI server version migrations with three-way merge support:
+
 - `8.2.0-to-8.4.0`
 - `8.4.0-to-8.4.0-3`
 - `8.4.0-3-to-8.6.0-1`
@@ -78,6 +89,7 @@ HAPI server version migrations with three-way merge support:
 Migration resolver uses BFS graph traversal to find migration paths between versions.
 
 ### Shared Code (`packages/nx-fhir/src/shared/`)
+
 - `models/`: TypeScript interfaces for FHIR resources and project config
 - `utils/`: Helpers for package manager detection, server YAML updates, Git operations, three-way merge
 - `migration/`: HAPI migration resolver and base migration logic
@@ -86,7 +98,9 @@ Migration resolver uses BFS graph traversal to find migration paths between vers
 ## Key Patterns
 
 ### Generator Structure
+
 Each generator follows the pattern:
+
 ```
 generators/{name}/
   ├── {name}.ts          # Main generator function
@@ -97,38 +111,52 @@ generators/{name}/
 ```
 
 ### Three-Way Merge for Migrations
+
 Server migrations use `migrateWithThreeWayMerge()` from `shared/utils/merge.ts`:
+
 1. Downloads old HAPI starter release (base)
 2. Downloads new HAPI starter release (target)
 3. Performs diff3 merge: preserves user changes, applies upstream updates, marks conflicts
 
 ### FHIR Version Support
+
 Supports FHIR versions: `STU3`, `R4`, `R4B`, `R5` (see `FhirVersion` enum in `shared/models/index.ts`)
 
 ### Server Configuration
+
 Server projects store config in `src/main/resources/application.yaml`. Use `updateServerYaml()` utility to modify.
 
 ### Package Manager Support
+
 Only `bun` and `npm` are supported. Use utilities in `shared/utils/package-manager.ts` for package manager abstraction.
 
 ## Requirements
+
 - Node.js 20+
 - Java JDK 17+ (for server projects)
 - Maven (for building server projects)
 - bun (preferred) or npm
 
-
-
 <!-- nx configuration start-->
 <!-- Leave the start & end comments to automatically receive updates. -->
 
-# General Guidelines for working with Nx
+## General Guidelines for working with Nx
 
+- For navigating/exploring the workspace, invoke the `nx-workspace` skill first - it has patterns for querying projects, targets, and dependencies
 - When running tasks (for example build, lint, test, e2e, etc.), always prefer running the task through `nx` (i.e. `nx run`, `nx run-many`, `nx affected`) instead of using the underlying tooling directly
+- Prefix nx commands with the workspace's package manager (e.g., `pnpm nx build`, `npm exec nx test`) - avoids using globally installed CLI
 - You have access to the Nx MCP server and its tools, use them to help the user
-- When answering questions about the repository, use the `nx_workspace` tool first to gain an understanding of the workspace architecture where applicable.
-- When working in individual projects, use the `nx_project_details` mcp tool to analyze and understand the specific project structure and dependencies
-- For questions around nx configuration, best practices or if you're unsure, use the `nx_docs` tool to get relevant, up-to-date docs. Always use this instead of assuming things about nx configuration
-- If the user needs help with an Nx configuration or project graph error, use the `nx_workspace` tool to get any errors
+- For Nx plugin best practices, check `node_modules/@nx/<plugin>/PLUGIN.md`. Not all plugins have this file - proceed without it if unavailable.
+- NEVER guess CLI flags - always check nx_docs or `--help` first when unsure
+
+## Scaffolding & Generators
+
+- For scaffolding tasks (creating apps, libs, project structure, setup), ALWAYS invoke the `nx-generate` skill FIRST before exploring or calling MCP tools
+
+## When to use nx_docs
+
+- USE for: advanced config options, unfamiliar flags, migration guides, plugin configuration, edge cases
+- DON'T USE for: basic generator syntax (`nx g @nx/react:app`), standard commands, things you already know
+- The `nx-generate` skill handles generator discovery internally - don't call nx_docs just to look up generator syntax
 
 <!-- nx configuration end-->

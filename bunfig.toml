@@ -1,0 +1,3 @@
+# Effectively disable "bun test" by default since we are using vitest
+[test]
+root = ".bun-test"

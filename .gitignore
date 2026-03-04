@@ -40,10 +40,21 @@ Thumbs.db
 
 .nx/cache
 .nx/workspace-data
-.cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
 vite.config.*.timestamp*
 vitest.config.*.timestamp*
 .env
 .secrets
+
+
+# Keep agent documentation limited to root AGENTS.md file
+
+# AI Agent/CLI directories and files
+.claude/
+.opencode/
+
+# AI-generated files (except AGENTS.md in root)
+**/AGENTS.md
+!AGENTS.md
+CLAUDE.md
