@@ -24,11 +24,7 @@ export function ClinicalTable<T>({
   emptyMessage = "No data available",
 }: ClinicalTableProps<T>) {
   if (!loading && data.length === 0) {
-    return (
-      <p className="py-8 text-sm text-muted-foreground">
-        {emptyMessage}
-      </p>
-    );
+    return <p className="py-8 text-sm text-muted-foreground">{emptyMessage}</p>;
   }
 
   const skeletonWidths = ["w-3/4", "w-1/2", "w-2/3", "w-1/3", "w-5/6"];

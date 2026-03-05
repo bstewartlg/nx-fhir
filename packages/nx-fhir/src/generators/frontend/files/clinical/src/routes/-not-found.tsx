@@ -10,8 +10,8 @@ export function NotFoundComponent() {
       <div className="mt-4 space-y-2">
         <h2 className="text-xl font-semibold">Page not found</h2>
         <p className="text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved. Check
-          the URL or navigate back to the patient search.
+          The page you're looking for doesn't exist or has been moved. Check the
+          URL or navigate back to the patient search.
         </p>
       </div>
 

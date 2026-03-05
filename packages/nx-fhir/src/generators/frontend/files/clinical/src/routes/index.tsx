@@ -47,9 +47,7 @@ function PatientSearchPage() {
 
       {isError && (
         <p className="text-sm text-destructive">
-          {error instanceof Error
-            ? error.message
-            : "Failed to search patients"}
+          {error instanceof Error ? error.message : "Failed to search patients"}
         </p>
       )}
 
@@ -100,8 +98,7 @@ function PatientSearchPage() {
               },
               {
                 header: "Last Updated",
-                accessor: (p) =>
-                  formatClinicalDate(p.meta?.lastUpdated),
+                accessor: (p) => formatClinicalDate(p.meta?.lastUpdated),
               },
             ]}
             data={patients}

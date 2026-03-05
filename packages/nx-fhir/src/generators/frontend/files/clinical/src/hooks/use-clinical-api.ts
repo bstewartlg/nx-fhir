@@ -1,10 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type {
-  Bundle,
-  Condition,
-  MedicationRequest,
-  Patient,
-} from "fhir/r4";
+import type { Bundle, Condition, MedicationRequest, Patient } from "fhir/r4";
 import { fhirFetch } from "./use-fhir-api";
 import { useFhirServer } from "./use-fhir-server";
 
@@ -51,8 +46,7 @@ export function usePatient(patientId: string) {
 
   return useQuery({
     queryKey: ["fhir", "Patient", patientId, serverUrl],
-    queryFn: () =>
-      fhirFetch<Patient>(`${serverUrl}/Patient/${patientId}`),
+    queryFn: () => fhirFetch<Patient>(`${serverUrl}/Patient/${patientId}`),
     staleTime: 60 * 1000,
     retry: 1,
     enabled: !!serverUrl && !!patientId,
@@ -108,13 +102,7 @@ export function useMedicationRequestCount(patientId: string) {
   const { serverUrl } = useFhirServer();
 
   return useQuery({
-    queryKey: [
-      "fhir",
-      "MedicationRequest",
-      "count",
-      patientId,
-      serverUrl,
-    ],
+    queryKey: ["fhir", "MedicationRequest", "count", patientId, serverUrl],
     queryFn: () =>
       fhirFetch<Bundle>(
         `${serverUrl}/MedicationRequest?patient=${patientId}&status=active&_summary=count`,

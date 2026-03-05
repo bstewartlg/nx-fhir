@@ -1,9 +1,4 @@
-import type {
-  CodeableConcept,
-  Dosage,
-  HumanName,
-  Identifier,
-} from "fhir/r4";
+import type { CodeableConcept, Dosage, HumanName, Identifier } from "fhir/r4";
 
 /**
  * Format a FHIR HumanName array into a display string.
@@ -46,10 +41,7 @@ export function calculateAge(birthDate?: string): string {
   let age = today.getFullYear() - birth.getFullYear();
   const monthDiff = today.getMonth() - birth.getMonth();
 
-  if (
-    monthDiff < 0 ||
-    (monthDiff === 0 && today.getDate() < birth.getDate())
-  ) {
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
     age--;
   }
 
@@ -84,9 +76,7 @@ export function formatClinicalDate(dateStr?: string): string {
  * Format a CodeableConcept for display.
  * Prefers text, then first coding display, then first coding code.
  */
-export function formatCodeableConcept(
-  concept?: CodeableConcept,
-): string {
+export function formatCodeableConcept(concept?: CodeableConcept): string {
   if (!concept) return "";
   if (concept.text) return concept.text;
   if (concept.coding?.length) {

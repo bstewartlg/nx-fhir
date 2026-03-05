@@ -1,7 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import {
-  Users,
-} from "lucide-react";
+import { Users } from "lucide-react";
 import type * as React from "react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {

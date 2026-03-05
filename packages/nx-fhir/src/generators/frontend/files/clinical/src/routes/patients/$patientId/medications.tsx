@@ -17,8 +17,7 @@ function MedicationsList() {
   const { patientId } = useParams({
     from: "/patients/$patientId/medications",
   });
-  const { data, isLoading, isError, error } =
-    useMedicationRequests(patientId);
+  const { data, isLoading, isError, error } = useMedicationRequests(patientId);
 
   const medications: MedicationRequest[] =
     data?.entry
@@ -54,8 +53,7 @@ function MedicationsList() {
         columns={[
           {
             header: "Medication",
-            accessor: (m) =>
-              formatCodeableConcept(m.medicationCodeableConcept),
+            accessor: (m) => formatCodeableConcept(m.medicationCodeableConcept),
           },
           {
             header: "Status",

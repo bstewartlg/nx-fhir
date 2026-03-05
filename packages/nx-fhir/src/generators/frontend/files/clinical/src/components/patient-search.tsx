@@ -43,7 +43,10 @@ export function PatientSearch({ onSearch }: PatientSearchProps) {
     <form onSubmit={handleSubmit} className="space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="space-y-1.5">
-          <Label htmlFor="family" className="text-xs font-medium text-muted-foreground">
+          <Label
+            htmlFor="family"
+            className="text-xs font-medium text-muted-foreground"
+          >
             Last Name
           </Label>
           <Input
@@ -55,7 +58,10 @@ export function PatientSearch({ onSearch }: PatientSearchProps) {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="given" className="text-xs font-medium text-muted-foreground">
+          <Label
+            htmlFor="given"
+            className="text-xs font-medium text-muted-foreground"
+          >
             First Name
           </Label>
           <Input
@@ -67,7 +73,10 @@ export function PatientSearch({ onSearch }: PatientSearchProps) {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="birthdate" className="text-xs font-medium text-muted-foreground">
+          <Label
+            htmlFor="birthdate"
+            className="text-xs font-medium text-muted-foreground"
+          >
             Date of Birth
           </Label>
           <Input
@@ -79,7 +88,10 @@ export function PatientSearch({ onSearch }: PatientSearchProps) {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="identifier" className="text-xs font-medium text-muted-foreground">
+          <Label
+            htmlFor="identifier"
+            className="text-xs font-medium text-muted-foreground"
+          >
             MRN / Identifier
           </Label>
           <Input
@@ -101,7 +113,13 @@ export function PatientSearch({ onSearch }: PatientSearchProps) {
           Search Patients
         </Button>
         {hasValues && (
-          <Button type="button" variant="outline" size="sm" className="gap-2" onClick={handleClear}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={handleClear}
+          >
             <X className="h-4 w-4" />
             Clear
           </Button>

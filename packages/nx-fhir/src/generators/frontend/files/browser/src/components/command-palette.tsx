@@ -21,7 +21,11 @@ interface CommandPaletteProps {
   onOpenSettings?: () => void;
 }
 
-export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPaletteProps) {
+export function CommandPalette({
+  open,
+  onOpenChange,
+  onOpenSettings,
+}: CommandPaletteProps) {
   const navigate = useNavigate();
   const { serverUrl } = useFhirServer();
   const { data: capability } = useCapabilityStatement(serverUrl);
@@ -66,7 +70,10 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="overflow-hidden p-0 shadow-lg max-w-lg" aria-describedby={undefined}>
+      <DialogContent
+        className="overflow-hidden p-0 shadow-lg max-w-lg"
+        aria-describedby={undefined}
+      >
         <DialogTitle className="sr-only">Command Palette</DialogTitle>
         <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
           <div className="flex items-center border-b px-3">

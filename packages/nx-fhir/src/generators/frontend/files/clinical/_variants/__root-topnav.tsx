@@ -10,9 +10,7 @@ import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NotFoundComponent } from "./-not-found";
 
-const navItems = [
-  { label: "Patients", to: "/", icon: Users },
-] as const;
+const navItems = [{ label: "Patients", to: "/", icon: Users }] as const;
 
 export const Route = createRootRoute({
   component: RootComponent,

@@ -45,9 +45,7 @@ function PatientLayout() {
     return (
       <div className="p-6">
         <p className="text-sm text-destructive">
-          {error instanceof Error
-            ? error.message
-            : "Failed to load patient"}
+          {error instanceof Error ? error.message : "Failed to load patient"}
         </p>
       </div>
     );

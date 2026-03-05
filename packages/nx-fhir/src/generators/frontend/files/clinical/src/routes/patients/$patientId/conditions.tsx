@@ -26,9 +26,7 @@ function ConditionsList() {
     return (
       <div className="p-6">
         <p className="text-sm text-destructive">
-          {error instanceof Error
-            ? error.message
-            : "Failed to load conditions"}
+          {error instanceof Error ? error.message : "Failed to load conditions"}
         </p>
       </div>
     );
@@ -61,9 +59,7 @@ function ConditionsList() {
               return (
                 <Badge
                   variant={
-                    status.toLowerCase() === "active"
-                      ? "default"
-                      : "secondary"
+                    status.toLowerCase() === "active" ? "default" : "secondary"
                   }
                 >
                   {status}
@@ -77,8 +73,7 @@ function ConditionsList() {
           },
           {
             header: "Onset",
-            accessor: (c) =>
-              formatClinicalDate(c.onsetDateTime) || "",
+            accessor: (c) => formatClinicalDate(c.onsetDateTime) || "",
           },
           {
             header: "Recorded",
