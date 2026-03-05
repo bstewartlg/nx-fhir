@@ -50,6 +50,7 @@ function MedicationsList() {
       <ClinicalTable
         loading={isLoading}
         skeletonRows={5}
+        keyExtractor={(m) => m.id ?? ""}
         columns={[
           {
             header: "Medication",

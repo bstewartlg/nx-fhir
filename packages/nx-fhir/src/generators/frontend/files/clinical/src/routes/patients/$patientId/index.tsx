@@ -21,6 +21,7 @@ function PatientSummary() {
         <div className="skeleton h-4 w-32" />
         <div className="grid grid-cols-2 gap-x-6 gap-y-2">
           {Array.from({ length: 6 }).map((_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: skeleton placeholders never reorder
             <div key={i} className="flex justify-between">
               <div className="skeleton h-4 w-20" />
               <div className="skeleton h-4 w-28" />

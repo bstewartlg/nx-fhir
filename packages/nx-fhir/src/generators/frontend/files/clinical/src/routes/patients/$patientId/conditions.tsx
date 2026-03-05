@@ -47,6 +47,7 @@ function ConditionsList() {
       <ClinicalTable
         loading={isLoading}
         skeletonRows={5}
+        keyExtractor={(c) => c.id ?? ""}
         columns={[
           {
             header: "Condition",

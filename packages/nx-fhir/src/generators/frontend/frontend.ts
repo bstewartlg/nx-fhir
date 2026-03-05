@@ -80,7 +80,6 @@ export async function frontendGenerator(
     '@monaco-editor/react': '^4.7.0',
     '@tanstack/react-virtual': '^3.13.18',
     'cmdk': '^1.1.1',
-    'nuqs': '^2.8.7',
   };
 
   const dependencies = template === 'browser'
@@ -140,13 +139,18 @@ export async function frontendGenerator(
   };
   addProjectConfiguration(tree, options.name, projectConfig);
 
-  const templateDir = template === 'clinical' ? 'files/clinical' : 'files/browser';
-  generateFiles(
-    tree,
-    path.join(__dirname, templateDir),
-    projectRoot,
-    options
-  );
+  const templateConfig: Record<string, { appTitle: string; bgLight: string; bgDark: string }> = {
+    browser: { appTitle: 'FHIR Browser', bgLight: '#f9fafb', bgDark: '#171717' },
+    clinical: { appTitle: 'Clinical Portal', bgLight: '#fafafa', bgDark: '#18181b' },
+  };
+
+  const templateVars = { ...options, ...templateConfig[template] };
+
+  // Shared foundation (config, UI components, hooks, lib)
+  generateFiles(tree, path.join(__dirname, 'files/common'), projectRoot, templateVars);
+
+  // Template-specific files (routes, styling, unique components)
+  generateFiles(tree, path.join(__dirname, `files/${template}`), projectRoot, templateVars);
 
   // Resolve navigation layout variant for clinical template
   if (template === 'clinical') {

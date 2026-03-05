@@ -9,6 +9,7 @@ interface Column<T> {
 interface ClinicalTableProps<T> {
   columns: Column<T>[];
   data: T[];
+  keyExtractor?: (row: T, index: number) => string | number;
   loading?: boolean;
   skeletonRows?: number;
   emptyMessage?: string;
@@ -17,6 +18,7 @@ interface ClinicalTableProps<T> {
 export function ClinicalTable<T>({
   columns,
   data,
+  keyExtractor,
   loading = false,
   skeletonRows = 5,
   emptyMessage = "No data available",
@@ -49,6 +51,7 @@ export function ClinicalTable<T>({
         <tbody className="divide-y divide-border">
           {loading
             ? Array.from({ length: skeletonRows }).map((_, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: skeleton placeholders never reorder
                 <tr key={i}>
                   {columns.map((col, j) => (
                     <td key={col.header} className="px-3 py-2">
@@ -61,7 +64,7 @@ export function ClinicalTable<T>({
               ))
             : data.map((row, i) => (
                 <tr
-                  key={i}
+                  key={keyExtractor ? keyExtractor(row, i) : i}
                   className="stagger-item transition-colors hover:[box-shadow:inset_2px_0_0_var(--primary)]"
                   style={{ animationDelay: `${i * 30}ms` }}
                 >

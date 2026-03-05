@@ -7,14 +7,14 @@
     <meta name="theme-color" content="#000000" />
     <meta
       name="description"
-      content="Clinical Portal"
+      content="<%= appTitle %>"
     />
     <link rel="apple-touch-icon" href="/logo192.png" />
     <link rel="manifest" href="/manifest.json" />
-    <title>Clinical Portal</title>
+    <title><%= appTitle %></title>
     <style>
-      html { background-color: #fafafa; }
-      html.dark { background-color: #18181b; }
+      html { background-color: <%= bgLight %>; }
+      html.dark { background-color: <%= bgDark %>; }
     </style>
     <script>
       // Inline script to prevent flash of wrong theme

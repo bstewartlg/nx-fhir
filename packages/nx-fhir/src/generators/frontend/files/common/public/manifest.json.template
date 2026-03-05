@@ -1,6 +1,6 @@
 {
-  "short_name": "Clinical Portal",
-  "name": "Clinical Portal",
+  "short_name": "<%= appTitle %>",
+  "name": "<%= appTitle %>",
   "icons": [
     {
       "src": "favicon.ico",

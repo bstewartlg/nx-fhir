@@ -106,7 +106,6 @@ describe('frontend generator', () => {
     expect(packageJson.dependencies['@monaco-editor/react']).toBeDefined();
     expect(packageJson.dependencies['@tanstack/react-virtual']).toBeDefined();
     expect(packageJson.dependencies['cmdk']).toBeDefined();
-    expect(packageJson.dependencies['nuqs']).toBeDefined();
   });
 
   describe('clinical template', () => {

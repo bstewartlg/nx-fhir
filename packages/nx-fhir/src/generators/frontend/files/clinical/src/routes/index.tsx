@@ -65,6 +65,7 @@ function PatientSearchPage() {
           </h2>
           <ClinicalTable
             loading={isLoading}
+            keyExtractor={(p) => p.id ?? ""}
             columns={[
               {
                 header: "Name",

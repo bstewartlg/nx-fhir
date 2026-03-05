@@ -10,7 +10,7 @@ import {
   Sun,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { getResourceTypes, useCapabilityStatement } from "@/hooks/use-fhir-api";
 import { useFhirServer } from "@/hooks/use-fhir-server";
 import { useTheme } from "@/hooks/use-theme";
@@ -18,9 +18,10 @@ import { useTheme } from "@/hooks/use-theme";
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onOpenSettings?: () => void;
 }
 
-export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
+export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPaletteProps) {
   const navigate = useNavigate();
   const { serverUrl } = useFhirServer();
   const { data: capability } = useCapabilityStatement(serverUrl);
@@ -45,8 +46,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       } else if (value === "resources") {
         navigate({ to: "/resources", search: {} });
       } else if (value === "settings") {
-        // Navigate to dashboard which has server settings
-        navigate({ to: "/" });
+        onOpenSettings?.();
       } else if (value === "theme-light") {
         setTheme("light");
       } else if (value === "theme-dark") {
@@ -61,12 +61,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         });
       }
     },
-    [navigate, onOpenChange, setTheme],
+    [navigate, onOpenChange, onOpenSettings, setTheme],
   );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="overflow-hidden p-0 shadow-lg max-w-lg">
+      <DialogContent className="overflow-hidden p-0 shadow-lg max-w-lg" aria-describedby={undefined}>
+        <DialogTitle className="sr-only">Command Palette</DialogTitle>
         <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
           <div className="flex items-center border-b px-3">
             <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
