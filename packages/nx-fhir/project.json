@@ -78,6 +78,17 @@
         "configFile": "packages/nx-fhir/vite.config.ts"
       }
     },
+    "publish-local": {
+      "executor": "nx:run-commands",
+      "options": {
+        "parallel": false,
+        "commands": [
+          "bun nx release version {args.version}",
+          "bun packages/nx-fhir/scripts/sync-migration-version.mjs",
+          "bun nx run-many --nx-bail=false -t unpublish,nx-release-publish -- --registry http://localhost:4873"
+        ]
+      }
+    },
     "build-install": {
       "executor": "nx:run-commands",
       "options": {

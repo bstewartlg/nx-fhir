@@ -26,6 +26,79 @@ import {
 } from '../../shared/utils/package-manager';
 import { CURRENT_FRONTEND_VERSION } from '../../shared/migration/frontend-migration-resolver';
 
+/**
+ * Template-specific configuration for frontend projects.
+ * Used by both the frontend generator and migration runner.
+ */
+export const FRONTEND_TEMPLATE_CONFIG: Record<string, { appTitle: string; bgLight: string; bgDark: string }> = {
+  browser: { appTitle: 'FHIR Browser', bgLight: '#f9fafb', bgDark: '#171717' },
+  clinical: { appTitle: 'Clinical Portal', bgLight: '#fafafa', bgDark: '#18181b' },
+};
+
+/** Dependencies shared by all frontend templates */
+export const BASE_DEPENDENCIES: Record<string, string> = {
+  '@radix-ui/react-collapsible': '^1.1.12',
+  '@radix-ui/react-scroll-area': '^1.2.10',
+  '@radix-ui/react-tabs': '^1.1.13',
+  '@tailwindcss/vite': '^4.2.1',
+  '@tanstack/react-devtools': '^0.9.9',
+  '@tanstack/react-query': '^5.90.21',
+  '@tanstack/react-router': '^1.166.2',
+  '@tanstack/react-router-devtools': '^1.166.2',
+  '@tanstack/react-table': '^8.21.3',
+  '@tanstack/router-plugin': '^1.166.2',
+  'class-variance-authority': '^0.7.1',
+  'clsx': '^2.1.1',
+  'lucide-react': '^0.577.0',
+  '@monaco-editor/react': '^4.7.0',
+  'radix-ui': '^1.4.3',
+  'react': '^19.2.4',
+  'react-dom': '^19.2.4',
+  'sonner': '^2.0.7',
+  'tailwind-merge': '^3.5.0',
+  'tailwindcss': '^4.2.1',
+  'tw-animate-css': '^1.4.0',
+};
+
+/** Dependencies only needed by the browser template */
+export const BROWSER_ONLY_DEPENDENCIES: Record<string, string> = {
+  '@tanstack/react-virtual': '^3.13.18',
+  'cmdk': '^1.1.1',
+};
+
+/** Dev dependencies for all frontend templates */
+export const DEV_DEPENDENCIES: Record<string, string> = {
+  '@biomejs/biome': '2.4.5',
+  '@tanstack/devtools-vite': '^0.5.3',
+  '@testing-library/dom': '^10.4.1',
+  '@testing-library/jest-dom': '^6.9.1',
+  '@testing-library/react': '^16.3.2',
+  '@types/fhir': '^0.0.41',
+  '@types/node': '^25.3.3',
+  '@types/react': '^19.2.14',
+  '@types/react-dom': '^19.2.3',
+  '@vitejs/plugin-react': '^5.1.4',
+  jsdom: '^28.1.0',
+  typescript: '^5.9.3',
+  vite: '^7.3.1',
+  'vite-tsconfig-paths': '^6.1.1',
+  vitest: '^4.0.18',
+};
+
+/**
+ * Returns the full set of dependencies for a given frontend template.
+ * Used by both the generator (new projects) and migration (updating existing projects).
+ */
+export function getFrontendDependencies(template: string): {
+  dependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
+} {
+  const dependencies = template === 'browser'
+    ? { ...BASE_DEPENDENCIES, ...BROWSER_ONLY_DEPENDENCIES }
+    : { ...BASE_DEPENDENCIES };
+  return { dependencies, devDependencies: { ...DEV_DEPENDENCIES } };
+}
+
 export async function frontendGenerator(
   tree: Tree,
   options: FrontendGeneratorSchema
@@ -51,40 +124,7 @@ export async function frontendGenerator(
   }
 
   const packageManager = detectPackageManager();
-
-  const baseDependencies: Record<string, string> = {
-    '@radix-ui/react-collapsible': '^1.1.12',
-    '@radix-ui/react-scroll-area': '^1.2.10',
-    '@radix-ui/react-tabs': '^1.1.13',
-    '@tailwindcss/vite': '^4.2.1',
-    '@tanstack/react-devtools': '^0.9.9',
-    '@tanstack/react-query': '^5.90.21',
-    '@tanstack/react-router': '^1.166.2',
-    '@tanstack/react-router-devtools': '^1.166.2',
-    '@tanstack/react-table': '^8.21.3',
-    '@tanstack/router-plugin': '^1.166.2',
-    'class-variance-authority': '^0.7.1',
-    'clsx': '^2.1.1',
-    'lucide-react': '^0.577.0',
-    'radix-ui': '^1.4.3',
-    'react': '^19.2.4',
-    'react-dom': '^19.2.4',
-    'sonner': '^2.0.7',
-    'tailwind-merge': '^3.5.0',
-    'tailwindcss': '^4.2.1',
-    'tw-animate-css': '^1.4.0',
-  };
-
-  // Browser template needs additional dependencies
-  const browserOnlyDependencies: Record<string, string> = {
-    '@monaco-editor/react': '^4.7.0',
-    '@tanstack/react-virtual': '^3.13.18',
-    'cmdk': '^1.1.1',
-  };
-
-  const dependencies = template === 'browser'
-    ? { ...baseDependencies, ...browserOnlyDependencies }
-    : baseDependencies;
+  const { dependencies, devDependencies } = getFrontendDependencies(template);
 
   const packageJson = {
     name: options.name,
@@ -100,23 +140,7 @@ export async function frontendGenerator(
       check: 'biome check',
     },
     dependencies,
-    devDependencies: {
-      '@biomejs/biome': '2.4.5',
-      '@tanstack/devtools-vite': '^0.5.3',
-      '@testing-library/dom': '^10.4.1',
-      '@testing-library/jest-dom': '^6.9.1',
-      '@testing-library/react': '^16.3.2',
-      '@types/fhir': '^0.0.41',
-      '@types/node': '^25.3.3',
-      '@types/react': '^19.2.14',
-      '@types/react-dom': '^19.2.3',
-      '@vitejs/plugin-react': '^5.1.4',
-      jsdom: '^28.1.0',
-      typescript: '^5.9.3',
-      vite: '^7.3.1',
-      'vite-tsconfig-paths': '^6.1.1',
-      vitest: '^4.0.18',
-    },
+    devDependencies,
   };
 
   writeJson(tree, `${projectRoot}/package.json`, packageJson);
@@ -139,12 +163,7 @@ export async function frontendGenerator(
   };
   addProjectConfiguration(tree, options.name, projectConfig);
 
-  const templateConfig: Record<string, { appTitle: string; bgLight: string; bgDark: string }> = {
-    browser: { appTitle: 'FHIR Browser', bgLight: '#f9fafb', bgDark: '#171717' },
-    clinical: { appTitle: 'Clinical Portal', bgLight: '#fafafa', bgDark: '#18181b' },
-  };
-
-  const templateVars = { ...options, ...templateConfig[template] };
+  const templateVars = { ...options, ...FRONTEND_TEMPLATE_CONFIG[template] };
 
   // Shared foundation (config, UI components, hooks, lib)
   generateFiles(tree, path.join(__dirname, 'files/common'), projectRoot, templateVars);

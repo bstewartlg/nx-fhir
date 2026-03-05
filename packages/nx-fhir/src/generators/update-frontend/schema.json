@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "UpdateFrontend",
+  "title": "Update Frontend",
+  "type": "object",
+  "description": "Update a FHIR frontend project to a newer template version",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "The name of the frontend project to update",
+      "$default": {
+        "$source": "projectName",
+        "index": 0
+      }
+    },
+    "targetVersion": {
+      "type": "string",
+      "description": "The frontend template version to update to"
+    },
+    "force": {
+      "type": "boolean",
+      "description": "Force update and override safety checks (not recommended)",
+      "default": false
+    },
+    "fromNxMigrate": {
+      "type": "boolean",
+      "description": "Internal flag: Set when called from nx migrate (ignores expected migrate file changes)",
+      "default": false,
+      "x-priority": "internal"
+    }
+  },
+  "required": []
+}

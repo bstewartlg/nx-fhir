@@ -43,9 +43,11 @@ jobs:
           echo "Publishing version: $VERSION"
 
       - name: Version packages with Nx
-        run: bun nx release version "${{ steps.extract_version.outputs.version }}" --verbose
         env:
-          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.extract_version.outputs.version }}
+        run: |
+          bun nx release version "$VERSION" --verbose
+          bun packages/nx-fhir/scripts/sync-migration-version.mjs
 
       - name: Publish packages with Nx
         run: bun nx release publish --verbose

@@ -4,25 +4,23 @@ import {
   Tree,
   logger,
 } from '@nx/devkit';
-import * as path from 'path';
-import { UpdateServerGeneratorSchema } from './schema';
-import { ServerProjectConfiguration } from '../../shared/models';
+import { UpdateFrontendGeneratorSchema } from './schema';
+import { FrontendProjectConfiguration } from '../../shared/models';
 import { select, confirm } from '@inquirer/prompts';
 import {
-  validateMigrationPath,
-  getReachableVersions,
-} from '../../shared/migration/hapi-migration-resolver';
+  validateFrontendMigrationPath,
+  getReachableFrontendVersions,
+} from '../../shared/migration/frontend-migration-resolver';
 import { ensureGitRepositoryClean, getUncommittedFiles } from '../../shared/utils/git';
-import { runHapiMigration } from '../../shared/migration/hapi-migration';
+import { runFrontendMigration } from '../../shared/migration/frontend-migration';
 
-export async function updateServerGenerator(
+export async function updateFrontendGenerator(
   tree: Tree,
-  options: UpdateServerGeneratorSchema,
+  options: UpdateFrontendGeneratorSchema,
 ) {
 
   // Skip git check when called from nx migrate -- the workspace will always have
-  // uncommitted changes (package.json, lockfiles, migrations.json, nx.json, project.json)
-  // from the migrate process itself. The user can review and revert via git diff.
+  // uncommitted changes from the migrate process itself.
   if (!options.fromNxMigrate) {
     try {
       ensureGitRepositoryClean(tree.root, options.force);
@@ -39,29 +37,32 @@ export async function updateServerGenerator(
     }
   }
 
-  let projectConfig: ServerProjectConfiguration;
+  let projectConfig: FrontendProjectConfiguration;
 
-  // If project wasn't provided, prompt with a filtered list of server projects
+  // If project wasn't provided, prompt with a filtered list of frontend projects
   if (!options.project) {
     const projects = getProjects(tree);
-    let serverProjects = Array.from(projects.entries())
-      .filter(([_, config]) => config.tags?.includes('nx-fhir-server'))
+    let frontendProjects = Array.from(projects.entries())
+      .filter(([_, config]) => config.tags?.includes('nx-fhir-frontend'))
       .map(([name]) => ({ name, value: name }));
 
-    // No projects found with "nx-fhir-server" tag. Check for a pom.xml file in each project root instead.
-    if (serverProjects.length === 0) {
-      serverProjects = Array.from(projects.entries())
-        .filter(([_, config]) => tree.exists(path.join(config.root, 'pom.xml')))
+    // Fallback: check for frontendVersion in project config
+    if (frontendProjects.length === 0) {
+      frontendProjects = Array.from(projects.entries())
+        .filter(([_, config]) => {
+          const fc = config as FrontendProjectConfiguration;
+          return fc.frontendVersion !== undefined;
+        })
         .map(([name]) => ({ name, value: name }));
     }
 
-    if (serverProjects.length === 0) {
-      throw new Error('No FHIR server projects found in the workspace');
+    if (frontendProjects.length === 0) {
+      throw new Error('No FHIR frontend projects found in the workspace');
     }
 
     options.project = await select({
-      message: 'Which server project would you like to update?',
-      choices: serverProjects,
+      message: 'Which frontend project would you like to update?',
+      choices: frontendProjects,
     });
 
     if (!options.project) {
@@ -72,35 +73,32 @@ export async function updateServerGenerator(
   // Get the selected project's configuration
   projectConfig = getProjects(tree).get(
     options.project,
-  ) as ServerProjectConfiguration;
+  ) as FrontendProjectConfiguration;
   if (!projectConfig) {
     throw new Error(`Project configuration for ${options.project} not found`);
   }
 
-  // We have a project, get the current HAPI version from its configuration
-  if (!projectConfig.hapiReleaseVersion) {
+  if (!projectConfig.frontendVersion) {
     throw new Error(
-      `Project ${options.project} does not have a hapiReleaseVersion configured.`,
+      `Project ${options.project} does not have a frontendVersion configured.`,
     );
   }
 
   // Ensure we have a target version to update to
   if (!options.targetVersion) {
-    // Get all reachable versions from current version
-    const reachableVersions = getReachableVersions(
-      projectConfig.hapiReleaseVersion,
+    const reachableVersions = getReachableFrontendVersions(
+      projectConfig.frontendVersion,
     );
 
     if (reachableVersions.length === 0) {
       throw new Error(
-        `No migration path available from HAPI FHIR version ${projectConfig.hapiReleaseVersion}. `,
+        `No migration path available from frontend version ${projectConfig.frontendVersion}. `,
       );
     }
 
-    // Prompt user to select target version (with option to skip)
     const SKIP = '__skip__';
     const selectedVersion = await select({
-      message: `Update ${options.project} from HAPI FHIR ${projectConfig.hapiReleaseVersion}?`,
+      message: `Update ${options.project} from frontend template ${projectConfig.frontendVersion}?`,
       choices: [
         ...reachableVersions.map((v) => ({ name: v, value: v })),
         { name: 'Skip', value: SKIP },
@@ -108,41 +106,29 @@ export async function updateServerGenerator(
     });
 
     if (selectedVersion === SKIP) {
-      logger.info(`Skipping server update for ${options.project}.`);
+      logger.info(`Skipping frontend update for ${options.project}.`);
       return;
     }
 
     options.targetVersion = selectedVersion;
     logger.info(
-      `Will update project ${options.project} from version ${projectConfig.hapiReleaseVersion} to ${options.targetVersion}.`,
+      `Will update project ${options.project} from version ${projectConfig.frontendVersion} to ${options.targetVersion}.`,
     );
   }
 
   // Validate migration path exists
-  const validation = validateMigrationPath(
-    projectConfig.hapiReleaseVersion,
+  const validation = validateFrontendMigrationPath(
+    projectConfig.frontendVersion,
     options.targetVersion,
   );
 
   if (!validation.valid) {
     throw new Error(
-      `Cannot migrate from ${projectConfig.hapiReleaseVersion} to ${options.targetVersion}: ${validation.error}`,
+      `Cannot migrate from ${projectConfig.frontendVersion} to ${options.targetVersion}: ${validation.error}`,
     );
   }
 
-  // Show migration path to user
   const migrationPath = validation.path!;
-  if (migrationPath.length > 1) {
-    logger.info(
-      `Migration will proceed through ${migrationPath.length} steps:\n` +
-        migrationPath
-          .map(
-            (m, i) =>
-              `  ${i + 1}. ${m.from} → ${m.to}${m.deprecated ? ' (deprecated)' : ''}`,
-          )
-          .join('\n'),
-    );
-  }
 
   // Execute migrations in order, prompting after conflicts
   for (let i = 0; i < migrationPath.length; i++) {
@@ -153,7 +139,7 @@ export async function updateServerGenerator(
     logger.info(`Migration step ${i + 1}/${migrationPath.length}: ${migration.from} → ${migration.to}`);
     logger.info(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
-    const result = await runHapiMigration(tree, {
+    const result = await runFrontendMigration(tree, {
       fromVersion: migration.from,
       toVersion: migration.to,
       project: options.project,
@@ -180,9 +166,8 @@ export async function updateServerGenerator(
       if (!shouldContinue) {
         logger.info('\nMigration chain paused.');
         logger.info(`Project ${options.project} is now at version ${migration.to}.`);
-        logger.info('After resolving conflicts, run the update-server generator again to continue.');
-        
-        // Still format files and exit successfully - partial migration is valid
+        logger.info('After resolving conflicts, run the update-frontend generator again to continue.');
+
         await formatFiles(tree);
         return;
       }
@@ -190,10 +175,10 @@ export async function updateServerGenerator(
   }
 
   logger.info(
-    `\n✅ Successfully updated ${options.project} to HAPI FHIR ${options.targetVersion}`,
+    `\n✅ Successfully updated ${options.project} to frontend template version ${options.targetVersion}`,
   );
 
   await formatFiles(tree);
 }
 
-export default updateServerGenerator;
+export default updateFrontendGenerator;

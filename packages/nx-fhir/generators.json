@@ -32,6 +32,11 @@
       "schema": "./src/generators/update-server/schema.json",
       "description": "update-server generator"
     },
+    "update-frontend": {
+      "factory": "./src/generators/update-frontend/update-frontend",
+      "schema": "./src/generators/update-frontend/schema.json",
+      "description": "Update a FHIR frontend project to a newer template version"
+    },
     "update": {
       "factory": "./src/generators/update/update",
       "schema": "./src/generators/update/schema.json",

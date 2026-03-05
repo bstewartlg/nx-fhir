@@ -1,9 +1,9 @@
 {
   "generators": {
-    "check-server-updates": {
-      "version": "0.1.2",
-      "description": "Check for available HAPI FHIR server updates",
-      "implementation": "./src/migrations/check-server-updates/migration"
+    "check-project-updates": {
+      "version": "0.0.0-dev",
+      "description": "Check for available server and frontend template updates",
+      "implementation": "./src/migrations/check-updates/migration"
     }
   },
   "packageJsonUpdates": {

@@ -148,7 +148,6 @@ describe('frontend generator', () => {
 
     it('should not include browser-specific files', async () => {
       await frontendGenerator(tree, clinicalOptions);
-      expect(tree.exists('test-clinical/src/components/json-viewer-dialog.tsx')).toBe(false);
       expect(tree.exists('test-clinical/src/components/data-table')).toBe(false);
       expect(tree.exists('test-clinical/src/components/command-palette.tsx')).toBe(false);
       expect(tree.exists('test-clinical/src/routes/resources')).toBe(false);
@@ -165,10 +164,9 @@ describe('frontend generator', () => {
       expect(tree.exists('test-clinical/src/lib/clinical-formatters.ts')).toBe(true);
     });
 
-    it('should not include Monaco editor in dependencies', async () => {
+    it('should not include browser-only dependencies', async () => {
       await frontendGenerator(tree, clinicalOptions);
       const packageJson = readJson(tree, 'test-clinical/package.json');
-      expect(packageJson.dependencies['@monaco-editor/react']).toBeUndefined();
       expect(packageJson.dependencies['@tanstack/react-virtual']).toBeUndefined();
       expect(packageJson.dependencies['cmdk']).toBeUndefined();
       expect(packageJson.dependencies['nuqs']).toBeUndefined();

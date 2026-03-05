@@ -10,6 +10,7 @@ const NX_MIGRATE_EXPECTED_FILES = [
   'package-lock.json',
   'yarn.lock',
   'pnpm-lock.yaml',
+  'bun.lock',
   'bun.lockb',
   'migrations.json',
 ];

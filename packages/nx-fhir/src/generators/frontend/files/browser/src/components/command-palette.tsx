@@ -9,8 +9,15 @@ import {
   Settings,
   Sun,
 } from "lucide-react";
+import { VisuallyHidden } from "radix-ui";
 import { useCallback, useEffect, useState } from "react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { getResourceTypes, useCapabilityStatement } from "@/hooks/use-fhir-api";
 import { useFhirServer } from "@/hooks/use-fhir-server";
 import { useTheme } from "@/hooks/use-theme";
@@ -70,12 +77,16 @@ export function CommandPalette({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="overflow-hidden p-0 shadow-lg max-w-lg"
-        aria-describedby={undefined}
-      >
-        <DialogTitle className="sr-only">Command Palette</DialogTitle>
-        <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
+      <DialogContent className="overflow-hidden p-0 shadow-lg max-w-lg">
+        <VisuallyHidden.Root>
+          <DialogHeader>
+            <DialogTitle>Command Palette</DialogTitle>
+            <DialogDescription>
+              Command palette for quick navigation and actions
+            </DialogDescription>
+          </DialogHeader>
+        </VisuallyHidden.Root>
+        <Command className="**:[[cmdk-group-heading]]:px-2 **:[[cmdk-group-heading]]:font-medium **:[[cmdk-group-heading]]:text-muted-foreground">
           <div className="flex items-center border-b px-3">
             <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
             <Command.Input

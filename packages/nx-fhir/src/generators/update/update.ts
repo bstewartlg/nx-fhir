@@ -8,6 +8,7 @@ import {
   formatFiles,
 } from '@nx/devkit';
 import { updateServerGenerator } from '../update-server/update-server';
+import { updateFrontendGenerator } from '../update-frontend/update-frontend';
 import { PLUGIN_VERSION } from '../../shared/constants/versions';
 import { UpdateGeneratorSchema } from './schema';
 
@@ -134,6 +135,26 @@ export async function updateGenerator(tree: Tree, options: UpdateGeneratorSchema
       logger.info('Server is already at the latest supported version.');
     } else {
       // Re-throw unexpected errors
+      throw error;
+    }
+  }
+
+  logger.info('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  logger.info('Checking for available frontend template updates...');
+  logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+  try {
+    await updateFrontendGenerator(tree, { force: options.force });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (message.includes('No FHIR frontend projects found')) {
+      logger.info(
+        'No FHIR frontend projects found in workspace. Skipping frontend update check.'
+      );
+    } else if (message.includes('No migration path available')) {
+      logger.info('Frontend is already at the latest supported template version.');
+    } else {
       throw error;
     }
   }
