@@ -10,6 +10,8 @@ export interface FrontendMigration {
   implementation: string;
   /** Whether this migration is still supported for new projects */
   deprecated?: boolean;
+  /** Template this migration applies to. If omitted, applies to all templates. */
+  template?: 'browser' | 'clinical';
 }
 
 /**

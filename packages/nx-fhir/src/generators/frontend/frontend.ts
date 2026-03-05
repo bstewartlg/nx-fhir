@@ -31,6 +31,19 @@ export async function frontendGenerator(
   options: FrontendGeneratorSchema
 ) {
   const projectRoot = `${options.name}`;
+  const template = options.template ?? 'browser';
+
+  let navigationLayout = options.navigationLayout ?? 'sidebar';
+  if (template === 'clinical' && !options.navigationLayout) {
+    navigationLayout = await select({
+      message: 'Which navigation layout would you like?',
+      choices: [
+        { name: 'Sidebar - Collapsible left navigation for many pages', value: 'sidebar' as const },
+        { name: 'Top Navigation - Horizontal nav bar for few entry pages', value: 'topnav' as const },
+      ],
+      default: 'sidebar',
+    });
+  }
 
   if (tree.exists(projectRoot)) {
     logger.error(`Directory '${projectRoot}' already exists. Aborting.`);
@@ -38,6 +51,41 @@ export async function frontendGenerator(
   }
 
   const packageManager = detectPackageManager();
+
+  const baseDependencies: Record<string, string> = {
+    '@radix-ui/react-collapsible': '^1.1.12',
+    '@radix-ui/react-scroll-area': '^1.2.10',
+    '@radix-ui/react-tabs': '^1.1.13',
+    '@tailwindcss/vite': '^4.2.1',
+    '@tanstack/react-devtools': '^0.9.9',
+    '@tanstack/react-query': '^5.90.21',
+    '@tanstack/react-router': '^1.166.2',
+    '@tanstack/react-router-devtools': '^1.166.2',
+    '@tanstack/react-table': '^8.21.3',
+    '@tanstack/router-plugin': '^1.166.2',
+    'class-variance-authority': '^0.7.1',
+    'clsx': '^2.1.1',
+    'lucide-react': '^0.577.0',
+    'radix-ui': '^1.4.3',
+    'react': '^19.2.4',
+    'react-dom': '^19.2.4',
+    'sonner': '^2.0.7',
+    'tailwind-merge': '^3.5.0',
+    'tailwindcss': '^4.2.1',
+    'tw-animate-css': '^1.4.0',
+  };
+
+  // Browser template needs additional dependencies
+  const browserOnlyDependencies: Record<string, string> = {
+    '@monaco-editor/react': '^4.7.0',
+    '@tanstack/react-virtual': '^3.13.18',
+    'cmdk': '^1.1.1',
+    'nuqs': '^2.8.7',
+  };
+
+  const dependencies = template === 'browser'
+    ? { ...baseDependencies, ...browserOnlyDependencies }
+    : baseDependencies;
 
   const packageJson = {
     name: options.name,
@@ -52,71 +100,71 @@ export async function frontendGenerator(
       lint: 'biome lint',
       check: 'biome check',
     },
-    dependencies: {
-      '@monaco-editor/react': '^4.7.0',
-      '@radix-ui/react-collapsible': '^1.1.12',
-      '@radix-ui/react-scroll-area': '^1.2.10',
-      '@radix-ui/react-tabs': '^1.1.13',
-      '@tailwindcss/vite': '^4.1.18',
-      '@tanstack/react-devtools': '^0.9.4',
-      '@tanstack/react-query': '^5.90.20',
-      '@tanstack/react-router': '^1.157.18',
-      '@tanstack/react-router-devtools': '^1.157.18',
-      '@tanstack/react-table': '^8.21.3',
-      '@tanstack/react-virtual': '^3.13.18',
-      '@tanstack/router-plugin': '^1.157.18',
-      'class-variance-authority': '^0.7.1',
-      'clsx': '^2.1.1',
-      'cmdk': '^1.1.1',
-      'lucide-react': '^0.563.0',
-      'nuqs': '^2.8.7',
-      'radix-ui': '^1.4.3',
-      'react': '^19.2.4',
-      'react-dom': '^19.2.4',
-      'sonner': '^2.0.7',
-      'tailwind-merge': '^3.4.0',
-      'tailwindcss': '^4.1.18',
-      'tw-animate-css': '^1.4.0',
-    },
+    dependencies,
     devDependencies: {
-      '@biomejs/biome': '2.3.13',
-      '@tanstack/devtools-vite': '^0.5.0',
+      '@biomejs/biome': '2.4.5',
+      '@tanstack/devtools-vite': '^0.5.3',
       '@testing-library/dom': '^10.4.1',
       '@testing-library/jest-dom': '^6.9.1',
       '@testing-library/react': '^16.3.2',
       '@types/fhir': '^0.0.41',
-      '@types/node': '^25.1.0',
-      '@types/react': '^19.2.10',
+      '@types/node': '^25.3.3',
+      '@types/react': '^19.2.14',
       '@types/react-dom': '^19.2.3',
-      '@vitejs/plugin-react': '^5.1.2',
-      jsdom: '^27.4.0',
+      '@vitejs/plugin-react': '^5.1.4',
+      jsdom: '^28.1.0',
       typescript: '^5.9.3',
       vite: '^7.3.1',
-      'vite-tsconfig-paths': '^6.0.5',
+      'vite-tsconfig-paths': '^6.1.1',
       vitest: '^4.0.18',
     },
   };
-  
+
   writeJson(tree, `${projectRoot}/package.json`, packageJson);
 
   const pluginVersion = getPluginVersion();
-  // Create the frontend project config
+  const tags = ['nx-fhir-frontend', 'fhir', 'frontend', 'client'];
+  if (template === 'clinical') {
+    tags.push('clinical');
+  }
+
   const projectConfig: FrontendProjectConfiguration = {
     root: projectRoot,
     projectType: 'application',
     sourceRoot: `${projectRoot}/src`,
-    tags: ['nx-fhir-frontend', 'fhir', 'frontend', 'client'],
+    tags,
     frontendVersion: CURRENT_FRONTEND_VERSION,
+    frontendTemplate: template,
+    navigationLayout: template === 'clinical' ? navigationLayout : undefined,
     pluginVersion,
   };
   addProjectConfiguration(tree, options.name, projectConfig);
 
+  const templateDir = template === 'clinical' ? 'files/clinical' : 'files/browser';
   generateFiles(
     tree,
-    path.join(__dirname, 'files/webapp'),
+    path.join(__dirname, templateDir),
     projectRoot,
     options
   );
+
+  // Resolve navigation layout variant for clinical template
+  if (template === 'clinical') {
+    const variantFile = navigationLayout === 'topnav'
+      ? `${projectRoot}/_variants/__root-topnav.tsx`
+      : `${projectRoot}/_variants/__root-sidebar.tsx`;
+    const rootContent = tree.read(variantFile, 'utf-8');
+    tree.write(`${projectRoot}/src/routes/__root.tsx`, rootContent);
+
+    tree.delete(`${projectRoot}/_variants/__root-sidebar.tsx`);
+    tree.delete(`${projectRoot}/_variants/__root-topnav.tsx`);
+
+    if (navigationLayout === 'topnav') {
+      tree.delete(`${projectRoot}/src/components/app-sidebar.tsx`);
+      tree.delete(`${projectRoot}/src/components/ui/sidebar.tsx`);
+      tree.delete(`${projectRoot}/src/components/ui/sheet.tsx`);
+    }
+  }
 
   logger.info(`Frontend project '${options.name}' has been created.`);
 

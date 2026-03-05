@@ -82,5 +82,7 @@ export interface ServerProjectConfiguration extends ProjectConfiguration {
 
 export interface FrontendProjectConfiguration extends ProjectConfiguration {
   frontendVersion: string;
+  frontendTemplate?: 'browser' | 'clinical';
+  navigationLayout?: 'sidebar' | 'topnav';
   pluginVersion: string;
 }

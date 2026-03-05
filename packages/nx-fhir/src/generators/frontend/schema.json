@@ -17,6 +17,25 @@
     "server": {
       "type": "string",
       "description": "The name of the FHIR server project to integrate with the frontend."
+    },
+    "template": {
+      "type": "string",
+      "description": "The frontend template to generate.",
+      "enum": ["browser", "clinical"],
+      "default": "browser",
+      "x-prompt": {
+        "message": "Which frontend template would you like to use?",
+        "type": "list",
+        "items": [
+          { "value": "browser", "label": "FHIR Browser - Developer/test resource explorer" },
+          { "value": "clinical", "label": "Clinical - Patient-centric clinical workflow skeleton" }
+        ]
+      }
+    },
+    "navigationLayout": {
+      "type": "string",
+      "description": "Navigation layout for the clinical template. Sidebar provides collapsible left navigation for apps with many pages. Top navigation provides a horizontal nav bar for apps with few entry pages.",
+      "enum": ["sidebar", "topnav"]
     }
   },
   "required": ["name"]
