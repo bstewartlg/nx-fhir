@@ -59,10 +59,13 @@ PACKAGE_MANAGER=npm npm run e2e    # Use npm instead of bun for e2e
 | Generator              | Purpose                                                             |
 | ---------------------- | ------------------------------------------------------------------- |
 | `server`               | Creates HAPI FHIR JPA server from hapi-fhir-jpaserver-starter       |
-| `frontend`             | Scaffolds TanStack Router/Query frontend with Vite                  |
+| `import-server`        | Imports a pre-existing HAPI FHIR server as an Nx project, non-destructively |
+| `frontend`             | Scaffolds TanStack Router/Query frontend with Vite (`browser` or `clinical` template) |
 | `operation`            | Generates custom FHIR operation stubs from OperationDefinition JSON |
 | `implementation-guide` | Adds FHIR IG artifacts to server (alias: `ig`)                      |
-| `update-server`        | Updates existing server to newer HAPI version                       |
+| `update-server`        | Updates existing server to newer HAPI version via three-way merge    |
+| `update-frontend`      | Updates frontend project to newer template version via three-way merge |
+| `update`               | Checks for plugin, server, and frontend updates (runs during `nx migrate`) |
 | `preset`               | Used by create-nx-fhir for workspace initialization                 |
 
 ### Executors (`packages/nx-fhir/src/executors/`)
@@ -78,21 +81,35 @@ The plugin auto-detects project types:
 - **Server**: Has `pom.xml` + `fhirVersion` in project.json
 - **Frontend**: Has `package.json` with `@types/fhir` or `nx-fhir-frontend` tag
 
+The `import-server` generator and the `preset` flow reuse this server fingerprint via `shared/utils/server-detection.ts` to import an already-present HAPI server (writing only `project.json`) instead of scaffolding a new one. The `preset` runs this detection before asking whether to generate a server, so an existing server is imported without prompting. It best-effort correlates the HAPI version from `pom.xml` to a supported starter release and prompts the user to confirm.
+
 ### Migrations (`packages/nx-fhir/src/migrations/`)
 
-HAPI server version migrations with three-way merge support:
+Two migration systems with three-way merge support:
 
+**HAPI server migrations** (`hapi-server/`):
 - `8.2.0-to-8.4.0`
 - `8.4.0-to-8.4.0-3`
 - `8.4.0-3-to-8.6.0-1`
+- `8.6.0-1-to-8.8.0-1`
 
-Migration resolver uses BFS graph traversal to find migration paths between versions.
+HAPI migration resolver uses BFS graph traversal to find migration paths between versions.
+
+**Frontend template migrations** (`check-updates/`):
+- Triggered during `nx migrate` via the `update` generator
+- Downloads old template from the previously installed npm version and new template from the target version
+- Performs three-way merge preserving user customizations while applying template updates
+- Managed by `frontend-migration.ts` and `frontend-migration-resolver.ts` in shared code
 
 ### Shared Code (`packages/nx-fhir/src/shared/`)
 
 - `models/`: TypeScript interfaces for FHIR resources and project config
-- `utils/`: Helpers for package manager detection, server YAML updates, Git operations, three-way merge
-- `migration/`: HAPI migration resolver and base migration logic
+- `utils/`: Helpers for package manager detection, server YAML updates, Git operations, three-way merge, existing-server detection (`server-detection.ts`)
+- `migration/`: Migration resolvers and logic for both HAPI server and frontend template updates
+  - `hapi-migration-resolver.ts`: BFS graph traversal for HAPI version upgrade paths
+  - `hapi-migration.ts`: Base HAPI migration logic
+  - `frontend-migration-resolver.ts`: Resolves frontend template version upgrade paths
+  - `frontend-migration.ts`: Three-way merge logic for frontend template updates
 - `constants/`: Version constants
 
 ## Key Patterns

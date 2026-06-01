@@ -6,6 +6,8 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { logger } from '@nx/devkit';
 import { execSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export const SUPPORTED_PACKAGE_MANAGERS = ['bun', 'npm'] as const;
 
@@ -79,17 +81,25 @@ export function sanitizeDirectory(raw: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+export const CURRENT_DIR_SENTINEL = '.';
+
 export async function resolveDirectory(args: CliArgs): Promise<string> {
+  // Detect "." before sanitization since sanitizeDirectory strips it
+  const rawDir = args.directory ?? (args._ && args._.length > 0 && typeof args._[0] === 'string' ? args._[0] as string : undefined);
+  if (rawDir?.trim() === '.') {
+    return CURRENT_DIR_SENTINEL;
+  }
+
   if (args.directory) {
     return sanitizeDirectory(args.directory);
   }
-  // Accept first positional argument as directory if provided
-  if (args._ && args._.length > 0 && typeof args._[0] === 'string') {
-    return sanitizeDirectory(args._[0] as string);
+  if (rawDir) {
+    return sanitizeDirectory(rawDir);
   }
   return await input({
     message: 'Workspace directory:',
     validate: (val) => {
+      if (val.trim() === '.') return true;
       const cleaned = sanitizeDirectory(val);
       if (!cleaned)
         return 'Please enter a valid directory (alphanumeric and dashes).';
@@ -97,7 +107,7 @@ export async function resolveDirectory(args: CliArgs): Promise<string> {
         return 'Directory must start with a letter and contain only lowercase letters, numbers and dashes.';
       return true;
     },
-  }).then(sanitizeDirectory);
+  }).then((val) => val.trim() === '.' ? CURRENT_DIR_SENTINEL : sanitizeDirectory(val));
 }
 
 export function isPackageManagerAvailable(pm: PackageManager): boolean {
@@ -135,10 +145,71 @@ export function resolvePackageManager(requested?: PackageManager): PackageManage
   return 'npm';
 }
 
+function buildInstallCommand(pm: PackageManager, packages: string[]): string {
+  const pkgList = packages.join(' ');
+  if (pm === 'bun') {
+    return `bun add --dev ${pkgList}`;
+  }
+  return `npm install --save-dev ${pkgList}`;
+}
+
+export async function initExistingDirectory(
+  packageManager: PackageManager,
+  presetVersion: string,
+  presetOptions: Record<string, any>,
+): Promise<void> {
+  const cwd = process.cwd();
+  const name = path.basename(cwd);
+
+  // Ensure package.json exists
+  const pkgJsonPath = path.join(cwd, 'package.json');
+  if (!fs.existsSync(pkgJsonPath)) {
+    logger.info('Creating package.json...');
+    fs.writeFileSync(
+      pkgJsonPath,
+      JSON.stringify({ name, version: '0.0.0', private: true }, null, 2) + '\n',
+    );
+  }
+
+  // Ensure nx.json exists
+  const nxJsonPath = path.join(cwd, 'nx.json');
+  if (!fs.existsSync(nxJsonPath)) {
+    logger.info('Creating nx.json...');
+    fs.writeFileSync(
+      nxJsonPath,
+      JSON.stringify(
+        { $schema: './node_modules/nx/schemas/nx-schema.json', plugins: [] },
+        null,
+        2,
+      ) + '\n',
+    );
+  }
+
+  // Install dependencies
+  const installCmd = buildInstallCommand(packageManager, [
+    'nx',
+    '@nx/devkit',
+    `nx-fhir@${presetVersion}`,
+  ]);
+  logger.info(`Installing dependencies: ${installCmd}`);
+  execSync(installCmd, { stdio: 'inherit', cwd });
+
+  // Build preset generator CLI flags
+  const flagParts: string[] = [];
+  if (presetOptions.server !== undefined) flagParts.push(`--server=${presetOptions.server}`);
+  if (presetOptions.serverDirectory) flagParts.push(`--serverDirectory=${presetOptions.serverDirectory}`);
+  if (presetOptions.packageBase) flagParts.push(`--packageBase=${presetOptions.packageBase}`);
+  if (presetOptions.release) flagParts.push(`--release=${presetOptions.release}`);
+  if (presetOptions.fhirVersion) flagParts.push(`--fhirVersion=${presetOptions.fhirVersion}`);
+
+  const generatorCmd = `npx nx g nx-fhir:preset ${flagParts.join(' ')}`.trim();
+  logger.info(`Running preset generator: ${generatorCmd}`);
+  execSync(generatorCmd, { stdio: 'inherit', cwd });
+}
+
 async function main() {
   try {
-    const name = await resolveDirectory(argv);
-    logger.info(`Creating the workspace: ${name}`);
+    const directory = await resolveDirectory(argv);
 
     // This assumes "nx-fhir" and "create-nx-fhir" are at the same version
     const presetVersion = require('../package.json').version;
@@ -155,14 +226,20 @@ async function main() {
     if (release !== undefined) presetOptions.release = release;
     if (fhirVersion !== undefined) presetOptions.fhirVersion = fhirVersion;
 
-    const { directory } = await createWorkspace(`nx-fhir@${presetVersion}`, {
-      name,
-      nxCloud: 'skip',
-      packageManager,
-      ...presetOptions
-    });
-
-    logger.info(`Successfully created the workspace here: ${directory}.`);
+    if (directory === CURRENT_DIR_SENTINEL) {
+      logger.info('Initializing nx-fhir in the current directory...');
+      await initExistingDirectory(packageManager, presetVersion, presetOptions);
+      logger.info('Successfully initialized nx-fhir in the current directory.');
+    } else {
+      logger.info(`Creating the workspace: ${directory}`);
+      const { directory: createdDir } = await createWorkspace(`nx-fhir@${presetVersion}`, {
+        name: directory,
+        nxCloud: 'skip',
+        packageManager,
+        ...presetOptions
+      });
+      logger.info(`Successfully created the workspace here: ${createdDir}.`);
+    }
   } catch (e: any) {
     logger.error(e?.message ?? e);
     process.exit(1);

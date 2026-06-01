@@ -21,6 +21,21 @@ describe('frontend generator', () => {
     expect(config.tags).toContain('nx-fhir-frontend');
   });
 
+  it('should add project to root package.json workspaces', async () => {
+    await frontendGenerator(tree, options);
+    const rootPackageJson = readJson(tree, 'package.json');
+    expect(rootPackageJson.workspaces).toContain('test-frontend');
+  });
+
+  it('should not duplicate workspaces entry when run twice', async () => {
+    await frontendGenerator(tree, { name: 'frontend-a' });
+    await frontendGenerator(tree, { name: 'frontend-b' });
+    const rootPackageJson = readJson(tree, 'package.json');
+    expect(rootPackageJson.workspaces).toContain('frontend-a');
+    expect(rootPackageJson.workspaces).toContain('frontend-b');
+    expect(rootPackageJson.workspaces.filter((w: string) => w === 'frontend-a').length).toBe(1);
+  });
+
   it('should create vite.config.ts', async () => {
     await frontendGenerator(tree, options);
     expect(tree.exists('test-frontend/vite.config.ts')).toBe(true);

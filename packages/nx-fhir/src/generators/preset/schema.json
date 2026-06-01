@@ -16,9 +16,7 @@
     },
     "server": {
       "type": "boolean",
-      "description": "Generate a FHIR server (nx-fhir:server) in the workspace",
-      "x-prompt": "Generate a FHIR server project?",
-      "default": true
+      "description": "Generate a FHIR server (nx-fhir:server) in the workspace. If omitted, an existing server in the workspace is detected and imported; otherwise you are prompted."
     },
     "serverDirectory": {
       "type": "string",
@@ -38,5 +36,5 @@
       "description": "The FHIR version to use for the server."
     }
   },
-  "required": ["name", "server"]
+  "required": ["name"]
 }

@@ -123,6 +123,29 @@ Display help information.
 npx create-nx-fhir@latest --help
 ```
 
+## Use in an Existing Directory
+
+To add Nx and nx-fhir to an existing project directory, pass `.` as the directory name:
+
+```sh
+cd my-existing-project
+npx create-nx-fhir@latest .
+```
+
+This will:
+- Create `package.json` and `nx.json` if they don't exist
+- Install `nx`, `@nx/devkit`, and `nx-fhir` as dev dependencies
+- Run the nx-fhir preset generator
+
+Existing files are preserved. You can also set this up manually:
+
+```sh
+bun add --dev nx @nx/devkit nx-fhir
+# Create nx.json with: { "plugins": ["nx-fhir"] }
+bunx nx g nx-fhir:server
+bunx nx g nx-fhir:frontend
+```
+
 ## Examples
 
 ### Minimal Setup
@@ -136,8 +159,10 @@ Then generate projects later:
 ```sh
 cd my-app
 nx g nx-fhir:server
-nx g nx-fhir:frontend
+nx g nx-fhir:frontend --template=clinical
 ```
+
+The `frontend` generator supports `browser` and `clinical` templates. See the [nx-fhir README](https://www.npmjs.com/package/nx-fhir) for details.
 
 ## Requirements
 

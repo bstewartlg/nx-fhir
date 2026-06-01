@@ -4,17 +4,17 @@ An Nx plugin for building FHIR servers and frontends.
 
 ## Features
 
-- 🚀 **Quick Start**: Generate complete FHIR server projects based on [HAPI FHIR JPA Starter](https://github.com/hapifhir/hapi-fhir-jpaserver-starter)
-- 🎨 **Frontend**: Scaffold TanStack Router-based React frontend SPA that integrates with the FHIR server
-- ⚡ **Custom Operations**: Generate custom FHIR operations from OperationDefinition resources
-- 📚 **Implementation Guides**: Add FHIR Implementation Guides to your server
-- 🔄 **Updates**: Keep your HAPI FHIR server up to date with the newer releases
+- Generate complete FHIR server projects based on [HAPI FHIR JPA Starter](https://github.com/hapifhir/hapi-fhir-jpaserver-starter)
+- Scaffold TanStack Router-based React frontend SPAs with browser or clinical templates
+- Generate custom FHIR operations from OperationDefinition resources
+- Add FHIR Implementation Guides to your server
+- Keep your HAPI FHIR server and frontend up to date with newer releases via `nx migrate`
 
 ## Installation
 
 ### Create a New Workspace
 
-The fastest way to get started is with the preset:
+Create a new Nx workspace with nx-fhir installed:
 
 ```sh
 npx create-nx-fhir@latest
@@ -22,12 +22,23 @@ npx create-nx-fhir@latest
 
 This will create a new Nx workspace with nx-fhir installed and also optionally generate a FHIR server.
 
+### Add to an Existing Directory
+
+To add nx-fhir to an existing project directory:
+
+```sh
+cd my-existing-project
+bunx create-nx-fhir@latest .
+```
+
+See the [create-nx-fhir README](https://www.npmjs.com/package/create-nx-fhir) for details.
+
 ### Add to Existing Nx Workspace
 
 If you already have an Nx workspace, install the plugin:
 
 ```sh
-npm install --save-dev nx-fhir
+bun add --dev nx-fhir
 ```
 
 ## Generators
@@ -53,7 +64,7 @@ nx g nx-fhir:server --directory=my-fhir-server --packageBase=com.myorg.fhir --fh
 
 ### Frontend
 
-Generate a basic TanStack Router-based React SPA that can be packaged with the FHIR server:
+Generate a TanStack Router-based React SPA that can be packaged with the FHIR server:
 
 ```sh
 nx g nx-fhir:frontend
@@ -62,10 +73,16 @@ nx g nx-fhir:frontend
 **Options:**
 - `--name`: Directory name for the frontend (default: `frontend`)
 - `--server`: Name of the FHIR server project to integrate with
+- `--template`: Frontend template to use (options: `browser`, `clinical`, default: `browser`)
+  - `browser` -- Developer/test resource explorer
+  - `clinical` -- Patient-centric clinical workflow skeleton
+- `--navigationLayout`: Navigation layout for the clinical template (options: `sidebar`, `topnav`)
+  - `sidebar` -- Collapsible left navigation for apps with many pages
+  - `topnav` -- Horizontal nav bar for apps with few entry pages
 
 **Example:**
 ```sh
-nx g nx-fhir:frontend --name=patient-portal --server=my-fhir-server
+nx g nx-fhir:frontend --name=patient-portal --server=my-fhir-server --template=clinical --navigationLayout=sidebar
 ```
 
 ### Server Operation
@@ -107,6 +124,40 @@ Update an existing HAPI FHIR server to a newer version:
 ```sh
 nx g nx-fhir:update-server
 ```
+
+### Update Frontend
+
+Update an existing frontend project to a newer template version. Uses a three-way merge to preserve your customizations while applying template updates:
+
+```sh
+nx g nx-fhir:update-frontend
+```
+
+**Options:**
+- `--project`: Name of the frontend project to update
+- `--targetVersion`: The frontend template version to update to
+- `--force`: Force update and override safety checks (not recommended)
+
+### Update
+
+Check for available updates to the nx-fhir plugin and any managed server or frontend projects:
+
+```sh
+nx g nx-fhir:update
+```
+
+This generator is also run automatically as part of `nx migrate` when updating to a new version of nx-fhir.
+
+## Keeping Up to Date
+
+nx-fhir integrates with Nx's migration system. When you update to a new version of nx-fhir, the migration will automatically check for available HAPI server and frontend template updates:
+
+```sh
+nx migrate nx-fhir@latest
+nx migrate --run-migrations
+```
+
+During migration, you'll be prompted to select target versions for any server or frontend projects that have updates available. The server migration uses a three-way merge to preserve your customizations while applying upstream changes.
 
 ## Nx Executors
 
@@ -152,9 +203,9 @@ nx test <project-name>
    nx g nx-fhir:operation --project=server --defLocation=./my-operation.json
    ```
 
-4. **Generate a frontend**:
+4. **Generate a frontend** (choose a template):
    ```sh
-   nx g nx-fhir:frontend --name=webapp --server=server
+   nx g nx-fhir:frontend --name=webapp --server=server --template=clinical
    ```
 
 5. **Serve everything**:
@@ -169,7 +220,7 @@ nx test <project-name>
    nx run-many --target=serve
    ```
 
-   Or the individual commands: 
+   Or the individual commands:
    ```sh
    nx serve server
    nx serve webapp
@@ -179,6 +230,12 @@ nx test <project-name>
    ```sh
    nx build server
    nx build webapp
+   ```
+
+7. **Update to the latest version**:
+   ```sh
+   nx migrate nx-fhir@latest
+   nx migrate --run-migrations
    ```
 
 ## Requirements
@@ -195,5 +252,3 @@ This plugin makes use of several external projects. For more information, please
 - [Nx Documentation](https://nx.dev)
 - [HAPI FHIR JPA Server Starter](https://github.com/hapifhir/hapi-fhir-jpaserver-starter)
 - [TanStack Documentation](https://tanstack.com)
-
-

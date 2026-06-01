@@ -15,9 +15,13 @@ COPY <%= frontendRoot %>/<%= lockfileName %> ./<%= frontendRoot %>/
 WORKDIR /app/<%= frontendRoot %>
 RUN <%= ciInstallCommand %>
 
-# Copy frontend source code
+# Copy frontend source files for build
 WORKDIR /app
-COPY <%= frontendRoot %>/ ./<%= frontendRoot %>/
+COPY <%= frontendRoot %>/index.html ./<%= frontendRoot %>/
+COPY <%= frontendRoot %>/tsconfig.json ./<%= frontendRoot %>/
+COPY <%= frontendRoot %>/vite.config.ts ./<%= frontendRoot %>/
+COPY <%= frontendRoot %>/public/ ./<%= frontendRoot %>/public/
+COPY <%= frontendRoot %>/src/ ./<%= frontendRoot %>/src/
 
 # Build the frontend for production
 WORKDIR /app/<%= frontendRoot %>

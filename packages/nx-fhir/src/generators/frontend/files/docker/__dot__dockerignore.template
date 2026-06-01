@@ -1,0 +1,10 @@
+.git
+node_modules
+<%= frontendRoot %>/node_modules
+<%= frontendRoot %>/dist
+<%= frontendRoot %>/.tanstack
+<%= frontendRoot %>/src/**/*.test.ts
+<%= frontendRoot %>/src/**/*.test.tsx
+<%= frontendRoot %>/src/**/*.spec.ts
+<%= frontendRoot %>/src/**/*.spec.tsx
+<%= serverRoot %>/target

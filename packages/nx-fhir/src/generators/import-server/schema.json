@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "ImportFhirServer",
+  "title": "Import existing FHIR Server",
+  "description": "Detects an existing HAPI FHIR JPA Starter server and registers it as an Nx project without scaffolding a new one.",
+  "type": "object",
+  "properties": {
+    "directory": {
+      "type": "string",
+      "description": "The directory containing the existing HAPI FHIR server. Defaults to the workspace root.",
+      "default": "."
+    },
+    "name": {
+      "type": "string",
+      "description": "The Nx project name to register. Defaults to the directory name."
+    },
+    "packageBase": {
+      "type": "string",
+      "description": "The Java package path for custom code. Auto-detected from src/main/java when omitted."
+    },
+    "release": {
+      "type": "string",
+      "description": "The HAPI FHIR JPA Starter release this server corresponds to. Auto-correlated from pom.xml when omitted."
+    },
+    "fhirVersion": {
+      "type": "string",
+      "enum": ["STU3", "R4", "R4B", "R5"],
+      "description": "The FHIR version of the server. Auto-detected from application.yaml when omitted."
+    }
+  },
+  "required": []
+}

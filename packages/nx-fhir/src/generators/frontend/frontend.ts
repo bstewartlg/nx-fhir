@@ -189,6 +189,9 @@ export async function frontendGenerator(
     }
   }
 
+  // Add frontend project to root package.json workspaces
+  addToWorkspaces(tree, projectRoot);
+
   logger.info(`Frontend project '${options.name}' has been created.`);
 
   // Perform possible integration with a server project
@@ -208,6 +211,17 @@ export async function frontendGenerator(
       cwd: `${tree.root}/${projectRoot}`,
     });
   };
+}
+
+function addToWorkspaces(tree: Tree, projectRoot: string) {
+  const packageJson = readJson(tree, 'package.json');
+  if (!packageJson.workspaces) {
+    packageJson.workspaces = [];
+  }
+  if (!packageJson.workspaces.includes(projectRoot)) {
+    packageJson.workspaces.push(projectRoot);
+    writeJson(tree, 'package.json', packageJson);
+  }
 }
 
 function getPluginVersion(): string {
@@ -332,6 +346,7 @@ async function integrateFrontendWithServer(
     path.join(__dirname, 'files/docker'),
     path.join(frontendProject.root, '../'),
     {
+      dot: '.',
       frontendRoot: frontendProject.root,
       serverRoot: serverProject.root,
       dockerBaseImage: getDockerBaseImage(packageManager),

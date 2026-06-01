@@ -5,6 +5,11 @@
       "schema": "./src/generators/server/schema.json",
       "description": "server generator"
     },
+    "import-server": {
+      "factory": "./src/generators/import-server/import-server",
+      "schema": "./src/generators/import-server/schema.json",
+      "description": "Import an existing HAPI FHIR server as an Nx project"
+    },
     "operation": {
       "factory": "./src/generators/operation/operation",
       "schema": "./src/generators/operation/schema.json",

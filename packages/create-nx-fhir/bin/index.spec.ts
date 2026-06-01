@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+  CURRENT_DIR_SENTINEL,
+  initExistingDirectory,
   isPackageManagerAvailable,
   resolveDirectory,
   resolvePackageManager,
@@ -24,12 +26,23 @@ vi.mock('@nx/devkit', () => ({
   },
 }));
 
-vi.mock('child_process', () => ({
-  execSync: vi.fn(),
-  default: {
-    execSync: vi.fn(),
-  },
+const { mockExecSync, mockExistsSync, mockWriteFileSync } = vi.hoisted(() => ({
+  mockExecSync: vi.fn(),
+  mockExistsSync: vi.fn(() => false),
+  mockWriteFileSync: vi.fn(),
 }));
+
+vi.mock('child_process', () => ({
+  execSync: mockExecSync,
+  default: { execSync: mockExecSync },
+}));
+
+vi.mock('fs', () => ({
+  existsSync: mockExistsSync,
+  writeFileSync: mockWriteFileSync,
+  default: { existsSync: mockExistsSync, writeFileSync: mockWriteFileSync },
+}));
+
 
 describe('create-nx-fhir CLI utilities', () => {
   beforeEach(async () => {
@@ -217,6 +230,107 @@ describe('create-nx-fhir CLI utilities', () => {
       expect(
         isPackageManagerAvailable('nonexistent-pm' as PackageManager),
       ).toBe(false);
+    });
+  });
+
+  describe('resolveDirectory -- current directory support', () => {
+    it('should return "." when directory option is "."', async () => {
+      const args: CliArgs = { directory: '.' };
+      const result = await resolveDirectory(args);
+      expect(result).toBe(CURRENT_DIR_SENTINEL);
+    });
+
+    it('should return "." when positional argument is "."', async () => {
+      const args: CliArgs = { _: ['.'] };
+      const result = await resolveDirectory(args);
+      expect(result).toBe(CURRENT_DIR_SENTINEL);
+    });
+
+    it('should return "." when directory option is "." with whitespace', async () => {
+      const args: CliArgs = { directory: ' . ' };
+      const result = await resolveDirectory(args);
+      expect(result).toBe(CURRENT_DIR_SENTINEL);
+    });
+
+    it('should return "." when prompted with "."', async () => {
+      const { input } = await import('@inquirer/prompts');
+      vi.mocked(input).mockResolvedValue('.');
+      const args: CliArgs = {};
+      const result = await resolveDirectory(args);
+      expect(result).toBe(CURRENT_DIR_SENTINEL);
+    });
+  });
+
+  describe('initExistingDirectory', () => {
+    it('should create package.json when missing', async () => {
+      mockExistsSync.mockReturnValue(false);
+
+      await initExistingDirectory('npm', '1.0.0', {});
+
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        expect.stringContaining('package.json'),
+        expect.stringContaining('"version": "0.0.0"'),
+      );
+    });
+
+    it('should create nx.json when missing', async () => {
+      mockExistsSync.mockReturnValue(false);
+
+      await initExistingDirectory('npm', '1.0.0', {});
+
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        expect.stringContaining('nx.json'),
+        expect.stringContaining('"plugins": []'),
+      );
+    });
+
+    it('should preserve existing package.json', async () => {
+      mockExistsSync.mockReturnValue(true);
+
+      await initExistingDirectory('npm', '1.0.0', {});
+
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
+    });
+
+    it('should run npm install with correct packages', async () => {
+      mockExistsSync.mockReturnValue(true);
+
+      await initExistingDirectory('npm', '1.2.3', {});
+
+      expect(mockExecSync).toHaveBeenCalledWith(
+        'npm install --save-dev nx @nx/devkit nx-fhir@1.2.3',
+        expect.objectContaining({ stdio: 'inherit' }),
+      );
+    });
+
+    it('should run bun add with correct packages', async () => {
+      mockExistsSync.mockReturnValue(true);
+
+      await initExistingDirectory('bun', '1.2.3', {});
+
+      expect(mockExecSync).toHaveBeenCalledWith(
+        'bun add --dev nx @nx/devkit nx-fhir@1.2.3',
+        expect.objectContaining({ stdio: 'inherit' }),
+      );
+    });
+
+    it('should run preset generator with options as flags', async () => {
+      mockExistsSync.mockReturnValue(true);
+
+      await initExistingDirectory('npm', '1.0.0', {
+        server: true,
+        serverDirectory: 'backend',
+        packageBase: 'com.org.fhir',
+        fhirVersion: 'R4',
+      });
+
+      // Second execSync call is the generator
+      const generatorCall = mockExecSync.mock.calls[1];
+      expect(generatorCall[0]).toContain('npx nx g nx-fhir:preset');
+      expect(generatorCall[0]).toContain('--server=true');
+      expect(generatorCall[0]).toContain('--serverDirectory=backend');
+      expect(generatorCall[0]).toContain('--packageBase=com.org.fhir');
+      expect(generatorCall[0]).toContain('--fhirVersion=R4');
     });
   });
 
