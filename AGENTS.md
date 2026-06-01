@@ -92,6 +92,7 @@ Two migration systems with three-way merge support:
 - `8.4.0-to-8.4.0-3`
 - `8.4.0-3-to-8.6.0-1`
 - `8.6.0-1-to-8.8.0-1`
+- `8.8.0-1-to-8.10.0-1`
 
 HAPI migration resolver uses BFS graph traversal to find migration paths between versions.
 
