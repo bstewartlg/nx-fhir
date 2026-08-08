@@ -15,6 +15,9 @@
       "cache": true,
       "outputs": []
     },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
     "test": {
       "executor": "nx:noop",
       "cache": true,

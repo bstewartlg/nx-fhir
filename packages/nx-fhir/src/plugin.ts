@@ -9,7 +9,7 @@ import {
 import { existsSync } from 'fs';
 import { dirname } from 'path';
 
-export interface NxFhirPluginOptions {}
+export type NxFhirPluginOptions = Record<string, unknown>;
 
 /**
  * Nx project graph plugin
@@ -44,7 +44,7 @@ async function createNodesInternal(
   );
 
   if (!existsSync(projectJsonPath)) {
-    return null;
+    return {};
   }
 
   try {

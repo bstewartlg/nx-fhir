@@ -1,3 +1,7 @@
 # Effectively disable "bun test" by default since we are using vitest
 [test]
 root = ".bun-test"
+
+[install]
+# Only install package versions published at least 5 days ago (432000 seconds)
+minimumReleaseAge = 432000

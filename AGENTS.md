@@ -23,6 +23,9 @@ bun run e2e                    # Run e2e tests (creates temp workspace, generate
 nx build nx-fhir               # Build the main plugin
 nx test nx-fhir                # Run unit tests for nx-fhir
 nx lint nx-fhir                # Lint the plugin
+
+# Run a single test file (args after -- pass through to Vitest)
+bun nx test nx-fhir -- src/generators/server/server.spec.ts
 ```
 
 ### Local Development
@@ -39,6 +42,8 @@ bun nx watch --initialRun --all -- npx nx run-many --nx-bail=false -t unpublish,
 
 # Alternative: Link for development
 bun run build && cd dist/packages/nx-fhir && bun link && bun install --production
+# Then in the consuming Nx workspace:
+bun link nx-fhir
 ```
 
 ### E2E Testing with Specific Package Manager
@@ -93,6 +98,8 @@ Two migration systems with three-way merge support:
 - `8.4.0-3-to-8.6.0-1`
 - `8.6.0-1-to-8.8.0-1`
 - `8.8.0-1-to-8.10.0-1`
+- `8.10.0-1-to-8.10.0-2`
+- `8.10.0-2-to-8.10.0-3`
 
 HAPI migration resolver uses BFS graph traversal to find migration paths between versions.
 

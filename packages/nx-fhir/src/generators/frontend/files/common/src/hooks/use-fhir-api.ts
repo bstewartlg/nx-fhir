@@ -147,7 +147,7 @@ export function useResourceSearchWithParams(
   resourceType: string,
   searchParams: Record<string, string>,
   pageUrl?: string,
-  count: number = 50,
+  count = 50,
 ) {
   const url = useMemo(() => {
     if (pageUrl) return pageUrl;

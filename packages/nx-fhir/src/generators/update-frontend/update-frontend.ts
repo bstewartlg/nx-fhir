@@ -37,8 +37,6 @@ export async function updateFrontendGenerator(
     }
   }
 
-  let projectConfig: FrontendProjectConfiguration;
-
   // If project wasn't provided, prompt with a filtered list of frontend projects
   if (!options.project) {
     const projects = getProjects(tree);
@@ -71,7 +69,7 @@ export async function updateFrontendGenerator(
   }
 
   // Get the selected project's configuration
-  projectConfig = getProjects(tree).get(
+  const projectConfig = getProjects(tree).get(
     options.project,
   ) as FrontendProjectConfiguration;
   if (!projectConfig) {

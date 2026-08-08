@@ -39,8 +39,6 @@ export async function updateServerGenerator(
     }
   }
 
-  let projectConfig: ServerProjectConfiguration;
-
   // If project wasn't provided, prompt with a filtered list of server projects
   if (!options.project) {
     const projects = getProjects(tree);
@@ -70,7 +68,7 @@ export async function updateServerGenerator(
   }
 
   // Get the selected project's configuration
-  projectConfig = getProjects(tree).get(
+  const projectConfig = getProjects(tree).get(
     options.project,
   ) as ServerProjectConfiguration;
   if (!projectConfig) {

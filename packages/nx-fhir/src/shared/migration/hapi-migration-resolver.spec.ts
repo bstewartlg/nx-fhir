@@ -24,14 +24,14 @@ describe('hapi-migration-resolver', () => {
       expect(path[0].to).toBe('8.4.0');
     });
 
-    it('should find full migration chain from 8.2.0 to 8.10.0-1', () => {
-      const path = buildMigrationPath('8.2.0', '8.10.0-1');
+    it('should find full migration chain from 8.2.0 to 8.10.0-3', () => {
+      const path = buildMigrationPath('8.2.0', '8.10.0-3');
 
-      expect(path).toHaveLength(5);
+      expect(path).toHaveLength(7);
       expect(path[0].from).toBe('8.2.0');
       expect(path[0].to).toBe('8.4.0');
-      expect(path[4].from).toBe('8.8.0-1');
-      expect(path[4].to).toBe('8.10.0-1');
+      expect(path[6].from).toBe('8.10.0-2');
+      expect(path[6].to).toBe('8.10.0-3');
     });
 
     it('should throw error when no path exists', () => {
@@ -76,16 +76,18 @@ describe('hapi-migration-resolver', () => {
     it('should find reachable versions from 8.6.0-1', () => {
       const reachable = getReachableVersions('8.6.0-1');
 
-      expect(reachable).toHaveLength(2);
+      expect(reachable).toHaveLength(4);
       expect(reachable).toContain('8.8.0-1');
       expect(reachable).toContain('8.10.0-1');
+      expect(reachable).toContain('8.10.0-2');
+      expect(reachable).toContain('8.10.0-3');
     });
 
-    it('should find reachable versions from 8.8.0-1', () => {
-      const reachable = getReachableVersions('8.8.0-1');
+    it('should find reachable versions from 8.10.0-2', () => {
+      const reachable = getReachableVersions('8.10.0-2');
 
       expect(reachable).toHaveLength(1);
-      expect(reachable).toContain('8.10.0-1');
+      expect(reachable).toContain('8.10.0-3');
     });
 
     it('should return empty array for version with no migrations', () => {

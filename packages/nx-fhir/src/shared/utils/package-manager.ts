@@ -1,5 +1,4 @@
 import { detectPackageManager, PackageManager } from '@nx/devkit';
-import { execSync } from 'child_process';
 
 
 export function getPackageManager(): PackageManager {
