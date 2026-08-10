@@ -25,7 +25,7 @@ export function getInstallCommand(
 ): string {
   const devFlag = isDev ? '-D' : '';
 
-  let baseCommand = '';
+  let baseCommand: string;
   switch (packageManager) {
     case 'bun':
       baseCommand = 'bun install';
@@ -33,6 +33,8 @@ export function getInstallCommand(
     case 'npm':
       baseCommand = 'npm install';
       break;
+    default:
+      throw new Error(`Unsupported package manager: ${packageManager}`);
   }
 
   if (!packageName) {
@@ -55,6 +57,8 @@ export function getListCommand(
         : `bun pm ls | grep ${packageName}`;
     case 'npm':
       return `npm ls ${packageName}`;
+    default:
+      throw new Error(`Unsupported package manager: ${packageManager}`);
   }
 }
 
@@ -70,6 +74,8 @@ export function getRunCommand(
       return `bun run ${script}`;
     case 'npm':
       return `npm run ${script}`;
+    default:
+      throw new Error(`Unsupported package manager: ${packageManager}`);
   }
 }
 
@@ -85,6 +91,8 @@ export function getExecuteCommand(
       return `bunx ${command ?? ''}`.trim();
     case 'npm':
       return `npx ${command ?? ''}`.trim();
+    default:
+      throw new Error(`Unsupported package manager: ${packageManager}`);
   }
 }
 
@@ -96,6 +104,8 @@ export function getPackCommand(
       return `bun pm pack`;
     case 'npm':
       return `npm pack`;
+    default:
+      throw new Error(`Unsupported package manager: ${packageManager}`);
   }
 }
 
@@ -108,6 +118,8 @@ export function getCiInstallCommand(packageManager: PackageManager): string {
       return 'bun install --frozen-lockfile';
     case 'npm':
       return 'npm ci';
+    default:
+      throw new Error(`Unsupported package manager: ${packageManager}`);
   }
 }
 
@@ -120,6 +132,8 @@ export function getDockerBaseImage(packageManager: PackageManager): string {
       return 'oven/bun:1-slim';
     case 'npm':
       return 'node:24-slim';
+    default:
+      throw new Error(`Unsupported package manager: ${packageManager}`);
   }
 }
 
@@ -132,5 +146,7 @@ export function getLockfileName(packageManager: PackageManager): string {
       return 'bun.lock';
     case 'npm':
       return 'package-lock.json';
+    default:
+      throw new Error(`Unsupported package manager: ${packageManager}`);
   }
 }

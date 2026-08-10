@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
   "release": {
-    "projects":["packages/*"],
+    "projects": ["packages/*"],
     "version": {
       "preVersionCommand": "bunx nx run-many -t build",
       "conventionalCommits": false
@@ -38,9 +38,11 @@
       "cache": true,
       "inputs": [
         "default",
+        "^default",
         "{workspaceRoot}/.eslintrc.json",
         "{workspaceRoot}/.eslintignore",
-        "{workspaceRoot}/eslint.config.mjs"
+        "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/tools/eslint-rules/**/*"
       ]
     },
     "@nx/vitest:test": {
@@ -53,7 +55,6 @@
       "plugin": "@nx/vite/plugin",
       "options": {
         "buildTargetName": "build",
-        "testTargetName": "vite:test",
         "serveTargetName": "serve",
         "devTargetName": "dev",
         "previewTargetName": "preview",
@@ -62,13 +63,25 @@
         "buildDepsTargetName": "build-deps",
         "watchDepsTargetName": "watch-deps"
       },
-      "include": [
-        "e2e/**",
-        "packages/**"
-      ]
+      "include": ["e2e/**", "packages/**"]
+    },
+    {
+      "plugin": "@nx/vitest",
+      "options": {
+        "testTargetName": "vite:test"
+      },
+      "include": ["e2e/**", "packages/**"]
+    },
+    {
+      "plugin": "@nx/eslint/plugin",
+      "options": {
+        "targetName": "lint"
+      },
+      "include": ["packages/nx-fhir/**/*", "packages/create-nx-fhir/**/*"]
     }
   ],
   "cli": {
     "packageManager": "bun"
-  }
+  },
+  "analytics": false
 }

@@ -1,6 +1,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { CodeableConcept, FhirResource, HumanName } from "fhir/r4";
 import { Badge } from "@/components/ui/badge";
+import type { dataTableFeatures } from "@/lib/table-features";
 import type { FhirColumnMeta } from "./types";
 
 /** Common options for column helper functions */
@@ -22,7 +23,7 @@ export function codeableConceptColumn<T extends FhirResource>(
   header: string,
   accessor: (row: T) => CodeableConcept | undefined,
   options: ColumnOptions = {},
-): ColumnDef<FhirResource, unknown> {
+): ColumnDef<typeof dataTableFeatures, FhirResource, unknown> {
   const { size = 200, enableSorting = false, sortParam } = options;
   return {
     id,
@@ -45,7 +46,7 @@ export function statusBadgeColumn<T extends FhirResource>(
   header: string,
   accessor: (row: T) => string | undefined,
   options: ColumnOptions = {},
-): ColumnDef<FhirResource, unknown> {
+): ColumnDef<typeof dataTableFeatures, FhirResource, unknown> {
   const { size = 100, enableSorting = false, sortParam } = options;
   return {
     id,
@@ -68,7 +69,7 @@ export function activeBadgeColumn<T extends FhirResource>(
   header: string,
   accessor: (row: T) => boolean | undefined,
   options: ColumnOptions = {},
-): ColumnDef<FhirResource, unknown> {
+): ColumnDef<typeof dataTableFeatures, FhirResource, unknown> {
   const { size = 80, enableSorting = false, sortParam } = options;
   return {
     id,
@@ -93,7 +94,7 @@ export function humanNameColumn<T extends FhirResource>(
   header: string,
   accessor: (row: T) => HumanName[] | undefined,
   options: ColumnOptions = {},
-): ColumnDef<FhirResource, unknown> {
+): ColumnDef<typeof dataTableFeatures, FhirResource, unknown> {
   const { size = 200, enableSorting = false, sortParam } = options;
   return {
     id,
@@ -119,7 +120,7 @@ export function textColumn<T extends FhirResource>(
   header: string,
   accessor: (row: T) => string | undefined,
   options: ColumnOptions = {},
-): ColumnDef<FhirResource, unknown> {
+): ColumnDef<typeof dataTableFeatures, FhirResource, unknown> {
   const { size = 150, enableSorting = false, sortParam } = options;
   return {
     id,
@@ -140,7 +141,7 @@ export function dateColumn<T extends FhirResource>(
   header: string,
   accessor: (row: T) => string | undefined,
   options: ColumnOptions = {},
-): ColumnDef<FhirResource, unknown> {
+): ColumnDef<typeof dataTableFeatures, FhirResource, unknown> {
   const { size = 120, enableSorting = false, sortParam } = options;
   return {
     id,

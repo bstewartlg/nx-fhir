@@ -1,46 +1,45 @@
-import { defineConfig } from "vite";
-import { devtools } from "@tanstack/devtools-vite";
-import viteReact from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
-import tsConfigPaths from "vite-tsconfig-paths";
-import { tanstackRouter } from "@tanstack/router-plugin/vite";
-import { fileURLToPath, URL } from "node:url";
+import { defineConfig } from 'vite';
+import { devtools } from '@tanstack/devtools-vite';
+import viteReact from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import { tanstackRouter } from '@tanstack/router-plugin/vite';
+
+function isPackage(id: string, pkg: string): boolean {
+  return id.includes(`/node_modules/${pkg}/`) || id.includes(`\\node_modules\\${pkg}\\`);
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     devtools(),
     tanstackRouter({
-      target: "react",
+      target: 'react',
       autoCodeSplitting: true,
     }),
-    tsConfigPaths(),
     viteReact(),
     tailwindcss(),
   ],
   resolve: {
-    alias: {
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
-    },
+    tsconfigPaths: true,
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: {
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return;
           // Split React into its own chunk
-          react: ["react", "react-dom"],
+          if (isPackage(id, 'react') || isPackage(id, 'react-dom')) return 'react';
           // Split TanStack libraries
-          tanstack: [
-            "@tanstack/react-query",
-            "@tanstack/react-router",
-            "@tanstack/react-table",
-            "@tanstack/react-virtual",
-          ],
-        // Split Radix UI components
-        radix: [
-          "radix-ui",
-          "cmdk",
-        ],
+          if (
+            isPackage(id, '@tanstack/react-query') ||
+            isPackage(id, '@tanstack/react-router') ||
+            isPackage(id, '@tanstack/react-table') ||
+            isPackage(id, '@tanstack/react-virtual')
+          ) {
+            return 'tanstack';
+          }
+          // Split Radix UI components
+          if (isPackage(id, 'radix-ui') || isPackage(id, 'cmdk')) return 'radix';
         },
       },
     },

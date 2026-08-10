@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type {
   Bundle,
   CapabilityStatement,
+  CapabilityStatementRestResource,
   FhirResource,
   OperationOutcome,
   Parameters,
@@ -56,7 +57,7 @@ export function useCapabilityStatement(serverUrl: string) {
 
 export function getResourceTypes(
   capability: CapabilityStatement | undefined,
-): string[] {
+): CapabilityStatementRestResource["type"][] {
   if (!capability?.rest) {
     return [];
   }
@@ -68,7 +69,7 @@ export function getResourceTypes(
 
   return serverRest.resource
     .map((r) => r.type)
-    .filter((type): type is string => !!type)
+    .filter((type) => !!type)
     .sort();
 }
 

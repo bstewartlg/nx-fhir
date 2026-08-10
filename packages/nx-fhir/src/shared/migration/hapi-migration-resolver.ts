@@ -79,10 +79,9 @@ export function buildMigrationPath(
   // Build a graph of version transitions
   const graph = new Map<string, HapiMigration[]>();
   for (const migration of HAPI_MIGRATIONS) {
-    if (!graph.has(migration.from)) {
-      graph.set(migration.from, []);
-    }
-    graph.get(migration.from)!.push(migration);
+    const migrationsFromVersion = graph.get(migration.from) ?? [];
+    migrationsFromVersion.push(migration);
+    graph.set(migration.from, migrationsFromVersion);
   }
 
   // BFS to find shortest path
@@ -92,7 +91,8 @@ export function buildMigrationPath(
   const visited = new Set<string>([fromVersion]);
 
   while (queue.length > 0) {
-    const current = queue.shift()!;
+    const current = queue.shift();
+    if (current === undefined) continue;
 
     // Found the target
     if (current.version === toVersion) {
@@ -145,17 +145,17 @@ export function getReachableVersions(fromVersion: string): string[] {
   const graph = new Map<string, HapiMigration[]>();
   
   for (const migration of HAPI_MIGRATIONS) {
-    if (!graph.has(migration.from)) {
-      graph.set(migration.from, []);
-    }
-    graph.get(migration.from)!.push(migration);
+    const migrationsFromVersion = graph.get(migration.from) ?? [];
+    migrationsFromVersion.push(migration);
+    graph.set(migration.from, migrationsFromVersion);
   }
 
   const queue = [fromVersion];
   const visited = new Set([fromVersion]);
 
   while (queue.length > 0) {
-    const current = queue.shift()!;
+    const current = queue.shift();
+    if (current === undefined) continue;
     const nextMigrations = graph.get(current) || [];
 
     for (const migration of nextMigrations) {

@@ -153,10 +153,18 @@ function buildInstallCommand(pm: PackageManager, packages: string[]): string {
   return `npm install --save-dev ${pkgList}`;
 }
 
+export interface PresetOptions {
+  server?: boolean;
+  serverDirectory?: string;
+  packageBase?: string;
+  release?: string;
+  fhirVersion?: string;
+}
+
 export async function initExistingDirectory(
   packageManager: PackageManager,
   presetVersion: string,
-  presetOptions: Record<string, any>,
+  presetOptions: PresetOptions,
 ): Promise<void> {
   const cwd = process.cwd();
   const name = path.basename(cwd);
@@ -220,7 +228,7 @@ async function main() {
 
     // Extract only the preset-specific options
     const { server, serverDirectory, packageBase, release, fhirVersion } = argv;
-    const presetOptions: Record<string, any> = { server };
+    const presetOptions: PresetOptions = { server };
     if (serverDirectory !== undefined) presetOptions.serverDirectory = serverDirectory;
     if (packageBase !== undefined) presetOptions.packageBase = packageBase;
     if (release !== undefined) presetOptions.release = release;
@@ -240,8 +248,10 @@ async function main() {
       });
       logger.info(`Successfully created the workspace here: ${createdDir}.`);
     }
-  } catch (e: any) {
-    logger.error(e?.message ?? e);
+  } catch (e) {
+    const message =
+      e && typeof e === 'object' && 'message' in e ? (e.message ?? e) : e;
+    logger.error(message);
     process.exit(1);
   }
 }

@@ -41,13 +41,13 @@ export async function updateFrontendGenerator(
   if (!options.project) {
     const projects = getProjects(tree);
     let frontendProjects = Array.from(projects.entries())
-      .filter(([_, config]) => config.tags?.includes('nx-fhir-frontend'))
+      .filter(([, config]) => config.tags?.includes('nx-fhir-frontend'))
       .map(([name]) => ({ name, value: name }));
 
     // Fallback: check for frontendVersion in project config
     if (frontendProjects.length === 0) {
       frontendProjects = Array.from(projects.entries())
-        .filter(([_, config]) => {
+        .filter(([, config]) => {
           const fc = config as FrontendProjectConfiguration;
           return fc.frontendVersion !== undefined;
         })
@@ -126,7 +126,7 @@ export async function updateFrontendGenerator(
     );
   }
 
-  const migrationPath = validation.path!;
+  const migrationPath = validation.path ?? [];
 
   // Execute migrations in order, prompting after conflicts
   for (let i = 0; i < migrationPath.length; i++) {

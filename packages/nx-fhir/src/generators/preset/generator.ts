@@ -1,4 +1,4 @@
-import { addDependenciesToPackageJson, addProjectConfiguration, formatFiles, logger, ProjectConfiguration, readNxJson, removeDependenciesFromPackageJson, Tree, updateNxJson, updateProjectConfiguration } from '@nx/devkit';
+import { formatFiles, logger, Tree } from '@nx/devkit';
 import { PresetGeneratorSchema } from './schema';
 import { serverGenerator } from '../server/server';
 import { FhirVersion } from '../../shared/models';

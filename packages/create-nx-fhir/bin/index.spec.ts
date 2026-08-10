@@ -180,6 +180,9 @@ describe('create-nx-fhir CLI utilities', () => {
       await resolveDirectory(args);
 
       const validateFn = vi.mocked(input).mock.calls[0][0].validate;
+      if (!validateFn) {
+        throw new Error('Expected input prompt to define a validate function.');
+      }
 
       expect(validateFn('123-workspace')).toBe(
         'Directory must start with a letter and contain only lowercase letters, numbers and dashes.',
@@ -196,6 +199,9 @@ describe('create-nx-fhir CLI utilities', () => {
       await resolveDirectory(args);
 
       const validateFn = vi.mocked(input).mock.calls[0][0].validate;
+      if (!validateFn) {
+        throw new Error('Expected input prompt to define a validate function.');
+      }
 
       expect(validateFn('   ')).toBe(
         'Please enter a valid directory (alphanumeric and dashes).',

@@ -1,7 +1,6 @@
 import {
   formatFiles,
   generateFiles,
-  getProjects,
   Tree,
   logger,
   readProjectConfiguration,
@@ -57,7 +56,7 @@ async function getDefinitionFromLocation(location: string): Promise<string> {
       return fs.readFileSync(location, 'utf-8');
     }
   } catch (error) {
-    logger.error(`Error fetching definition from ${location}: ${error.message}`);
+    logger.error(`Error fetching definition from ${location}: ${error instanceof Error ? error.message : String(error)}`);
     throw error;
   }
 }
@@ -70,7 +69,7 @@ async function getDefinitionFromLocation(location: string): Promise<string> {
  */
 function extractNameFromDefinition(definition: OperationDefinition): string {
 
-  let name: string;
+  let name: string | undefined;
 
   if (definition.name) {
     name = definition.name;
@@ -104,8 +103,8 @@ export async function operationGenerator(
   }
 
   let operationName = options.name;
-  let definitionString: string;
-  let operationDefinition: OperationDefinition;
+  let definitionString: string | undefined;
+  let operationDefinition: OperationDefinition | undefined;
 
   // If operation definition content is provided, use it directly
   if (options.defContent) {
@@ -128,11 +127,12 @@ export async function operationGenerator(
 
     // We have a definition string, try to parse it and extract the name from it
     if (definitionString) {
-      operationDefinition = JSON.parse(definitionString);
-      if (operationDefinition.resourceType !== 'OperationDefinition') {
+      const parsedDefinition: OperationDefinition = JSON.parse(definitionString);
+      if (parsedDefinition.resourceType !== 'OperationDefinition') {
         throw new Error('Provided definition is not a valid OperationDefinition resource.');
       }
-      operationName = await extractNameFromDefinition(operationDefinition);
+      operationDefinition = parsedDefinition;
+      operationName = await extractNameFromDefinition(parsedDefinition);
     }
 
     // still no operation name (shouldn't happen if the definition is valid)

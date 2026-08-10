@@ -7,10 +7,11 @@ describe('migration migration', () => {
   let tree: Tree;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
   });
 
   it('should run successfully', async () => {
-    expect(true).toBe(true);
+    await update(tree);
+    // ... expect changes made
   });
 });

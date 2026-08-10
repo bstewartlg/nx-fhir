@@ -1,5 +1,5 @@
 import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
-import { Tree, addProjectConfiguration, getProjects, readProjectConfiguration } from '@nx/devkit';
+import { Tree, addProjectConfiguration, readProjectConfiguration } from '@nx/devkit';
 
 import { operationGenerator } from './operation';
 import { OperationGeneratorSchema } from './schema';

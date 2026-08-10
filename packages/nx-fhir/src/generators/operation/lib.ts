@@ -30,14 +30,16 @@ export function getEmptyHapiOperation(name: string, targetPackage: string): Serv
 
 export function getHapiOperation(operationDefinition: OperationDefinition, targetPackage: string, fhirVersion: FhirVersion): ServerOperation {
 
-  const className = getClassName(operationDefinition.id, operationDefinition.resource);
+  // OperationDefinition.id is optional in FHIR; fall back to the required name
+  const operationId = operationDefinition.id ?? operationDefinition.name;
+  const className = getClassName(operationId, operationDefinition.resource);
 
   const operation: ServerOperation = {
-    id: operationDefinition.id,
-    url: operationDefinition.url,
+    id: operationId,
+    url: operationDefinition.url ?? '',
     name: operationDefinition.name,
     code: operationDefinition.code || operationDefinition.name.trim().replace(' ', '-').toLowerCase(),
-    resource: operationDefinition.resource,
+    resource: operationDefinition.resource ?? [],
     system: operationDefinition.system,
     type: operationDefinition.type,
     instance: operationDefinition.instance,
@@ -45,7 +47,7 @@ export function getHapiOperation(operationDefinition: OperationDefinition, targe
     resourceDataTypes: operationDefinition.resource?.map(r => getJavaType(r)),
     className: className,
     targetPackage: targetPackage,
-    methodName: camelcase(operationDefinition.id),
+    methodName: camelcase(operationId),
     modelPackageVersion: fhirVersion.toLowerCase(),
     inputParameters: (operationDefinition.parameter || [])
                         .filter(p => p.use === 'in')
@@ -61,7 +63,7 @@ export function getHapiOperation(operationDefinition: OperationDefinition, targe
                   .map(p => {
                     return { 
                       ...p,
-                      dataType: getJavaType(p.type, true)
+                      dataType: p.type ? getJavaType(p.type, true) : 'IAnyResource'
                     }
                   })[0]
   };

@@ -12,7 +12,7 @@ import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { execFileSync, execSync } from 'child_process';
 import crypto from 'crypto';
-import { migrateWithThreeWayMerge, logMigrationSummary, MigrationSummary, getAllFiles } from '../utils/merge';
+import { migrateWithThreeWayMerge, logMigrationSummary, getAllFiles } from '../utils/merge';
 import { FrontendProjectConfiguration } from '../models';
 import { PLUGIN_VERSION } from '../constants/versions';
 import { FRONTEND_TEMPLATE_CONFIG, getFrontendDependencies } from '../../generators/frontend/frontend';

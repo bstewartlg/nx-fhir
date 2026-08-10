@@ -41,7 +41,7 @@ export interface ServerOperation {
   // custom properties
   resourceDataTypes?: string[];
   inputParameters: ServerOperationParameter[];
-  outputType: ServerOperationParameter;
+  outputType?: ServerOperationParameter;
   className: string;
   methodName: string;
 
@@ -64,7 +64,7 @@ export interface ImplementationGuideHapiConfig {
 }
 
 export interface ImplementationGuidePackage {
-  implementationGuide: ImplementationGuide;
+  implementationGuide: ImplementationGuide | null;
   capabilityStatements: CapabilityStatement[];
   operations: OperationDefinition[];
 }

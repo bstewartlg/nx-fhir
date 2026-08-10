@@ -43,13 +43,13 @@ export async function updateServerGenerator(
   if (!options.project) {
     const projects = getProjects(tree);
     let serverProjects = Array.from(projects.entries())
-      .filter(([_, config]) => config.tags?.includes('nx-fhir-server'))
+      .filter(([, config]) => config.tags?.includes('nx-fhir-server'))
       .map(([name]) => ({ name, value: name }));
 
     // No projects found with "nx-fhir-server" tag. Check for a pom.xml file in each project root instead.
     if (serverProjects.length === 0) {
       serverProjects = Array.from(projects.entries())
-        .filter(([_, config]) => tree.exists(path.join(config.root, 'pom.xml')))
+        .filter(([, config]) => tree.exists(path.join(config.root, 'pom.xml')))
         .map(([name]) => ({ name, value: name }));
     }
 
@@ -129,7 +129,7 @@ export async function updateServerGenerator(
   }
 
   // Show migration path to user
-  const migrationPath = validation.path!;
+  const migrationPath = validation.path ?? [];
   if (migrationPath.length > 1) {
     logger.info(
       `Migration will proceed through ${migrationPath.length} steps:\n` +

@@ -1,21 +1,21 @@
 import {
   type ColumnDef,
   type ColumnResizeMode,
+  type ColumnVisibilityState,
   flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
   type OnChangeFn,
+  type RowData,
   type SortingState,
-  useReactTable,
-  type VisibilityState,
+  useTable,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { useRef, useState } from "react";
+import { dataTableFeatures } from "@/lib/table-features";
 import { cn } from "@/lib/utils";
 
-interface DataTableProps<TData> {
-  columns: ColumnDef<TData, unknown>[];
+interface DataTableProps<TData extends RowData> {
+  columns: ColumnDef<typeof dataTableFeatures, TData, unknown>[];
   data: TData[];
   onRowClick?: (row: TData) => void;
   isLoading?: boolean;
@@ -32,7 +32,7 @@ interface DataTableProps<TData> {
 const COLUMN_RESIZE_MODE: ColumnResizeMode = "onChange";
 const SKELETON_ROWS = Array.from({ length: 10 }, (_, i) => `skeleton-row-${i}`);
 
-export function DataTable<TData>({
+export function DataTable<TData extends RowData>({
   columns,
   data,
   onRowClick,
@@ -45,7 +45,7 @@ export function DataTable<TData>({
 }: DataTableProps<TData>) {
   // Use internal state only when not using manual sorting
   const [internalSorting, setInternalSorting] = useState<SortingState>([]);
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
 
   // Use controlled state when manualSorting is enabled
   const sorting = manualSorting ? (controlledSorting ?? []) : internalSorting;
@@ -53,7 +53,8 @@ export function DataTable<TData>({
     ? controlledOnSortingChange
     : setInternalSorting;
 
-  const table = useReactTable({
+  const table = useTable({
+    features: dataTableFeatures,
     data,
     columns,
     state: {
@@ -62,11 +63,9 @@ export function DataTable<TData>({
     },
     onSortingChange,
     onColumnVisibilityChange: setColumnVisibility,
-    getCoreRowModel: getCoreRowModel(),
-    // Only use client-side sorting when not in manual mode
-    ...(manualSorting
-      ? { manualSorting: true }
-      : { getSortedRowModel: getSortedRowModel() }),
+    // The sorted row model is always registered on dataTableFeatures; manualSorting
+    // tells it to skip client-side sorting when the caller supplies pre-sorted data.
+    ...(manualSorting ? { manualSorting: true } : {}),
     columnResizeMode: COLUMN_RESIZE_MODE,
     enableColumnResizing: true,
   });

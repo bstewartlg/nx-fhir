@@ -3,6 +3,7 @@ import { Tree, readProjectConfiguration, readJson } from '@nx/devkit';
 
 import { frontendGenerator } from './frontend';
 import { FrontendGeneratorSchema } from './schema';
+import { FrontendProjectConfiguration } from '../../shared/models';
 
 describe('frontend generator', () => {
   let tree: Tree;
@@ -64,8 +65,8 @@ describe('frontend generator', () => {
   it('should track frontend version in project config', async () => {
     await frontendGenerator(tree, options);
     const config = readProjectConfiguration(tree, 'test-frontend');
-    expect((config as any).frontendVersion).toBeDefined();
-    expect((config as any).pluginVersion).toBeDefined();
+    expect((config as FrontendProjectConfiguration).frontendVersion).toBeDefined();
+    expect((config as FrontendProjectConfiguration).pluginVersion).toBeDefined();
   });
 
   it('should create index.html with FHIR Browser title', async () => {
@@ -109,7 +110,7 @@ describe('frontend generator', () => {
   it('should default to browser template when no template specified', async () => {
     await frontendGenerator(tree, options);
     const config = readProjectConfiguration(tree, 'test-frontend');
-    expect((config as any).frontendTemplate).toBe('browser');
+    expect((config as FrontendProjectConfiguration).frontendTemplate).toBe('browser');
     expect(config.tags).not.toContain('clinical');
     const indexHtml = tree.read('test-frontend/index.html', 'utf-8');
     expect(indexHtml).toContain('<title>FHIR Browser</title>');
@@ -142,8 +143,8 @@ describe('frontend generator', () => {
     it('should store frontendTemplate in project config', async () => {
       await frontendGenerator(tree, clinicalOptions);
       const config = readProjectConfiguration(tree, 'test-clinical');
-      expect((config as any).frontendTemplate).toBe('clinical');
-      expect((config as any).frontendVersion).toBeDefined();
+      expect((config as FrontendProjectConfiguration).frontendTemplate).toBe('clinical');
+      expect((config as FrontendProjectConfiguration).frontendVersion).toBeDefined();
     });
 
     it('should create index.html with Clinical Portal title', async () => {
@@ -215,7 +216,7 @@ describe('frontend generator', () => {
     it('should default to sidebar navigation layout', async () => {
       await frontendGenerator(tree, clinicalOptions);
       const config = readProjectConfiguration(tree, 'test-clinical');
-      expect((config as any).navigationLayout).toBe('sidebar');
+      expect((config as FrontendProjectConfiguration).navigationLayout).toBe('sidebar');
       expect(tree.exists('test-clinical/src/components/app-sidebar.tsx')).toBe(true);
       expect(tree.exists('test-clinical/src/components/ui/sidebar.tsx')).toBe(true);
     });
@@ -235,7 +236,7 @@ describe('frontend generator', () => {
       it('should store navigationLayout in project config', async () => {
         await frontendGenerator(tree, topnavOptions);
         const config = readProjectConfiguration(tree, 'test-topnav');
-        expect((config as any).navigationLayout).toBe('topnav');
+        expect((config as FrontendProjectConfiguration).navigationLayout).toBe('topnav');
       });
 
       it('should create __root.tsx with top navigation', async () => {

@@ -8,6 +8,7 @@ import {
 import * as path from 'path';
 import { ServerGeneratorSchema } from './schema';
 import { Readable } from 'stream';
+import type { ReadableStream as NodeWebReadableStream } from 'stream/web';
 import * as unzipper from 'unzipper';
 import { ServerProjectConfiguration } from '../../shared/models';
 import { select } from '@inquirer/prompts';
@@ -54,7 +55,9 @@ export async function downloadAndExtract(release: string) {
       throw new Error('Response body is null');
     }
 
-    const nodeStream = Readable.fromWeb(response.body as any);
+    const nodeStream = Readable.fromWeb(
+      response.body as unknown as NodeWebReadableStream,
+    );
     const stream = nodeStream.pipe(unzipper.Parse({ forceStream: true }));
 
     for await (const entry of stream) {
@@ -169,17 +172,18 @@ export async function serverGenerator(
       'hapi.fhir.fhir_version: ' + options.fhirVersion,
     );
   } else {
-    let tempDir: string;
+    let tempDir: string | undefined;
 
     try {
       // Download release to temporary directory
-      tempDir = await downloadAndExtract(release);
+      const extractedDir = await downloadAndExtract(release);
+      tempDir = extractedDir;
 
       // Copy extracted files to the project directory
       logger.info(
         `Copying extracted files to project directory: ${options.directory}`,
       );
-      const filesToCopy = getAllFiles(tempDir).map(filePath => path.join(tempDir, filePath));
+      const filesToCopy = getAllFiles(extractedDir).map(filePath => path.join(extractedDir, filePath));
       for (const filePath of filesToCopy) {
         const stats = statSync(filePath);
         if (!stats.isFile()) {

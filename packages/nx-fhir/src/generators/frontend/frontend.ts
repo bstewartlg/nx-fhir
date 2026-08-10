@@ -37,52 +37,51 @@ export const FRONTEND_TEMPLATE_CONFIG: Record<string, { appTitle: string; bgLigh
 
 /** Dependencies shared by all frontend templates */
 export const BASE_DEPENDENCIES: Record<string, string> = {
-  '@radix-ui/react-collapsible': '^1.1.12',
-  '@radix-ui/react-scroll-area': '^1.2.10',
-  '@radix-ui/react-tabs': '^1.1.13',
-  '@tailwindcss/vite': '^4.2.1',
-  '@tanstack/react-devtools': '^0.9.9',
-  '@tanstack/react-query': '^5.90.21',
-  '@tanstack/react-router': '^1.166.2',
-  '@tanstack/react-router-devtools': '^1.166.2',
-  '@tanstack/react-table': '^8.21.3',
-  '@tanstack/router-plugin': '^1.166.2',
+  '@radix-ui/react-collapsible': '^1.1.20',
+  '@radix-ui/react-scroll-area': '^1.2.18',
+  '@radix-ui/react-tabs': '^1.1.21',
+  '@tailwindcss/vite': '^4.3.3',
+  '@tanstack/react-devtools': '^0.10.9',
+  '@tanstack/react-query': '^5.101.4',
+  '@tanstack/react-router': '^1.170.25',
+  '@tanstack/react-router-devtools': '^1.167.1',
+  '@tanstack/react-table': '^9.1.2',
+  '@tanstack/router-plugin': '^1.168.29',
   'class-variance-authority': '^0.7.1',
   'clsx': '^2.1.1',
-  'lucide-react': '^0.577.0',
+  'lucide-react': '^1.31.0',
   '@monaco-editor/react': '^4.7.0',
-  'radix-ui': '^1.4.3',
-  'react': '^19.2.4',
-  'react-dom': '^19.2.4',
-  'sonner': '^2.0.7',
-  'tailwind-merge': '^3.5.0',
-  'tailwindcss': '^4.2.1',
+  'radix-ui': '^1.6.7',
+  'react': '^19.2.8',
+  'react-dom': '^19.2.8',
+  'sonner': '^2.0.8',
+  'tailwind-merge': '^3.6.0',
+  'tailwindcss': '^4.3.3',
   'tw-animate-css': '^1.4.0',
 };
 
 /** Dependencies only needed by the browser template */
 export const BROWSER_ONLY_DEPENDENCIES: Record<string, string> = {
-  '@tanstack/react-virtual': '^3.13.18',
+  '@tanstack/react-virtual': '^3.14.9',
   'cmdk': '^1.1.1',
 };
 
 /** Dev dependencies for all frontend templates */
 export const DEV_DEPENDENCIES: Record<string, string> = {
-  '@biomejs/biome': '2.4.5',
-  '@tanstack/devtools-vite': '^0.5.3',
+  '@biomejs/biome': '2.5.7',
+  '@tanstack/devtools-vite': '^0.8.3',
   '@testing-library/dom': '^10.4.1',
-  '@testing-library/jest-dom': '^6.9.1',
+  '@testing-library/jest-dom': '~6.9.1',
   '@testing-library/react': '^16.3.2',
-  '@types/fhir': '^0.0.41',
-  '@types/node': '^25.3.3',
-  '@types/react': '^19.2.14',
-  '@types/react-dom': '^19.2.3',
-  '@vitejs/plugin-react': '^5.1.4',
-  jsdom: '^28.1.0',
-  typescript: '^5.9.3',
-  vite: '^7.3.1',
-  'vite-tsconfig-paths': '^6.1.1',
-  vitest: '^4.0.18',
+  '@types/fhir': '^0.0.44',
+  '@types/node': '^26.2.0',
+  '@types/react': '^19.2.18',
+  '@types/react-dom': '^19.2.4',
+  '@vitejs/plugin-react': '^6.0.5',
+  'jsdom': '^29.1.1',
+  'typescript': '~6.0.3',
+  'vite': '^8.2.0',
+  'vitest': '^4.1.10',
 };
 
 /**
@@ -177,6 +176,9 @@ export async function frontendGenerator(
       ? `${projectRoot}/_variants/__root-topnav.tsx`
       : `${projectRoot}/_variants/__root-sidebar.tsx`;
     const rootContent = tree.read(variantFile, 'utf-8');
+    if (rootContent === null) {
+      throw new Error(`Navigation layout variant file not found: ${variantFile}`);
+    }
     tree.write(`${projectRoot}/src/routes/__root.tsx`, rootContent);
 
     tree.delete(`${projectRoot}/_variants/__root-sidebar.tsx`);

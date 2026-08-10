@@ -1,6 +1,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { Encounter, FhirResource } from "fhir/r4";
 import { Badge } from "@/components/ui/badge";
+import type { dataTableFeatures } from "@/lib/table-features";
 import type { FhirColumnMeta, ResourceColumnTemplate } from "./types";
 
 export const encounterTemplate: ResourceColumnTemplate = {
@@ -21,7 +22,7 @@ export const encounterTemplate: ResourceColumnTemplate = {
         }
         return cls?.display || cls?.code || "-";
       },
-    } satisfies ColumnDef<FhirResource, unknown>,
+    } satisfies ColumnDef<typeof dataTableFeatures, FhirResource, unknown>,
     {
       id: "status",
       header: "Status",
@@ -32,6 +33,6 @@ export const encounterTemplate: ResourceColumnTemplate = {
       cell: ({ getValue }) => (
         <Badge variant="outline">{(getValue() as string) || "-"}</Badge>
       ),
-    } satisfies ColumnDef<FhirResource, unknown>,
+    } satisfies ColumnDef<typeof dataTableFeatures, FhirResource, unknown>,
   ],
 };

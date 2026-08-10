@@ -76,7 +76,7 @@ export function threeWayMerge(
     if (chunk.ok) {
       // No conflict, use the merged content
       mergedLines.push(...chunk.ok);
-    } else {
+    } else if (chunk.conflict) {
       // Conflict detected
       hasConflicts = true;
       const conflict: Diff3Conflict = {
@@ -190,7 +190,7 @@ export function migrateWithThreeWayMerge(
       const oldContent = readFileSync(oldFilePath, 'utf-8');
       const newContent = readFileSync(newFilePath, 'utf-8');
       const currentContent = existsInCurrent
-        ? tree.read(currentFilePath, 'utf-8')
+        ? tree.read(currentFilePath, 'utf-8') ?? oldContent
         : oldContent;
 
       // Check if file changed between versions
@@ -236,13 +236,13 @@ export function migrateWithThreeWayMerge(
         relativePath
       );
 
-      tree.write(currentFilePath, mergeResult.content!);
+      tree.write(currentFilePath, mergeResult.content ?? '');
       results.push(mergeResult);
 
       if (mergeResult.status === 'conflict') {
         conflictCount++;
         logger.warn(
-          `⚠️  CONFLICT in ${relativePath} - ${mergeResult.conflicts!.length} conflict(s)`
+          `⚠️  CONFLICT in ${relativePath} - ${mergeResult.conflicts?.length ?? 0} conflict(s)`
         );
         logger.warn('    Review and resolve conflict markers in the file.');
       } else {

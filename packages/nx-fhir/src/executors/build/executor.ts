@@ -9,8 +9,9 @@ export default async function buildExecutor(
   options: BuildExecutorSchema,
   context: ExecutorContext,
 ): Promise<{ success: boolean }> {
-  const projectConfig =
-    context.projectsConfigurations?.projects[context.projectName!];
+  const projectConfig = context.projectName
+    ? context.projectsConfigurations?.projects[context.projectName]
+    : undefined;
 
   if (!projectConfig) {
     logger.error(

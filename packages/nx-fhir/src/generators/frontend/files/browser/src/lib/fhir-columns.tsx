@@ -3,13 +3,14 @@ import type { FhirResource } from "fhir/r4";
 import { Code } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getTemplate } from "@/lib/fhir-columns/templates";
+import type { dataTableFeatures } from "@/lib/table-features";
 import { dateColumn, textColumn } from "./fhir-columns/templates/helpers";
 
 export function getColumnsForResourceType(
   resourceType: string,
   onViewJson: (resource: FhirResource) => void,
-): ColumnDef<FhirResource, unknown>[] {
-  const baseColumns: ColumnDef<FhirResource, unknown>[] = [
+): ColumnDef<typeof dataTableFeatures, FhirResource, unknown>[] {
+  const baseColumns: ColumnDef<typeof dataTableFeatures, FhirResource, unknown>[] = [
     textColumn<FhirResource>("id", "ID", (row) => row.id, {
       size: 100,
       enableSorting: true,
@@ -19,7 +20,7 @@ export function getColumnsForResourceType(
 
   const template = getTemplate(resourceType);
 
-  const metaColumns: ColumnDef<FhirResource, unknown>[] = [
+  const metaColumns: ColumnDef<typeof dataTableFeatures, FhirResource, unknown>[] = [
     dateColumn<FhirResource>(
       "lastUpdated",
       "Last Updated",

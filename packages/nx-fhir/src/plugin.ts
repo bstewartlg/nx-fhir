@@ -2,9 +2,9 @@ import {
   readJsonFile,
   TargetConfiguration,
   joinPathFragments,
-  CreateNodesV2,
+  CreateNodes,
   createNodesFromFiles,
-  CreateNodesContextV2,
+  CreateNodesContext,
 } from '@nx/devkit';
 import { existsSync } from 'fs';
 import { dirname } from 'path';
@@ -12,9 +12,19 @@ import { dirname } from 'path';
 export type NxFhirPluginOptions = Record<string, unknown>;
 
 /**
+ * Minimal shape of a project.json this plugin reads from. Only the fields
+ * actually inspected below are declared; unknown fields are ignored.
+ */
+interface ProjectJsonLike {
+  targets?: Record<string, unknown>;
+  tags?: string[];
+  fhirVersion?: string;
+}
+
+/**
  * Nx project graph plugin
  */
-export const createNodes: CreateNodesV2<NxFhirPluginOptions> = [
+export const createNodes: CreateNodes<NxFhirPluginOptions> = [
   '**/project.json',
   async (configFiles, options, context) => {
     return await createNodesFromFiles(
@@ -22,7 +32,7 @@ export const createNodes: CreateNodesV2<NxFhirPluginOptions> = [
         createNodesInternal(projectFile, options, context),
       configFiles,
       options,
-      context
+      context,
     );
   },
 ];
@@ -31,8 +41,8 @@ export const createNodesV2 = createNodes;
 
 async function createNodesInternal(
   configFilePath: string,
-  options: NxFhirPluginOptions,
-  context: CreateNodesContextV2
+  options: NxFhirPluginOptions | undefined,
+  context: CreateNodesContext,
 ) {
   const projectRoot = dirname(configFilePath);
 
@@ -40,7 +50,7 @@ async function createNodesInternal(
   const projectJsonPath = joinPathFragments(
     context.workspaceRoot,
     projectRoot,
-    'project.json'
+    'project.json',
   );
 
   if (!existsSync(projectJsonPath)) {
@@ -48,7 +58,7 @@ async function createNodesInternal(
   }
 
   try {
-    const projectJson = readJsonFile(projectJsonPath);
+    const projectJson = readJsonFile<ProjectJsonLike>(projectJsonPath);
 
     // Server project should have a pom.xml file in its root and include fhirVersion in the project configuration
     const pomXmlPath = joinPathFragments(projectRoot, 'pom.xml');
@@ -61,14 +71,14 @@ async function createNodesInternal(
 
     // Frontend project should have a package.json file in its root.
     const packageJsonPath = joinPathFragments(projectRoot, 'package.json');
-    if (
-      existsSync(joinPathFragments(context.workspaceRoot, packageJsonPath))
-    ) {
-
+    if (existsSync(joinPathFragments(context.workspaceRoot, packageJsonPath))) {
       // package.json should include the @types/fhir dev dependency or the nx-fhir-frontend tag in the project configuration
-      const packageJson = readJsonFile(joinPathFragments(context.workspaceRoot, packageJsonPath));
+      const packageJson = readJsonFile(
+        joinPathFragments(context.workspaceRoot, packageJsonPath),
+      );
       if (
-        (packageJson.devDependencies && packageJson.devDependencies['@types/fhir']) ||
+        (packageJson.devDependencies &&
+          packageJson.devDependencies['@types/fhir']) ||
         (packageJson.tags && packageJson.tags.includes('nx-fhir-frontend'))
       ) {
         return createFrontendProjectNodes(projectRoot, projectJson);
@@ -77,17 +87,16 @@ async function createNodesInternal(
 
     // Not a project type we recognize
     return {};
-  } catch (error) {
+  } catch {
     // If we can't read the project.json, skip this project
     return {};
   }
 }
 
-
 /**
  * Create server project nodes for the project graph to add Nx targets and tags
  */
-function createServerProjectNodes(projectRoot: string, projectJson: any) {
+function createServerProjectNodes(projectRoot: string, projectJson: ProjectJsonLike) {
   const targets: Record<string, TargetConfiguration> = {};
 
   // Add Maven-based targets if they don't already exist
@@ -99,7 +108,7 @@ function createServerProjectNodes(projectRoot: string, projectJson: any) {
         'default',
         '^production',
         '{projectRoot}/pom.xml',
-        '{projectRoot}/src/**/*.java'
+        '{projectRoot}/src/**/*.java',
       ],
       outputs: ['{projectRoot}/target'],
       options: {
@@ -117,7 +126,7 @@ function createServerProjectNodes(projectRoot: string, projectJson: any) {
         'default',
         '^production',
         '{projectRoot}/pom.xml',
-        '{projectRoot}/src/**/*.java'
+        '{projectRoot}/src/**/*.java',
       ],
       outputs: ['{projectRoot}/target/surefire-reports'],
       options: {},
@@ -150,18 +159,17 @@ function createServerProjectNodes(projectRoot: string, projectJson: any) {
         tags,
         metadata: {
           description: 'HAPI FHIR based server application',
-          technologies: ['hapi', 'java', 'spring-boot', 'fhir']
-        }
+          technologies: ['hapi', 'java', 'spring-boot', 'fhir'],
+        },
       },
     },
   };
 }
 
-
 /**
  * Create frontend project nodes for the project graph to add Nx targets and tags
  */
-function createFrontendProjectNodes(projectRoot: string, projectJson: any) {
+function createFrontendProjectNodes(projectRoot: string, projectJson: ProjectJsonLike) {
   const targets: Record<string, TargetConfiguration> = {};
 
   if (!projectJson.targets?.build) {
@@ -173,7 +181,7 @@ function createFrontendProjectNodes(projectRoot: string, projectJson: any) {
         '^production',
         '{projectRoot}/package.json',
         '{projectRoot}/vite.config.ts',
-        '{projectRoot}/tsconfig.json'
+        '{projectRoot}/tsconfig.json',
       ],
       outputs: ['{projectRoot}/dist'],
       options: {
@@ -190,7 +198,7 @@ function createFrontendProjectNodes(projectRoot: string, projectJson: any) {
         'default',
         '^production',
         '{projectRoot}/package.json',
-        '{projectRoot}/vitest.config.ts'
+        '{projectRoot}/vitest.config.ts',
       ],
       options: {},
     };
@@ -198,7 +206,7 @@ function createFrontendProjectNodes(projectRoot: string, projectJson: any) {
 
   if (!projectJson.targets?.serve) {
     targets.serve = {
-      executor: 'nx-fhir:serve'
+      executor: 'nx-fhir:serve',
     };
   }
 
@@ -220,10 +228,9 @@ function createFrontendProjectNodes(projectRoot: string, projectJson: any) {
         tags,
         metadata: {
           description: 'TanStack Router based FHIR client application',
-          technologies: ['vite', 'tanstack', 'react', 'typescript', 'fhir']
-        }
+          technologies: ['vite', 'tanstack', 'react', 'typescript', 'fhir'],
+        },
       },
     },
   };
-
 }

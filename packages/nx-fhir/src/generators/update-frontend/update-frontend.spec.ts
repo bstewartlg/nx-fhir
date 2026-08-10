@@ -1,7 +1,6 @@
 import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
 import { Tree, addProjectConfiguration, readProjectConfiguration } from '@nx/devkit';
 
-import { UpdateFrontendGeneratorSchema } from './schema';
 import { FrontendProjectConfiguration } from '../../shared/models';
 import { PLUGIN_VERSION } from '../../shared/constants/versions';
 

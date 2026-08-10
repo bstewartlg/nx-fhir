@@ -1,14 +1,16 @@
 // vitest-environment node
 import { logger, workspaceRoot } from '@nx/devkit';
 import { ServerGeneratorSchema } from '@nx-fhir/generators/server/schema';
-import { existsSync, mkdirSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { execSync, spawn } from 'child_process';
 import { FhirVersion } from '@nx-fhir/shared/models';
 import { hostname, networkInterfaces, tmpdir } from 'os';
 import { getExecuteCommand, getInstallCommand, getPackageManager, getPackCommand } from '@nx-fhir/shared/utils/package-manager';
 
-const pluginVersion = require('../../../packages/nx-fhir/package.json').version;
+const pluginVersion = JSON.parse(
+  readFileSync(join(workspaceRoot, 'packages/nx-fhir/package.json'), 'utf-8')
+).version;
 const projectName = `test-project-${crypto.randomUUID()}`;
 const projectDirectory = join(tmpdir(), projectName);
 const nxFhirBuildPath = join(workspaceRoot, 'dist/packages/nx-fhir');
@@ -20,7 +22,7 @@ describe('server generator e2e test', () => {
   const options: ServerGeneratorSchema = {
     directory: 'server',
     packageBase: 'org.custom.server',
-    release: '8.6.0-1',
+    release: '8.10.0-3',
     fhirVersion: FhirVersion.R4,
   };
 
@@ -57,7 +59,7 @@ describe('server generator e2e test', () => {
     try {
       rmSync(projectDirectory, { recursive: true, force: true });
       logger.info(`Cleaned up test project directory: ${projectDirectory}`);
-    } catch (e) {
+    } catch {
       // Ignore
     }
   });
@@ -173,7 +175,7 @@ describe('server generator e2e test', () => {
           await new Promise((resolve) => setTimeout(resolve, 2000));
           try {
             serverProcess.kill('SIGKILL');
-          } catch (e) {
+          } catch {
             // Ignore
           }
         }

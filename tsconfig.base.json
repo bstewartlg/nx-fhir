@@ -13,11 +13,13 @@
     "lib": ["es2020", "dom"],
     "skipLibCheck": true,
     "skipDefaultLibCheck": true,
-    "baseUrl": ".",
+    "strict": true,
     "paths": {
-      "@nx-fhir/nx-fhir": ["packages/nx-fhir/src/index.ts"],
-      "@nx-fhir/*": ["packages/nx-fhir/src/*"]
-    }
+      "@nx-fhir/nx-fhir": ["./packages/nx-fhir/src/index.ts"],
+      "@nx-fhir/*": ["./packages/nx-fhir/src/*"]
+    },
+    "noUncheckedSideEffectImports": false,
+    "types": ["*"]
   },
   "exclude": ["node_modules", "tmp"]
 }

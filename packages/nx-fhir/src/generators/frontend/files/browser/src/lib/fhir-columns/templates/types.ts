@@ -1,5 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { FhirResource } from "fhir/r4";
+import type { dataTableFeatures } from "@/lib/table-features";
 
 /**
  * Extended column meta for FHIR-specific column configuration.
@@ -19,5 +20,5 @@ export interface ResourceColumnTemplate {
   /** The FHIR resource type this template applies to (e.g., "Patient", "Observation") */
   resourceType: string;
   /** Column definitions specific to this resource type */
-  columns: ColumnDef<FhirResource, unknown>[];
+  columns: ColumnDef<typeof dataTableFeatures, FhirResource, unknown>[];
 }

@@ -156,7 +156,7 @@ export async function implementationGuideGenerator(
 
   }
 
-  let parsedPackage: ImplementationGuidePackage;
+  let parsedPackage: ImplementationGuidePackage | undefined;
   const projectConfig = getProjects(tree).get(options.project);
   if (!projectConfig) {
     throw new Error(`Project "${options.project}" not found in workspace.`);
@@ -173,13 +173,13 @@ export async function implementationGuideGenerator(
         parsedPackage = await parsePackage(options.package);
       }
       catch (error) {
-        logger.error(`Could not fetch or parse IG package: ${error.message}`);
+        logger.error(`Could not fetch or parse IG package: ${error instanceof Error ? error.message : String(error)}`);
         return;
       }
     }
 
-    options.id = parsedPackage.implementationGuide?.id;
-    options.igVersion = parsedPackage.implementationGuide?.version;
+    options.id = parsedPackage?.implementationGuide?.id ?? options.id;
+    options.igVersion = parsedPackage?.implementationGuide?.version ?? options.igVersion;
     
   }
 
@@ -194,7 +194,7 @@ export async function implementationGuideGenerator(
       try {
         parsedPackage = await parsePackage(`https://packages.fhir.org/${options.id}/${options.igVersion}`);
       } catch (error) {
-        logger.error(error.message);
+        logger.error(error instanceof Error ? error.message : String(error));
       }
     }
   }
@@ -259,7 +259,7 @@ export async function implementationGuideGenerator(
 
   if (!options.skipCs) {
 
-    let capabilityStatement: CapabilityStatement;
+    let capabilityStatement: CapabilityStatement | null = null;
 
     // If a custom CapabilityStatement location is provided, that overrides any possible file from an IG package
     if (options.csLocation) {

@@ -62,7 +62,7 @@ export function isGitRepositoryClean(
     }
 
     return false;
-  } catch (error) {
+  } catch {
     // Not a git repository or git not available
     logger.warn('Unable to check git status. Git may not be initialized or available.');
     return false;
@@ -128,7 +128,7 @@ export function getUncommittedFiles(
     }
 
     return files;
-  } catch (error) {
+  } catch {
     return [];
   }
 }

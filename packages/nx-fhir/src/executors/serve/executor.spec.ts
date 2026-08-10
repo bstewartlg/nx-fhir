@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { ExecutorContext } from '@nx/devkit';
 import executor from './executor';
 import * as fs from 'fs';
 import * as child_process from 'child_process';
+import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 
 // Mock dependencies
@@ -11,7 +12,7 @@ vi.mock('child_process');
 
 describe('Serve Executor', () => {
   let context: ExecutorContext;
-  let mockSpawn: any;
+  let mockSpawn: { on: Mock; kill: Mock };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -21,7 +22,9 @@ describe('Serve Executor', () => {
       kill: vi.fn(),
     };
     
-    vi.mocked(child_process.spawn).mockReturnValue(mockSpawn as any);
+    vi.mocked(child_process.spawn).mockReturnValue(
+      mockSpawn as unknown as ChildProcess,
+    );
 
     context = {
       root: '/workspace',
@@ -45,12 +48,12 @@ describe('Serve Executor', () => {
   });
 
   it('should detect and serve a server project', async () => {
-    vi.mocked(fs.existsSync).mockImplementation((path: any) => {
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) => {
       return path.toString().endsWith('pom.xml');
     });
 
     // Mock spawn to call exit callback immediately
-    mockSpawn.on.mockImplementation((event: string, callback: any) => {
+    mockSpawn.on.mockImplementation((event: string, callback: (...args: unknown[]) => void) => {
       if (event === 'exit') {
         setTimeout(() => callback(0), 10);
       }
@@ -71,11 +74,11 @@ describe('Serve Executor', () => {
   });
 
   it('should detect and serve a frontend project', async () => {
-    vi.mocked(fs.existsSync).mockImplementation((path: any) => {
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) => {
       return path.toString().endsWith('package.json');
     });
 
-    mockSpawn.on.mockImplementation((event: string, callback: any) => {
+    mockSpawn.on.mockImplementation((event: string, callback: (...args: unknown[]) => void) => {
       if (event === 'exit') {
         setTimeout(() => callback(0), 10);
       }
@@ -105,11 +108,11 @@ describe('Serve Executor', () => {
   });
 
   it('should pass debug options to server', async () => {
-    vi.mocked(fs.existsSync).mockImplementation((path: any) => {
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) => {
       return path.toString().endsWith('pom.xml');
     });
 
-    mockSpawn.on.mockImplementation((event: string, callback: any) => {
+    mockSpawn.on.mockImplementation((event: string, callback: (...args: unknown[]) => void) => {
       if (event === 'exit') {
         setTimeout(() => callback(0), 10);
       }
@@ -129,11 +132,11 @@ describe('Serve Executor', () => {
   });
 
   it('should pass Spring profile to server', async () => {
-    vi.mocked(fs.existsSync).mockImplementation((path: any) => {
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) => {
       return path.toString().endsWith('pom.xml');
     });
 
-    mockSpawn.on.mockImplementation((event: string, callback: any) => {
+    mockSpawn.on.mockImplementation((event: string, callback: (...args: unknown[]) => void) => {
       if (event === 'exit') {
         setTimeout(() => callback(0), 10);
       }
@@ -153,11 +156,11 @@ describe('Serve Executor', () => {
   });
 
   it('should pass custom port and host to frontend', async () => {
-    vi.mocked(fs.existsSync).mockImplementation((path: any) => {
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) => {
       return path.toString().endsWith('package.json');
     });
 
-    mockSpawn.on.mockImplementation((event: string, callback: any) => {
+    mockSpawn.on.mockImplementation((event: string, callback: (...args: unknown[]) => void) => {
       if (event === 'exit') {
         setTimeout(() => callback(0), 10);
       }

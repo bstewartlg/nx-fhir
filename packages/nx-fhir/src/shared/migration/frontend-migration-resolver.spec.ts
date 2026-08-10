@@ -22,7 +22,7 @@ describe('frontend-migration-resolver', () => {
 
       expect(result.valid).toBe(true);
       expect(result.path).toHaveLength(1);
-      expect(result.path![0]).toEqual({ from: '0.1.0', to: CURRENT_FRONTEND_VERSION });
+      expect(result.path?.[0]).toEqual({ from: '0.1.0', to: CURRENT_FRONTEND_VERSION });
     });
 
     it('should reject migration to a version that is not current', () => {

@@ -16,7 +16,13 @@
       "outputs": []
     },
     "lint": {
-      "executor": "@nx/eslint:lint"
+      "command": "eslint .",
+      "cache": true,
+      "inputs": [
+        "default",
+        "{workspaceRoot}/eslint.config.mjs"
+      ],
+      "outputs": []
     },
     "test": {
       "executor": "nx:noop",
