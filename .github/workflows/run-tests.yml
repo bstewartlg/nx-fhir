@@ -1,5 +1,19 @@
 name: run-tests
-on: [push]
+# The CI image directory is ignored on push because a Dockerfile change alone
+# does not change what this job pulls while the new image is still building.
+# The workflow_run trigger covers it instead: once publish-ci-image pushes the
+# image, the tests run against it.
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.github/ci/**'
+      - '.github/workflows/publish-package.yml'
+      - '.github/workflows/publish-ci-image.yml'
+  workflow_run:
+    workflows: [publish-ci-image]
+    types: [completed]
 
 # A push that supersedes an in-flight run cancels it. The e2e job boots a real
 # HAPI server through Maven, so a stacked queue costs 20+ minutes per commit.
@@ -10,30 +24,18 @@ concurrency:
 jobs:
   test:
     name: Run Tests (${{ matrix.package-manager }})
+    if: github.event_name == 'push' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         package-manager: [bun, npm]
+    # All toolchains (Maven, JDK, Node, npm, bun) are baked into this image by
+    # .github/ci/Dockerfile and published by the publish-ci-image workflow.
     container:
-      image: maven:3.9-eclipse-temurin-17
+      image: ghcr.io/bstewartlg/nx-fhir-ci:1.0.0
     steps:
       - uses: actions/checkout@v5
-
-      # Node must exist before the cache steps: actions/cache is a JavaScript
-      # action, and under act it runs on the node found in this container.
-      # GitHub runners mount their own node, so the order only matters locally.
-      - run: apt update
-      - run: apt install -y curl unzip
-      - run: curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
-      - run: apt install -y nodejs
-      # The repository itself is always installed and driven with bun. The
-      # matrix package manager only selects what the e2e suites use inside the
-      # generated test workspaces, which is the product's npm coverage.
-      - name: Install bun
-        run: |
-          curl -fsSL https://bun.sh/install | bash
-          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Cache Maven repository
         uses: actions/cache@v4

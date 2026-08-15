@@ -18,7 +18,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build image
         run: docker build -t "$IMAGE:$TAG" .github/ci
       - name: Push image
