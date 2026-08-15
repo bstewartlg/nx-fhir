@@ -1,0 +1,25 @@
+name: publish-ci-image
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/ci/Dockerfile']
+
+env:
+  IMAGE: ghcr.io/bstewartlg/nx-fhir-ci
+  TAG: '1.0.0'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Build image
+        run: docker build -t "$IMAGE:$TAG" .github/ci
+      - name: Push image
+        run: docker push "$IMAGE:$TAG"
