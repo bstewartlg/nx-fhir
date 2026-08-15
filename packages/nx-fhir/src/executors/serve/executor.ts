@@ -35,6 +35,28 @@ export default async function serveExecutor(
     return { success: false };
   }
 
+  // spawn resolves mvn.cmd and npm.cmd through a shell on Windows, and a
+  // shell makes argument content executable, so option values stay
+  // restricted to characters with no shell meaning.
+  if (options.profile && !SAFE_PROFILE.test(options.profile)) {
+    logger.error(
+      `Invalid profile "${options.profile}". Allowed characters: letters, digits, and . _ - ,`
+    );
+    return { success: false };
+  }
+
+  if (options.host && !SAFE_HOST.test(options.host)) {
+    logger.error(
+      `Invalid host "${options.host}". Allowed characters: letters, digits, and . : _ -`
+    );
+    return { success: false };
+  }
+
+  if (options.port !== undefined && !Number.isInteger(Number(options.port))) {
+    logger.error(`Invalid port "${options.port}". The port must be an integer.`);
+    return { success: false };
+  }
+
   try {
     if (isServer) {
       return await serveServer(options, fullProjectPath);
@@ -47,6 +69,10 @@ export default async function serveExecutor(
   }
 }
 
+const SAFE_PROFILE = /^[A-Za-z0-9._,-]+$/;
+// Hostnames, IPv4, and IPv6 addresses; the colon carries no shell meaning.
+const SAFE_HOST = /^[A-Za-z0-9.:_-]+$/;
+
 async function serveServer(
   options: ServeExecutorSchema,
   projectPath: string
@@ -56,16 +82,19 @@ async function serveServer(
   // Build Maven command
   const args = ['spring-boot:run'];
 
+  // These values are passed to Maven as single argv entries without a shell,
+  // so they must not contain quotes, and none of them may contain spaces
+  // because the spring-boot plugin splits property values on whitespace.
   if (options.port) {
-    args.push(`-Dspring-boot.run.arguments="--server.port=${options.port.toString()}"`);
+    args.push(`-Dspring-boot.run.arguments=--server.port=${options.port.toString()}`);
   }
-  
+
   if (options.profile) {
     args.push(`-Dspring-boot.run.profiles=${options.profile}`);
   }
-  
+
   if (options.debug) {
-    args.push('-Dspring-boot.run.jvmArguments="-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=5005"');
+    args.push('-Dspring-boot.run.jvmArguments=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005');
     logger.info('🐛 Debug mode enabled on port 5005');
   }
 
@@ -73,6 +102,8 @@ async function serveServer(
     const child = spawn('mvn', args, {
       cwd: projectPath,
       stdio: 'inherit',
+      // Maven is mvn.cmd on Windows, which spawn only resolves through a shell
+      shell: process.platform === 'win32',
     });
 
     // Handle process termination
@@ -122,6 +153,8 @@ async function serveFrontend(
     const child = spawn(detectPackageManager(), args, {
       cwd: projectPath,
       stdio: 'inherit',
+      // npm and bun are .cmd/.exe shims on Windows and need a shell to resolve
+      shell: process.platform === 'win32',
     });
 
     // Handle process termination

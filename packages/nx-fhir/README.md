@@ -5,6 +5,7 @@ An Nx plugin for building FHIR servers and frontends.
 ## Features
 
 - Generate complete FHIR server projects based on [HAPI FHIR JPA Starter](https://github.com/hapifhir/hapi-fhir-jpaserver-starter)
+- Import a pre-existing HAPI FHIR server as an Nx project without modifying its source
 - Scaffold TanStack Router-based React frontend SPAs with browser or clinical templates
 - Generate custom FHIR operations from OperationDefinition resources
 - Add FHIR Implementation Guides to your server
@@ -62,6 +63,25 @@ nx g nx-fhir:server
 nx g nx-fhir:server --directory=my-fhir-server --packageBase=com.myorg.fhir --fhirVersion=R4
 ```
 
+### Import Server
+
+Register an existing HAPI FHIR JPA Starter server as an Nx project without scaffolding or modifying any server source:
+
+```sh
+nx g nx-fhir:import-server
+```
+
+**Options:**
+- `--directory`: Directory containing the existing server (default: workspace root)
+- `--name`: Nx project name to register (default: directory name)
+- `--packageBase`: Java package path for custom code (auto-detected from `src/main/java` when omitted)
+- `--release`: HAPI FHIR JPA Starter release the server corresponds to. When omitted, it is detected from `pom.xml` (parent version plus the starter revision property identify the exact image). A release outside the tested set is verified against the published GitHub releases and recorded when it identifies exactly one image. If no single release can be identified, an interactive run prompts and a non-interactive run leaves it unset (required later by `update-server`)
+- `--fhirVersion`: FHIR version of the server (auto-detected from `application.yaml` when omitted)
+
+Only a `project.json` is written; existing server files are left untouched. The `create-nx-fhir` preset runs this detection automatically, so initializing a workspace in a directory that already contains a HAPI server imports it instead of generating a new one.
+
+Servers on releases outside the tested set (for example 7.6.0 or 7.4.0, below the curated 8.x range) are supported on a best-effort basis: the importer verifies the release against the published GitHub releases of the HAPI FHIR JPA Starter and records it when the pom identifies exactly one image. `update-server` then starts with a bridge step that merges the server directly to the nearest tested release before following the tested migration chain. Expect more merge conflicts from a bridge step than from a tested one.
+
 ### Frontend
 
 Generate a TanStack Router-based React SPA that can be packaged with the FHIR server:
@@ -83,6 +103,12 @@ nx g nx-fhir:frontend
 **Example:**
 ```sh
 nx g nx-fhir:frontend --name=patient-portal --server=my-fhir-server --template=clinical --navigationLayout=sidebar
+```
+
+When `--server` is provided, the frontend also gets a `copy-to-server` target that builds the frontend and copies the production bundle into the server's static resources so the server can host it:
+
+```sh
+nx copy-to-server patient-portal
 ```
 
 ### Server Operation
@@ -119,11 +145,18 @@ This will also prompt to generate any custom operations defined in the IG and us
 
 ### Update Server
 
-Update an existing HAPI FHIR server to a newer version:
+Update an existing HAPI FHIR server to a newer version. Uses a three-way merge against the upstream HAPI FHIR JPA Starter releases to preserve your customizations:
 
 ```sh
 nx g nx-fhir:update-server
 ```
+
+**Options:**
+- `--project`: Name of the server project to update
+- `--targetVersion`: The HAPI FHIR version to update the server to
+- `--force`: Force update and override safety checks (not recommended)
+
+A server on a release outside the tested migration set starts with a bridge step: a best-effort three-way merge from its own published image to the nearest tested release, after which the tested chain continues as usual.
 
 ### Update Frontend
 

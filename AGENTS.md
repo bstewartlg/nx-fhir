@@ -26,7 +26,23 @@ nx lint nx-fhir                # Lint the plugin
 
 # Run a single test file (args after -- pass through to Vitest)
 bun nx test nx-fhir -- src/generators/server/server.spec.ts
+
+# Coverage report with threshold enforcement (the CI test step runs this)
+bun run test -- --coverage
 ```
+
+### Test Coverage Policy
+
+Coverage counts every source file via `coverage.include` in each package's
+`vite.config.mts`; generated template code under `src/**/files/**` is
+excluded. Thresholds in those configs fail the run when coverage backslides:
+`packages/nx-fhir` requires 90% of statements, branches, functions, and lines,
+and `packages/create-nx-fhir` requires 95% of statements, functions, and lines
+with 90% of branches. The download and extraction path in
+`generators/server/server.ts` is unit-tested against the committed starter
+archive `src/generators/server/__fixtures__/starter-image.zip`, with only the
+network boundary stubbed; unzipper, the filesystem and the Tree run for real.
+The e2e suite covers the same path against real published artifacts.
 
 ### Local Development
 
@@ -86,20 +102,13 @@ The plugin auto-detects project types:
 - **Server**: Has `pom.xml` + `fhirVersion` in project.json
 - **Frontend**: Has `package.json` with `@types/fhir` or `nx-fhir-frontend` tag
 
-The `import-server` generator and the `preset` flow reuse this server fingerprint via `shared/utils/server-detection.ts` to import an already-present HAPI server (writing only `project.json`) instead of scaffolding a new one. The `preset` runs this detection before asking whether to generate a server, so an existing server is imported without prompting. It best-effort correlates the HAPI version from `pom.xml` to a supported starter release and prompts the user to confirm.
+The `import-server` generator and the `preset` flow reuse this server fingerprint via `shared/utils/server-detection.ts` to import an already-present HAPI server (writing only `project.json`) instead of scaffolding a new one. The `preset` runs this detection before asking whether to generate a server, so an existing server is imported without prompting. The HAPI release is identified from `pom.xml`: the hapi-fhir parent version plus the `hapi.fhir.jpa.server.starter.revision` property name the exact starter image. Interactive runs confirm with a prompt; non-interactive runs record the release only when the pom identifies exactly one release, and otherwise leave `hapiReleaseVersion` unset until the user provides `--release`. Every published starter release from 8.0.0 through 8.10.0-3 is curated, and every curated label is its own image version. A pom that names only a base version without the starter revision property is ambiguous whenever several curated revisions share that base, so the release stays unrecorded until the user names it. Releases outside the curated set, meaning 7.x and older, are verified against the published GitHub releases (`shared/utils/hapi-release-discovery.ts`) and recorded when exact; `update-server` migrates them through a synthesized bridge step to the nearest curated release (see `buildBridgeMigration` in `hapi-migration-resolver.ts`).
 
 ### Migrations (`packages/nx-fhir/src/migrations/`)
 
 Two migration systems with three-way merge support:
 
-**HAPI server migrations** (`hapi-server/`):
-- `8.2.0-to-8.4.0`
-- `8.4.0-to-8.4.0-3`
-- `8.4.0-3-to-8.6.0-1`
-- `8.6.0-1-to-8.8.0-1`
-- `8.8.0-1-to-8.10.0-1`
-- `8.10.0-1-to-8.10.0-2`
-- `8.10.0-2-to-8.10.0-3`
+**HAPI server migrations**: `HAPI_MIGRATIONS` in `shared/migration/hapi-migration-resolver.ts` is a registry of `{ from, to }` pairs, one per consecutive curated release, covering 8.0.0 through 8.10.0-3 in 13 steps. There are no per-version migration directories: every step runs the generic three-way merge through `runHapiMigration`. A step that ever needs custom logic sets the optional `implementation` field to a module path, and `runMigrationStep` in the `update-server` generator loads and runs that module instead.
 
 HAPI migration resolver uses BFS graph traversal to find migration paths between versions.
 
@@ -108,6 +117,9 @@ HAPI migration resolver uses BFS graph traversal to find migration paths between
 - Downloads old template from the previously installed npm version and new template from the target version
 - Performs three-way merge preserving user customizations while applying template updates
 - Managed by `frontend-migration.ts` and `frontend-migration-resolver.ts` in shared code
+- Also merges the server-integration files the generator wrote outside the frontend root: the combined frontend + server Dockerfile and `.dockerignore` in the frontend project's parent directory, and the SPA/CORS Java classes in the server source tree. Integration is detected from the frontend project's `copy-to-server` target (`shared/utils/frontend-integration.ts`).
+
+**Docker file ownership**: When a frontend is generated directly under the server root (typical for a server imported at the workspace root), the integration Dockerfile replaces the starter's. The frontend generator preserves the replaced files as `<name>.orig`, and `runHapiMigration` strips the integration-owned docker files from both release sides before the server merge, leaving their updates to the frontend template migration.
 
 ### Shared Code (`packages/nx-fhir/src/shared/`)
 

@@ -38,17 +38,10 @@ export default async function buildExecutor(
     return { success: false };
   }
 
-  try {
-    if (isServer) {
-      return buildServer(options, fullProjectPath);
-    } else {
-      return buildFrontend(options, fullProjectPath);
-    }
-  } catch (error) {
-    logger.error(
-      `Failed to build ${context.projectName}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    return { success: false };
+  if (isServer) {
+    return buildServer(options, fullProjectPath);
+  } else {
+    return buildFrontend(options, fullProjectPath);
   }
 }
 
@@ -99,9 +92,8 @@ function buildFrontend(
 ): { success: boolean } {
   logger.info('🔨 Building Vite Frontend...');
 
-  const packageManager = detectPackageManager();
-
   try {
+    const packageManager = detectPackageManager();
     execSync(getRunCommand(packageManager, 'build'), {
       cwd: projectPath,
       stdio: 'inherit',

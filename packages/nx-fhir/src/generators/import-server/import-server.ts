@@ -12,13 +12,29 @@ import { input, select } from '@inquirer/prompts';
 import { ImportServerGeneratorSchema } from './schema';
 import { FhirVersion, ServerProjectConfiguration } from '../../shared/models';
 import { registerNxPlugin } from '../../shared/utils';
-import { detectExistingServer } from '../../shared/utils/server-detection';
+import { isInteractive } from '../../shared/utils/interactive';
 import {
-  DEFAULT_HAPI_VERSION,
+  detectExistingServer,
+  DetectedServer,
+} from '../../shared/utils/server-detection';
+import {
+  fetchStarterImageVersions,
+  matchImageVersion,
+} from '../../shared/utils/hapi-release-discovery';
+import {
   isHapiVersionSupported,
   PLUGIN_VERSION,
   SUPPORTED_HAPI_VERSIONS,
 } from '../../shared/constants/versions';
+
+const DEFAULT_PACKAGE_BASE = 'org.custom.server';
+
+const RELEASE_NOT_RECORDED_HELP =
+  'hapiReleaseVersion was not recorded. Pass --release, or set hapiReleaseVersion in project.json, before running update-server.';
+
+function untestedReleaseWarning(release: string): string {
+  return `Release ${release} is outside the tested migration set. update-server will first merge it to the nearest tested release on a best-effort basis.`;
+}
 
 /**
  * Registers an already-present HAPI FHIR JPA Starter server as an Nx project.
@@ -31,7 +47,9 @@ export async function importServerGenerator(
   options: ImportServerGeneratorSchema,
 ) {
   const directory =
-    options.directory && options.directory.trim() !== '' ? options.directory : '.';
+    options.directory && options.directory.trim() !== ''
+      ? options.directory
+      : '.';
 
   const detected = detectExistingServer(tree, directory);
   if (!detected) {
@@ -41,7 +59,7 @@ export async function importServerGenerator(
     );
   }
 
-  const release = await resolveRelease(options.release, detected.hapiReleaseVersion);
+  const release = await resolveRelease(options.release, detected);
   const fhirVersion = await resolveFhirVersion(
     options.fhirVersion ?? detected.fhirVersion,
   );
@@ -71,7 +89,9 @@ export async function importServerGenerator(
     tags: ['nx-fhir-server', 'fhir', 'server'],
     packageBase,
     fhirVersion,
-    hapiReleaseVersion: release,
+    // Left out entirely when unknown so a merge with an existing project.json
+    // keeps any release that was recorded before.
+    ...(release !== undefined ? { hapiReleaseVersion: release } : {}),
     pluginVersion: PLUGIN_VERSION,
   };
 
@@ -98,7 +118,7 @@ export async function importServerGenerator(
   }
 
   logger.info(
-    `Registered existing HAPI FHIR server "${projectName}" at "${root}" (HAPI ${release}, FHIR ${fhirVersion}).`,
+    `Registered existing HAPI FHIR server "${projectName}" at "${root}" (HAPI ${release ?? 'not recorded'}, FHIR ${fhirVersion}).`,
   );
 
   await registerNxPlugin(tree);
@@ -112,25 +132,115 @@ export async function importServerGenerator(
     });
   }
 
+  // Safe to format: this generator only writes plugin authored JSON
+  // (project.json, nx.json, package.json). It never touches the imported
+  // server sources, which have to keep the formatting migrations merge against.
   await formatFiles(tree);
 }
 
 async function resolveRelease(
   provided: string | undefined,
-  detected: string | undefined,
-): Promise<string> {
-  const release =
-    provided ??
-    (await select({
-      message: 'Which HAPI FHIR JPA Starter release does this server correspond to?',
-      choices: SUPPORTED_HAPI_VERSIONS.map((v) => ({ name: v, value: v })),
-      default: detected ?? DEFAULT_HAPI_VERSION,
-    }));
-
-  if (!isHapiVersionSupported(release)) {
-    throw new Error(`Unsupported HAPI version: ${release}`);
+  detected: DetectedServer,
+): Promise<string | undefined> {
+  if (provided) {
+    if (isHapiVersionSupported(provided)) {
+      return provided;
+    }
+    const imageVersions = await fetchStarterImageVersions();
+    if (imageVersions?.includes(provided)) {
+      logger.warn(untestedReleaseWarning(provided));
+      return provided;
+    }
+    throw new Error(
+      `Unsupported HAPI version: ${provided}. Tested releases: ${SUPPORTED_HAPI_VERSIONS.join(', ')}. ` +
+        'Other releases are accepted only when they exist as an image tag on the hapi-fhir-jpaserver-starter GitHub repository.',
+    );
   }
-  return release;
+
+  const candidates = detected.hapiReleaseCandidates;
+
+  // When the pom matches no tested release, the published image catalog on
+  // GitHub can still identify it exactly. Discovery is skipped whenever the
+  // API is unreachable.
+  let discovered: string | undefined;
+  // An unreadable revision leaves the image unknown; matching on the base
+  // alone would guess.
+  if (
+    candidates.length === 0 &&
+    detected.pomImage &&
+    !detected.pomImage.revisionUnknown
+  ) {
+    const imageVersions = await fetchStarterImageVersions();
+    if (imageVersions) {
+      discovered = matchImageVersion(
+        imageVersions,
+        detected.pomImage.base,
+        detected.pomImage.revision,
+      );
+    }
+  }
+
+  if (isInteractive()) {
+    const release = await select<string | null>({
+      message:
+        'Which HAPI FHIR JPA Starter release does this server correspond to?',
+      choices: [
+        ...(discovered
+          ? [
+              {
+                name: `${discovered} (detected from pom.xml, outside the tested set)`,
+                value: discovered as string | null,
+              },
+            ]
+          : []),
+        ...[...SUPPORTED_HAPI_VERSIONS].reverse().map((v) => ({
+          name: v,
+          value: v as string | null,
+        })),
+        { name: 'None of these (leave unrecorded)', value: null },
+      ],
+      default:
+        discovered ??
+        (candidates.length > 0 ? candidates[candidates.length - 1] : null),
+    });
+    if (release === null) {
+      logger.warn(RELEASE_NOT_RECORDED_HELP);
+      return undefined;
+    }
+    if (release === discovered) {
+      logger.warn(untestedReleaseWarning(release));
+      return release;
+    }
+    if (!isHapiVersionSupported(release)) {
+      throw new Error(`Unsupported HAPI version: ${release}`);
+    }
+    return release;
+  }
+
+  if (candidates.length === 1) {
+    logger.info(
+      `Using HAPI FHIR JPA Starter release ${candidates[0]}, the only supported release matching pom.xml.`,
+    );
+    return candidates[0];
+  }
+
+  if (discovered) {
+    logger.warn(
+      `Recording HAPI FHIR JPA Starter release ${discovered}, identified from pom.xml and verified against the published GitHub releases. ` +
+        untestedReleaseWarning(discovered),
+    );
+    return discovered;
+  }
+
+  // Recording a guess would give a later update-server run the wrong
+  // three-way-merge base, so the release stays unset until the user names it.
+  logger.warn(
+    (candidates.length === 0
+      ? 'The pom.xml does not correspond to a supported HAPI FHIR JPA Starter release. '
+      : `The pom.xml matches several supported HAPI FHIR JPA Starter releases (${candidates.join(', ')}). `) +
+      RELEASE_NOT_RECORDED_HELP,
+  );
+  return undefined;
 }
 
 async function resolveFhirVersion(
@@ -138,6 +248,12 @@ async function resolveFhirVersion(
 ): Promise<FhirVersion> {
   if (provided) {
     return provided;
+  }
+  if (!isInteractive()) {
+    return announceFallback(
+      FhirVersion.R4,
+      `Using FHIR version ${FhirVersion.R4}`,
+    );
   }
   return (await select({
     message: 'Select the FHIR version for this server',
@@ -151,14 +267,32 @@ async function resolveFhirVersion(
   })) as FhirVersion;
 }
 
-async function resolvePackageBase(provided: string | undefined): Promise<string> {
+async function resolvePackageBase(
+  provided: string | undefined,
+): Promise<string> {
   if (provided) {
     return provided;
   }
+  if (!isInteractive()) {
+    return announceFallback(
+      DEFAULT_PACKAGE_BASE,
+      `Using Java package base ${DEFAULT_PACKAGE_BASE}`,
+    );
+  }
   return await input({
     message: 'Enter the Java package path for your custom code',
-    default: 'org.custom.server',
+    default: DEFAULT_PACKAGE_BASE,
   });
+}
+
+/**
+ * Records the value used in place of an answer the user could not be asked for.
+ * The value is reported because an unattended run silently accepting a guess is
+ * hard to diagnose later.
+ */
+function announceFallback<T>(value: T, message: string): T {
+  logger.info(`${message} (no interactive terminal available to confirm).`);
+  return value;
 }
 
 export default importServerGenerator;

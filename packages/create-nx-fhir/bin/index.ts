@@ -11,7 +11,7 @@ import * as path from 'path';
 
 export const SUPPORTED_PACKAGE_MANAGERS = ['bun', 'npm'] as const;
 
-export type PackageManager = typeof SUPPORTED_PACKAGE_MANAGERS[number];
+export type PackageManager = (typeof SUPPORTED_PACKAGE_MANAGERS)[number];
 
 export interface CliArgs {
   directory?: string;
@@ -42,29 +42,30 @@ export function parseArgs(argv: string[]): CliArgs {
       type: 'string',
       description: 'Package manager to use',
       choices: ['bun', 'npm'],
-      default: 'bun'
+      default: 'bun',
     })
     .option('serverDirectory', {
       type: 'string',
-      description: 'The directory to create the server in'
+      description: 'The directory to create the server in',
     })
     .option('packageBase', {
       type: 'string',
-      description: 'The Java package path for custom code'
+      description: 'The Java package path for custom code',
     })
     .option('release', {
       type: 'string',
-      description: 'The HAPI FHIR JPA Starter release to use'
+      description: 'The HAPI FHIR JPA Starter release to use',
     })
     .option('fhirVersion', {
       type: 'string',
       description: 'The FHIR version to use for the server',
-      choices: ['STU3', 'R4', 'R4B', 'R5']
+      choices: ['STU3', 'R4', 'R4B', 'R5'],
     })
     .option('verbose', {
       type: 'boolean',
-      description: 'Enable verbose logging'
+      description: 'Enable verbose logging',
     })
+    .version(require('../package.json').version)
     .help()
     .alias('h', 'help')
     .parseSync() as CliArgs;
@@ -85,7 +86,11 @@ export const CURRENT_DIR_SENTINEL = '.';
 
 export async function resolveDirectory(args: CliArgs): Promise<string> {
   // Detect "." before sanitization since sanitizeDirectory strips it
-  const rawDir = args.directory ?? (args._ && args._.length > 0 && typeof args._[0] === 'string' ? args._[0] as string : undefined);
+  const rawDir =
+    args.directory ??
+    (args._ && args._.length > 0 && typeof args._[0] === 'string'
+      ? (args._[0] as string)
+      : undefined);
   if (rawDir?.trim() === '.') {
     return CURRENT_DIR_SENTINEL;
   }
@@ -97,7 +102,7 @@ export async function resolveDirectory(args: CliArgs): Promise<string> {
     return sanitizeDirectory(rawDir);
   }
   return await input({
-    message: 'Workspace directory:',
+    message: 'Workspace directory (enter "." to use the current directory):',
     validate: (val) => {
       if (val.trim() === '.') return true;
       const cleaned = sanitizeDirectory(val);
@@ -107,11 +112,12 @@ export async function resolveDirectory(args: CliArgs): Promise<string> {
         return 'Directory must start with a letter and contain only lowercase letters, numbers and dashes.';
       return true;
     },
-  }).then((val) => val.trim() === '.' ? CURRENT_DIR_SENTINEL : sanitizeDirectory(val));
+  }).then((val) =>
+    val.trim() === '.' ? CURRENT_DIR_SENTINEL : sanitizeDirectory(val),
+  );
 }
 
 export function isPackageManagerAvailable(pm: PackageManager): boolean {
-
   // Ensure it's a supported package manager
   if (SUPPORTED_PACKAGE_MANAGERS.indexOf(pm) === -1) {
     return false;
@@ -126,7 +132,9 @@ export function isPackageManagerAvailable(pm: PackageManager): boolean {
   }
 }
 
-export function resolvePackageManager(requested?: PackageManager): PackageManager {
+export function resolvePackageManager(
+  requested?: PackageManager,
+): PackageManager {
   if (!requested) {
     requested = 'bun';
   }
@@ -135,8 +143,10 @@ export function resolvePackageManager(requested?: PackageManager): PackageManage
     return requested;
   }
 
-  logger.warn(`Package manager '${requested}' is not available. Falling back to 'npm'.`);
-  
+  logger.warn(
+    `Package manager '${requested}' is not available. Falling back to 'npm'.`,
+  );
+
   if (!isPackageManagerAvailable('npm')) {
     logger.error('npm is not available. Please install npm to continue.');
     process.exit(1);
@@ -159,6 +169,28 @@ export interface PresetOptions {
   packageBase?: string;
   release?: string;
   fhirVersion?: string;
+}
+
+/**
+ * Records an analytics preference in nx.json when the workspace has not made
+ * one. The nx CLI prompts for usage data at startup, before it runs the
+ * generator, whenever nx.json exists without a boolean analytics field.
+ */
+export function stageAnalyticsPreference(directory: string): void {
+  const nxJsonPath = path.join(directory, 'nx.json');
+  if (!fs.existsSync(nxJsonPath)) {
+    return;
+  }
+
+  const nxJson = JSON.parse(fs.readFileSync(nxJsonPath, 'utf-8'));
+  if (typeof nxJson.analytics === 'boolean') {
+    return;
+  }
+
+  fs.writeFileSync(
+    nxJsonPath,
+    JSON.stringify({ ...nxJson, analytics: false }, null, 2) + '\n',
+  );
 }
 
 export async function initExistingDirectory(
@@ -204,11 +236,18 @@ export async function initExistingDirectory(
 
   // Build preset generator CLI flags
   const flagParts: string[] = [];
-  if (presetOptions.server !== undefined) flagParts.push(`--server=${presetOptions.server}`);
-  if (presetOptions.serverDirectory) flagParts.push(`--serverDirectory=${presetOptions.serverDirectory}`);
-  if (presetOptions.packageBase) flagParts.push(`--packageBase=${presetOptions.packageBase}`);
-  if (presetOptions.release) flagParts.push(`--release=${presetOptions.release}`);
-  if (presetOptions.fhirVersion) flagParts.push(`--fhirVersion=${presetOptions.fhirVersion}`);
+  if (presetOptions.server !== undefined)
+    flagParts.push(`--server=${presetOptions.server}`);
+  if (presetOptions.serverDirectory)
+    flagParts.push(`--serverDirectory=${presetOptions.serverDirectory}`);
+  if (presetOptions.packageBase)
+    flagParts.push(`--packageBase=${presetOptions.packageBase}`);
+  if (presetOptions.release)
+    flagParts.push(`--release=${presetOptions.release}`);
+  if (presetOptions.fhirVersion)
+    flagParts.push(`--fhirVersion=${presetOptions.fhirVersion}`);
+
+  stageAnalyticsPreference(cwd);
 
   const generatorCmd = `npx nx g nx-fhir:preset ${flagParts.join(' ')}`.trim();
   logger.info(`Running preset generator: ${generatorCmd}`);
@@ -229,7 +268,8 @@ async function main() {
     // Extract only the preset-specific options
     const { server, serverDirectory, packageBase, release, fhirVersion } = argv;
     const presetOptions: PresetOptions = { server };
-    if (serverDirectory !== undefined) presetOptions.serverDirectory = serverDirectory;
+    if (serverDirectory !== undefined)
+      presetOptions.serverDirectory = serverDirectory;
     if (packageBase !== undefined) presetOptions.packageBase = packageBase;
     if (release !== undefined) presetOptions.release = release;
     if (fhirVersion !== undefined) presetOptions.fhirVersion = fhirVersion;
@@ -240,12 +280,23 @@ async function main() {
       logger.info('Successfully initialized nx-fhir in the current directory.');
     } else {
       logger.info(`Creating the workspace: ${directory}`);
-      const { directory: createdDir } = await createWorkspace(`nx-fhir@${presetVersion}`, {
-        name: directory,
-        nxCloud: 'skip',
-        packageManager,
-        ...presetOptions
-      });
+      const { directory: createdDir } = await createWorkspace(
+        `nx-fhir@${presetVersion}`,
+        {
+          name: directory,
+          nxCloud: 'skip',
+          packageManager,
+          // nx new records this in nx.json, so the preset generator it spawns
+          // next starts inside a workspace that has already answered the
+          // analytics prompt.
+          analytics: false,
+          // The user already chose nx-fhir by running this CLI, so skip the
+          // third-party preset trust prompt. The prompt defaults to "No" and
+          // blocks forever in wrappers that keep stdin open without input.
+          interactive: false,
+          ...presetOptions,
+        },
+      );
       logger.info(`Successfully created the workspace here: ${createdDir}.`);
     }
   } catch (e) {

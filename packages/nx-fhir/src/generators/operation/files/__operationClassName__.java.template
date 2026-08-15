@@ -69,7 +69,7 @@ public class <%= operation.className %> extends BaseProvider {
   )
   public <%= operation.outputType.dataType %> <%= operation.methodName %><% if (operationType === 'system' && operationsToGenerate.length > 1) { %>Operation<% } %>(
     <%_ if (operationType === 'instance') { -%>
-    @IdParam IdType theId<% (operation.inputParameters && operation.inputParameters.length > 0) ? ',' : '' %>
+    @IdParam IdType theId<%= (operation.inputParameters && operation.inputParameters.length > 0) || manualResponse ? ',' : '' %>
     <%_ } -%>
     <%_ if (operation.inputParameters && operation.inputParameters.length > 0) { -%>
     <%_ operation.inputParameters.forEach((param, index) => { -%>

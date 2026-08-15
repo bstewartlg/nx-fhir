@@ -7,17 +7,27 @@ import {
   updateProjectConfiguration,
   writeJson,
 } from '@nx/devkit';
-import { existsSync, rmSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, readFileSync, renameSync, writeFileSync, copyFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
-import { execFileSync, execSync } from 'child_process';
+import { execSync } from 'child_process';
+import { isDryRun } from '../utils/dry-run';
 import crypto from 'crypto';
-import { migrateWithThreeWayMerge, logMigrationSummary, getAllFiles } from '../utils/merge';
-import { FrontendProjectConfiguration } from '../models';
+import { render as renderEjsTemplate } from 'ejs';
+import { extract as extractTar } from 'tar';
+import { migrateWithThreeWayMerge, logMigrationSummary, getAllFiles, MigrationSummary } from '../utils/merge';
+import { FrontendProjectConfiguration, ServerProjectConfiguration } from '../models';
 import { PLUGIN_VERSION } from '../constants/versions';
 import { FRONTEND_TEMPLATE_CONFIG, getFrontendDependencies } from '../../generators/frontend/frontend';
-import { getInstallCommand } from '../utils/package-manager';
+import {
+  getCiInstallCommand,
+  getDockerBaseImage,
+  getInstallCommand,
+  getLockfileName,
+  getRunCommand,
+} from '../utils/package-manager';
 import { ProjectMigrationResult } from './hapi-migration';
+import { getIntegratedServerRoot } from '../utils/frontend-integration';
 
 /**
  * Options for running a frontend template migration
@@ -74,7 +84,7 @@ export async function downloadOldFrontendTemplates(version: string): Promise<str
   const extractDir = join(tempDir, 'extracted');
   mkdirSync(extractDir, { recursive: true });
 
-  execFileSync('tar', ['xzf', tarballPath, '-C', extractDir], { stdio: 'pipe' });
+  await extractTar({ file: tarballPath, cwd: extractDir });
 
   // Clean up the tarball
   rmSync(tarballPath);
@@ -127,12 +137,17 @@ function renderTemplates(
       mkdirSync(dirname(destPath), { recursive: true });
 
       if (isTemplate) {
-        let content = readFileSync(srcPath, 'utf-8');
-        content = content.replace(/<%=\s*([^%]+?)\s*%>/g, (_, expr) => {
-          const trimmed = expr.trim();
-          return String(vars[trimmed] ?? '');
-        });
-        writeFileSync(destPath, content);
+        const content = readFileSync(srcPath, 'utf-8');
+        // ejs is the engine behind devkit's generateFiles, so the output is
+        // byte identical to what the generator wrote. The ejs dependency must
+        // track the version @nx/devkit pins, not the newest release.
+        try {
+          writeFileSync(destPath, renderEjsTemplate(content, vars));
+        } catch (error) {
+          throw new Error(`Failed to render template ${relPath}`, {
+            cause: error,
+          });
+        }
       } else {
         copyFileSync(srcPath, destPath);
       }
@@ -209,6 +224,135 @@ function getTemplateSourceDirs(
     `Could not find template directories in ${filesDir}. ` +
     `Expected either common/+${template}/ or webapp/.`
   );
+}
+
+/**
+ * Three-way merges the server-integration files the frontend generator wrote
+ * outside the frontend project root: the multi-stage Dockerfile and
+ * .dockerignore next to the frontend project, and the SPA/CORS Java classes
+ * inside the server source tree. Runs only for projects integrated with a
+ * server. A template directory the old plugin version does not ship is
+ * skipped: without an old side to merge against, every file would count as
+ * newly added and overwrite the user's copy.
+ */
+async function migrateIntegrationTemplates(
+  tree: Tree,
+  projectConfig: FrontendProjectConfiguration,
+  oldFilesDir: string,
+  newFilesDir: string,
+  fromVersion: string,
+  toVersion: string,
+  tempDirs: string[]
+): Promise<MigrationSummary[]> {
+  const serverRoot = getIntegratedServerRoot(projectConfig);
+  if (!serverRoot) {
+    return [];
+  }
+
+  const packageManager = detectPackageManager();
+  // The same variables the frontend generator rendered with, re-derived from
+  // the current workspace. An unchanged working copy then matches the old
+  // render byte for byte and merges cleanly.
+  const dockerVars: Record<string, string> = {
+    dot: '.',
+    frontendRoot: projectConfig.root,
+    serverRoot,
+    dockerBaseImage: getDockerBaseImage(packageManager),
+    lockfileName: getLockfileName(packageManager),
+    ciInstallCommand: getCiInstallCommand(packageManager),
+    buildCommand: getRunCommand(packageManager, 'build'),
+  };
+
+  const mergeTargets: Array<{
+    templateDir: string;
+    vars: Record<string, string>;
+    outputRoot: string;
+  }> = [
+    {
+      templateDir: 'docker',
+      vars: dockerVars,
+      outputRoot: join(projectConfig.root, '..'),
+    },
+  ];
+
+  const serverProject = Array.from(getProjects(tree).values()).find(
+    (project) => project.root === serverRoot
+  ) as ServerProjectConfiguration | undefined;
+  if (serverProject?.packageBase) {
+    mergeTargets.push({
+      templateDir: 'server',
+      vars: { packageBase: serverProject.packageBase },
+      outputRoot: join(
+        serverRoot,
+        'src/main/java',
+        serverProject.packageBase.replace(/\./g, '/')
+      ),
+    });
+  } else {
+    logger.warn(
+      `Could not find a server project at '${serverRoot}' with a packageBase; ` +
+        'skipping migration of the integration Java files.'
+    );
+  }
+
+  const summaries: MigrationSummary[] = [];
+  for (const { templateDir, vars, outputRoot } of mergeTargets) {
+    const oldDir = join(oldFilesDir, templateDir);
+    const newDir = join(newFilesDir, templateDir);
+    if (!existsSync(oldDir) || !existsSync(newDir)) {
+      logger.info(
+        `Template directory '${templateDir}' is not present in both plugin versions; skipping.`
+      );
+      continue;
+    }
+
+    const tempOld = join(tmpdir(), `nx-fhir-old-${crypto.randomUUID()}`);
+    const tempNew = join(tmpdir(), `nx-fhir-new-${crypto.randomUUID()}`);
+    tempDirs.push(tempOld, tempNew);
+    renderTemplates([oldDir], tempOld, vars);
+    renderTemplates([newDir], tempNew, vars);
+
+    const summary = await migrateWithThreeWayMerge(
+      tree,
+      outputRoot,
+      tempOld,
+      tempNew,
+      fromVersion,
+      toVersion
+    );
+    // Conflict reports print these paths, so make them workspace relative
+    // instead of relative to the merge root.
+    for (const result of summary.results) {
+      result.path = join(outputRoot, result.path);
+    }
+    summaries.push(summary);
+  }
+  return summaries;
+}
+
+/**
+ * Matches a project root against one npm workspaces entry. Entries are either
+ * literal paths or globs where * spans one path segment and ** spans any
+ * number of segments; that subset covers the patterns npm documents.
+ */
+function matchesWorkspacePattern(pattern: string, projectRoot: string): boolean {
+  // A globstar segment spans zero or more whole segments, so apps/**/frontend
+  // also matches apps/frontend.
+  const segments = pattern.split('/');
+  let regex = '';
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    const isLast = i === segments.length - 1;
+    if (segment === '**') {
+      regex += isLast ? '.*' : '(?:[^/]+/)*';
+    } else {
+      const segmentRegex = segment
+        .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*/g, '[^/]*');
+      regex += segmentRegex + (isLast ? '' : '/');
+    }
+  }
+  return new RegExp(`^${regex}$`).test(projectRoot);
 }
 
 /**
@@ -303,10 +447,13 @@ export async function runFrontendMigration(
       tempDirs.push(tempOld);
 
       const oldSrcDirs = getTemplateSourceDirs(oldFilesDir, template);
-      // Old versions didn't have appTitle/bgLight/bgDark as template variables.
-      // The .template files used hardcoded values, so rendering without those
-      // vars preserves the original output.
-      const oldVars: Record<string, string> = { name: projectName };
+      // Both sides render with the same variables so substituted values never
+      // read as user edits. A template that predates a variable simply has no
+      // placeholder for it.
+      const oldVars: Record<string, string> = {
+        name: projectName,
+        ...(FRONTEND_TEMPLATE_CONFIG[template] ?? {}),
+      };
       renderTemplates(oldSrcDirs, tempOld, oldVars);
 
       if (template === 'clinical') {
@@ -329,7 +476,7 @@ export async function runFrontendMigration(
       }
 
       // Perform three-way merge
-      const summary = migrateWithThreeWayMerge(
+      const summary = await migrateWithThreeWayMerge(
         tree,
         projectConfig.root,
         tempOld,
@@ -337,6 +484,26 @@ export async function runFrontendMigration(
         fromVersion,
         toVersion
       );
+
+      // Merge the server-integration files (Dockerfile, .dockerignore, SPA
+      // Java classes) that live outside the frontend project root.
+      const integrationSummaries = await migrateIntegrationTemplates(
+        tree,
+        projectConfig,
+        oldFilesDir,
+        newFilesDir,
+        fromVersion,
+        toVersion,
+        tempDirs
+      );
+      for (const integrationSummary of integrationSummaries) {
+        summary.added += integrationSummary.added;
+        summary.removed += integrationSummary.removed;
+        summary.merged += integrationSummary.merged;
+        summary.conflicts += integrationSummary.conflicts;
+        summary.unchanged += integrationSummary.unchanged;
+        summary.results.push(...integrationSummary.results);
+      }
 
       // Sync package.json dependencies with current template
       const projectPackageJsonPath = `${projectConfig.root}/package.json`;
@@ -349,18 +516,152 @@ export async function runFrontendMigration(
 
         writeJson(tree, projectPackageJsonPath, packageJson);
 
-        // Write package.json to disk immediately so we can run the install now.
-        // The tree flush will later write the same content (harmless).
-        const absolutePackageJsonPath = join(tree.root, projectPackageJsonPath);
-        writeFileSync(absolutePackageJsonPath, JSON.stringify(packageJson, null, 2) + '\n');
+        // Dependency installation touches the filesystem outside the tree, so a
+        // preview run stops after the tree changes.
+        if (!isDryRun()) {
+          const absolutePackageJsonPath = join(tree.root, projectPackageJsonPath);
+          const packageManager = detectPackageManager();
+          const projectAbsPath = join(tree.root, projectConfig.root);
+          // The lockfile and the project module tree are moved aside so the
+          // install resolves fresh against the migrated package.json; an incremental
+          // install can keep transitive peers pinned to versions that conflict
+          // with it. The stale pins live wherever this frontend installs from:
+          // the workspace root when the project is a registered npm workspace,
+          // the project directory otherwise. A standalone frontend (generated
+          // before workspace registration existed) must not cost the root its
+          // lockfile, because the install from the project never recreates it.
+          // The root node_modules stays either way: this process runs from it,
+          // and the lockfile-free install reconciles it. The lockfiles are
+          // moved aside rather than deleted, so a failed install puts them
+          // back and the workspace still resolves from its previous state.
+          const rootWorkspaces = tree.exists('package.json')
+            ? (readJson(tree, 'package.json').workspaces ?? [])
+            : [];
+          const isWorkspaceMember =
+            Array.isArray(rootWorkspaces) &&
+            rootWorkspaces.some((pattern) =>
+              matchesWorkspacePattern(pattern, projectConfig.root)
+            );
+          const lockfileDirs = isWorkspaceMember
+            ? [tree.root, projectAbsPath]
+            : [projectAbsPath];
+          const lockfileCandidates: Array<{ original: string; backup: string }> =
+            [];
+          for (const dir of lockfileDirs) {
+            for (const lockfile of [
+              'bun.lock',
+              'bun.lockb',
+              'package-lock.json',
+            ]) {
+              const original = join(dir, lockfile);
+              lockfileCandidates.push({
+                original,
+                backup: `${original}.nx-fhir-backup`,
+              });
+            }
+          }
+          const nodeModulesPath = join(projectAbsPath, 'node_modules');
+          const nodeModulesBackup = `${nodeModulesPath}.nx-fhir-backup`;
 
-        const packageManager = detectPackageManager();
-        const projectAbsPath = join(tree.root, projectConfig.root);
-        logger.info(`Installing updated dependencies for '${projectName}'...`);
-        execSync(getInstallCommand(packageManager), {
-          stdio: 'inherit',
-          cwd: projectAbsPath,
-        });
+          // A file next to its backup cannot be told apart from an install
+          // interrupted midway; neither side is safe to delete. Stop before
+          // touching anything.
+          for (const { original, backup } of [
+            ...lockfileCandidates,
+            { original: nodeModulesPath, backup: nodeModulesBackup },
+          ]) {
+            if (existsSync(original) && existsSync(backup)) {
+              throw new Error(
+                `Found both ${original} and its backup ${backup}, likely left by an interrupted migration. ` +
+                  'Verify which is current, remove the backup, and run the migration again.'
+              );
+            }
+          }
+
+          // Write package.json to disk immediately so we can run the install now.
+          // The tree flush will later write the same content (harmless). The
+          // previous bytes are kept in an on-disk backup so a failed install,
+          // or a rerun after a crash, can put them back alongside the
+          // lockfiles; a restored lockfile must match the manifest it was
+          // resolved from.
+          const packageJsonBackupPath = `${absolutePackageJsonPath}.nx-fhir-backup`;
+          // A surviving backup holds the pre-migration manifest; the manifest
+          // itself may already be migrated.
+          const previousPackageJson = existsSync(packageJsonBackupPath)
+            ? readFileSync(packageJsonBackupPath)
+            : existsSync(absolutePackageJsonPath)
+              ? readFileSync(absolutePackageJsonPath)
+              : undefined;
+          if (previousPackageJson !== undefined) {
+            writeFileSync(packageJsonBackupPath, previousPackageJson);
+          }
+          writeFileSync(absolutePackageJsonPath, JSON.stringify(packageJson, null, 2) + '\n');
+
+          const lockfileBackups: Array<{ original: string; backup: string }> =
+            [];
+          for (const { original, backup } of lockfileCandidates) {
+            // A backup without its original is the sole copy left by an
+            // interrupted run; it already sits in the backup slot.
+            if (existsSync(backup)) {
+              lockfileBackups.push({ original, backup });
+              continue;
+            }
+            try {
+              renameSync(original, backup);
+              lockfileBackups.push({ original, backup });
+            } catch (error) {
+              // ENOENT: no lockfile of this name in this directory.
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+                throw error;
+              }
+            }
+          }
+          // The module tree is moved aside so a failed install can put the
+          // previous dependencies back.
+          let nodeModulesMoved = false;
+          if (existsSync(nodeModulesBackup)) {
+            // The sole copy from an interrupted run already sits in the
+            // backup slot.
+            nodeModulesMoved = true;
+          } else {
+            try {
+              renameSync(nodeModulesPath, nodeModulesBackup);
+              nodeModulesMoved = true;
+            } catch (error) {
+              // ENOENT: no module tree to move.
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+                throw error;
+              }
+            }
+          }
+          logger.info(`Installing updated dependencies for '${projectName}'...`);
+          try {
+            execSync(getInstallCommand(packageManager), {
+              stdio: 'inherit',
+              cwd: projectAbsPath,
+            });
+          } catch (error) {
+            if (previousPackageJson !== undefined) {
+              writeFileSync(absolutePackageJsonPath, previousPackageJson);
+            }
+            rmSync(packageJsonBackupPath, { force: true });
+            for (const { original, backup } of lockfileBackups) {
+              renameSync(backup, original);
+            }
+            // A failed install can leave a partial module tree; remove it
+            // before the previous one goes back.
+            rmSync(nodeModulesPath, { recursive: true, force: true });
+            if (nodeModulesMoved) {
+              renameSync(nodeModulesBackup, nodeModulesPath);
+            }
+            throw error;
+          }
+          for (const { backup } of lockfileBackups) {
+            rmSync(backup, { force: true });
+          }
+          rmSync(nodeModulesBackup, { recursive: true, force: true });
+          rmSync(packageJsonBackupPath, { force: true });
+        }
       }
 
       const hasConflicts = summary.conflicts > 0;

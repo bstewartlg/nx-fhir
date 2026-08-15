@@ -4,6 +4,6 @@ import { defineConfig } from 'vitest/config';
 // E2e tests require Java 17+ and Maven — run them via `bun run e2e`.
 export default defineConfig({
   test: {
-    projects: ['packages/*/vite.config.ts'],
+    projects: ['packages/*/vite.config.mts'],
   },
 });

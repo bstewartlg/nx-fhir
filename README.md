@@ -62,7 +62,13 @@ bun nx g nx-fhir:server # or nx-fhir:operation if server was already created
 
 ## Testing
 
-Run end-to-end server test:
+Run unit tests:
+
+```sh
+bun run test
+```
+
+Run the full end-to-end suite:
 
 ```sh
 bun run e2e
@@ -74,11 +80,8 @@ To run the e2e tests with a specific package manager for all of the build/instal
 PACKAGE_MANAGER=npm npm run e2e
 ```
 
-Test does the following:
-- builds the `nx-fhir` package
-- packs the `nx-fhir` package into a tarball
-- creates a new empty Nx workspace with the Nx `apps` preset
-- adds `nx-fhir` as a dev devependency using the path to the local tarball
-- generates a FHIR server
-- ensures that the server can be started
-- queries the `/fhir/metadata` endpoint for a valid `CapabilityStatement` response
+The e2e suite (`e2e/nx-fhir/tests/`) covers:
+
+- **`server.e2e.spec.ts`**: builds and packs `nx-fhir` into a tarball, creates a fresh Nx workspace, installs the tarball, generates a FHIR server, adds a custom operation from an `OperationDefinition`, serves the server on a custom port and queries `/fhir/metadata` for a valid `CapabilityStatement`, adds an Implementation Guide, then generates both frontend templates (`browser` and `clinical`), builds and unit-tests them, and verifies `copy-to-server` places the bundle in the server's static resources
+- **`create-nx-fhir.e2e.spec.ts`**: publishes both packages to an ephemeral local Verdaccio registry and runs the real end-user flow: `create-nx-fhir` into a new workspace with a server, `create-nx-fhir .` in an existing directory, and importing a pre-existing HAPI server via the preset's server detection
+- **`migration.e2e.spec.ts`**: generates a server on an older HAPI release, customizes it, and runs `update-server` through the three-way merge to the latest supported release; also migrates a frontend generated from a previously published plugin version via `update-frontend`. Both assert zero merge conflicts, preserved customizations, and a successful build

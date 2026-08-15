@@ -4,11 +4,20 @@ import {
   getProjects,
   updateProjectConfiguration,
 } from '@nx/devkit';
-import { existsSync, rmSync } from 'fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { parse as parseYaml } from 'yaml';
 import { downloadAndExtract } from '../../generators/server/server';
 import { migrateWithThreeWayMerge, logMigrationSummary, MigrationSummary } from '../utils/merge';
+import { removeTesterSection } from '../utils';
+import {
+  integrationDockerFileNames,
+  integrationOwnsServerDockerFiles,
+} from '../utils/frontend-integration';
 import { ServerProjectConfiguration } from '../models';
 import { PLUGIN_VERSION } from '../constants/versions';
+
+const APPLICATION_YAML = 'src/main/resources/application.yaml';
 
 /**
  * Options for running a HAPI server migration
@@ -72,6 +81,106 @@ export function findProjectsToMigrate(
 }
 
 /**
+ * Reports whether a project's application.yaml still declares
+ * `hapi.fhir.tester`. A file that is missing or does not parse counts as
+ * declaring it, which leaves the merge sides untouched.
+ */
+function hasTesterSection(tree: Tree, projectRoot: string): boolean {
+  const content = tree.read(join(projectRoot, APPLICATION_YAML), 'utf-8');
+
+  if (!content) {
+    return true;
+  }
+
+  try {
+    return parseYaml(content)?.hapi?.fhir?.tester !== undefined;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Removes the tester section from the application.yaml of each downloaded
+ * release and returns a callback that writes the original content back.
+ *
+ * The frontend generator removes that section from the project, so a project
+ * without it merges against sides that never had it and the region stays out
+ * of the merge. The release directories are shared by every project of a run,
+ * so the sides are only stripped while the project that needs it is merging.
+ */
+function stripTesterFromReleases(releaseDirs: string[]): () => void {
+  const originals: Array<[string, string]> = [];
+
+  for (const releaseDir of releaseDirs) {
+    const filePath = join(releaseDir, APPLICATION_YAML);
+    if (!existsSync(filePath)) {
+      continue;
+    }
+
+    const original = readFileSync(filePath, 'utf-8');
+    const stripped = removeTesterSection(original);
+    if (stripped === original) {
+      continue;
+    }
+
+    originals.push([filePath, original]);
+    writeFileSync(filePath, stripped);
+  }
+
+  return () => {
+    for (const [filePath, original] of originals) {
+      writeFileSync(filePath, original);
+    }
+  };
+}
+
+/**
+ * Removes the docker files a frontend integration owns from each downloaded
+ * release and returns a callback that puts them back.
+ *
+ * A frontend generated directly under the server root replaces the starter's
+ * Dockerfile and .dockerignore with the combined frontend + server versions,
+ * which the frontend template migration keeps up to date. With the files
+ * absent from both release sides the server merge never visits them, so it
+ * cannot conflict with files it no longer owns. The release directories are
+ * shared by every project of a run, so the files are only removed while the
+ * project that needs it is merging.
+ */
+function stripIntegrationDockerFilesFromReleases(
+  tree: Tree,
+  serverRoot: string,
+  releaseDirs: string[]
+): (() => void) | undefined {
+  const projects = Array.from(getProjects(tree).values());
+  if (!integrationOwnsServerDockerFiles(projects, serverRoot)) {
+    return undefined;
+  }
+
+  logger.info(
+    'A frontend integration owns the docker files at the server root; ' +
+      'they are left to the frontend template migration.'
+  );
+
+  const originals: Array<[string, Buffer]> = [];
+  for (const releaseDir of releaseDirs) {
+    for (const fileName of integrationDockerFileNames()) {
+      const filePath = join(releaseDir, fileName);
+      if (!existsSync(filePath)) {
+        continue;
+      }
+      originals.push([filePath, readFileSync(filePath)]);
+      rmSync(filePath);
+    }
+  }
+
+  return () => {
+    for (const [filePath, content] of originals) {
+      writeFileSync(filePath, content);
+    }
+  };
+}
+
+/**
  * Runs a HAPI server migration using three-way merge
  *
  * This function handles the common migration workflow:
@@ -88,7 +197,7 @@ export function findProjectsToMigrate(
  * ```typescript
  * export default async function update(tree: Tree, options: UpdateServerGeneratorSchema = {}) {
  *   const result = await runHapiMigration(tree, {
- *     fromVersion: '8.4.0',
+ *     fromVersion: '8.4.0-2',
  *     toVersion: '8.4.0-3',
  *     project: options.project,
  *   });
@@ -144,14 +253,29 @@ export async function runHapiMigration(
       }
 
       // Perform three-way merge
-      const summary = migrateWithThreeWayMerge(
+      const restoreReleases = hasTesterSection(tree, projectConfig.root)
+        ? undefined
+        : stripTesterFromReleases([tempDirOld, tempDirNew]);
+      const restoreDockerFiles = stripIntegrationDockerFilesFromReleases(
         tree,
         projectConfig.root,
-        tempDirOld,
-        tempDirNew,
-        fromVersion,
-        toVersion
+        [tempDirOld, tempDirNew]
       );
+
+      let summary: MigrationSummary;
+      try {
+        summary = await migrateWithThreeWayMerge(
+          tree,
+          projectConfig.root,
+          tempDirOld,
+          tempDirNew,
+          fromVersion,
+          toVersion
+        );
+      } finally {
+        restoreReleases?.();
+        restoreDockerFiles?.();
+      }
 
       const hasConflicts = summary.conflicts > 0;
 

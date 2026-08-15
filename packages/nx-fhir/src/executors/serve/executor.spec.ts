@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
-import { ExecutorContext } from '@nx/devkit';
+import { ExecutorContext, logger } from '@nx/devkit';
 import executor from './executor';
 import * as fs from 'fs';
 import * as child_process from 'child_process';
@@ -125,7 +125,7 @@ describe('Serve Executor', () => {
       'mvn',
       expect.arrayContaining([
         'spring-boot:run',
-        expect.stringContaining('-Xdebug'),
+        '-Dspring-boot.run.jvmArguments=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005',
       ]),
       expect.any(Object)
     );
@@ -177,5 +177,192 @@ describe('Serve Executor', () => {
         cwd: expectedCwd,
       })
     );
+  });
+
+  it('should reject a profile containing shell metacharacters', async () => {
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) => {
+      return path.toString().endsWith('pom.xml');
+    });
+
+    const result = await executor({ profile: 'prod&calc.exe' }, context);
+
+    expect(child_process.spawn).not.toHaveBeenCalled();
+    expect(result).toEqual({ success: false });
+  });
+
+  it('should reject a host containing shell metacharacters', async () => {
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) => {
+      return path.toString().endsWith('package.json');
+    });
+
+    const result = await executor({ host: '127.0.0.1|whoami' }, context);
+
+    expect(child_process.spawn).not.toHaveBeenCalled();
+    expect(result).toEqual({ success: false });
+  });
+
+  it('should accept an IPv6 host and reject a non-integer port', async () => {
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) => {
+      return path.toString().endsWith('package.json');
+    });
+
+    mockSpawn.on.mockImplementation((event: string, callback: (...args: unknown[]) => void) => {
+      if (event === 'exit') {
+        setTimeout(() => callback(0), 10);
+      }
+      return mockSpawn;
+    });
+
+    await executor({ host: '::' }, context);
+    expect(child_process.spawn).toHaveBeenCalledTimes(1);
+
+    const result = await executor(
+      { port: '8080; rm -rf /' as unknown as number },
+      context,
+    );
+    expect(child_process.spawn).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ success: false });
+  });
+
+  it('should fail when the context names no project', async () => {
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    const result = await executor({}, { ...context, projectName: undefined });
+
+    expect(result).toEqual({ success: false });
+    expect(child_process.spawn).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Could not find project configuration'),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it('should pass the port to the server as a Spring Boot run argument', async () => {
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) =>
+      path.toString().endsWith('pom.xml'),
+    );
+    mockSpawn.on.mockImplementation((event: string, callback: (...args: unknown[]) => void) => {
+      if (event === 'exit') {
+        setTimeout(() => callback(0), 10);
+      }
+      return mockSpawn;
+    });
+
+    await executor({ port: 8081 }, context);
+
+    expect(child_process.spawn).toHaveBeenCalledWith(
+      'mvn',
+      ['spring-boot:run', '-Dspring-boot.run.arguments=--server.port=8081'],
+      expect.any(Object),
+    );
+  });
+
+  it('should report failure when the Maven process exits non-zero', async () => {
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) =>
+      path.toString().endsWith('pom.xml'),
+    );
+    mockSpawn.on.mockImplementation((event: string, callback: (...args: unknown[]) => void) => {
+      if (event === 'exit') {
+        setTimeout(() => callback(1), 10);
+      }
+      return mockSpawn;
+    });
+
+    const result = await executor({}, context);
+
+    expect(result).toEqual({ success: false });
+    expect(errorSpy).toHaveBeenCalledWith('Maven process exited with code 1');
+    errorSpy.mockRestore();
+  });
+
+  it('should treat a Maven process killed by a signal as success', async () => {
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) =>
+      path.toString().endsWith('pom.xml'),
+    );
+    mockSpawn.on.mockImplementation((event: string, callback: (...args: unknown[]) => void) => {
+      if (event === 'exit') {
+        // A signalled process reports a null code, which Ctrl-C produces.
+        setTimeout(() => callback(null), 10);
+      }
+      return mockSpawn;
+    });
+
+    expect(await executor({}, context)).toEqual({ success: true });
+  });
+
+  it('should report failure when the Vite process exits non-zero', async () => {
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) =>
+      path.toString().endsWith('package.json'),
+    );
+    mockSpawn.on.mockImplementation((event: string, callback: (...args: unknown[]) => void) => {
+      if (event === 'exit') {
+        setTimeout(() => callback(2), 10);
+      }
+      return mockSpawn;
+    });
+
+    const result = await executor({}, context);
+
+    expect(result).toEqual({ success: false });
+    expect(errorSpy).toHaveBeenCalledWith('Vite process exited with code 2');
+    errorSpy.mockRestore();
+  });
+
+  it('should log debug mode for a frontend without changing the command', async () => {
+    const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) =>
+      path.toString().endsWith('package.json'),
+    );
+    mockSpawn.on.mockImplementation((event: string, callback: (...args: unknown[]) => void) => {
+      if (event === 'exit') {
+        setTimeout(() => callback(0), 10);
+      }
+      return mockSpawn;
+    });
+
+    await executor({ debug: true }, context);
+
+    expect(infoSpy).toHaveBeenCalledWith('🐛 Debug mode enabled');
+    expect(child_process.spawn).toHaveBeenCalledWith(
+      expect.any(String),
+      ['run', 'dev', '--'],
+      expect.any(Object),
+    );
+    infoSpy.mockRestore();
+  });
+
+  it('should report the message when spawning throws an Error', async () => {
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) =>
+      path.toString().endsWith('pom.xml'),
+    );
+    vi.mocked(child_process.spawn).mockImplementation(() => {
+      throw new Error('mvn not found');
+    });
+
+    const result = await executor({}, context);
+
+    expect(result).toEqual({ success: false });
+    expect(errorSpy).toHaveBeenCalledWith(
+      'Failed to serve test-project: mvn not found',
+    );
+    errorSpy.mockRestore();
+  });
+
+  it('should stringify a non-Error thrown while spawning', async () => {
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    vi.mocked(fs.existsSync).mockImplementation((path: fs.PathLike) =>
+      path.toString().endsWith('package.json'),
+    );
+    vi.mocked(child_process.spawn).mockImplementation(() => {
+      throw 'EACCES';
+    });
+
+    const result = await executor({}, context);
+
+    expect(result).toEqual({ success: false });
+    expect(errorSpy).toHaveBeenCalledWith('Failed to serve test-project: EACCES');
+    errorSpy.mockRestore();
   });
 });

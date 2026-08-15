@@ -24,7 +24,7 @@ npx create-nx-fhir@latest
 ```
 
 You'll be prompted for:
-1. **Workspace directory** - Name of your new workspace
+1. **Workspace directory** - Name of your new workspace, or `.` to initialize the current directory (for example inside an existing HAPI FHIR server)
 2. **Generate FHIR server** - Whether to create a server immediately
 
 ### With Options
@@ -103,10 +103,10 @@ npx create-nx-fhir@latest my-app --server --fhirVersion=R4
 ```
 
 #### `--release <version>`
-Specific HAPI FHIR JPA Starter release version.
+Specific HAPI FHIR JPA Starter release version (for example `8.10.0-3`).
 
 ```sh
-npx create-nx-fhir@latest my-app --server --release=v7.4.6
+npx create-nx-fhir@latest my-app --server --release=8.10.0-3
 ```
 
 ### `--verbose`
@@ -137,7 +137,7 @@ This will:
 - Install `nx`, `@nx/devkit`, and `nx-fhir` as dev dependencies
 - Run the nx-fhir preset generator
 
-Existing files are preserved. You can also set this up manually:
+Existing files are preserved. If the directory already contains a HAPI FHIR JPA Starter server, it is detected and imported as an Nx project (only a `project.json` is added) instead of generating a new server. The HAPI release and FHIR version are auto-detected from `pom.xml` and `application.yaml`. You can also set this up manually:
 
 ```sh
 bun add --dev nx @nx/devkit nx-fhir

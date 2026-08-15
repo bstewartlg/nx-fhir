@@ -1,9 +1,24 @@
+import { vi } from 'vitest';
 import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
-import { Tree, readProjectConfiguration, readJson } from '@nx/devkit';
+import {
+  Tree,
+  addProjectConfiguration,
+  logger,
+  readProjectConfiguration,
+  readJson,
+} from '@nx/devkit';
+import { parse } from 'yaml';
+
+const select = vi.hoisted(() => vi.fn());
+vi.mock('@inquirer/prompts', () => ({ select }));
 
 import { frontendGenerator } from './frontend';
 import { FrontendGeneratorSchema } from './schema';
-import { FrontendProjectConfiguration } from '../../shared/models';
+import {
+  FhirVersion,
+  FrontendProjectConfiguration,
+  ServerProjectConfiguration,
+} from '../../shared/models';
 
 describe('frontend generator', () => {
   let tree: Tree;
@@ -11,6 +26,22 @@ describe('frontend generator', () => {
 
   beforeEach(() => {
     tree = createTreeWithEmptyWorkspace();
+    vi.clearAllMocks();
+  });
+
+  it('should abort when the target directory already exists', async () => {
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    tree.write('test-frontend/src/main.tsx', 'existing work');
+
+    await frontendGenerator(tree, options);
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      "Directory 'test-frontend' already exists. Aborting.",
+    );
+    // The existing file is left alone and no project is registered over it.
+    expect(tree.read('test-frontend/src/main.tsx', 'utf-8')).toBe('existing work');
+    expect(tree.exists('test-frontend/project.json')).toBe(false);
+    errorSpy.mockRestore();
   });
 
   it('should create project configuration', async () => {
@@ -26,6 +57,21 @@ describe('frontend generator', () => {
     await frontendGenerator(tree, options);
     const rootPackageJson = readJson(tree, 'package.json');
     expect(rootPackageJson.workspaces).toContain('test-frontend');
+  });
+
+  it('should keep workspaces the root package.json already declares', async () => {
+    const rootPackageJson = readJson(tree, 'package.json');
+    tree.write(
+      'package.json',
+      JSON.stringify({ ...rootPackageJson, workspaces: ['packages/*'] }),
+    );
+
+    await frontendGenerator(tree, options);
+
+    expect(readJson(tree, 'package.json').workspaces).toEqual([
+      'packages/*',
+      'test-frontend',
+    ]);
   });
 
   it('should not duplicate workspaces entry when run twice', async () => {
@@ -122,6 +168,140 @@ describe('frontend generator', () => {
     expect(packageJson.dependencies['@monaco-editor/react']).toBeDefined();
     expect(packageJson.dependencies['@tanstack/react-virtual']).toBeDefined();
     expect(packageJson.dependencies['cmdk']).toBeDefined();
+  });
+
+  describe('server integration', () => {
+    const serverRoot = 'test-server';
+    const yamlPath = `${serverRoot}/src/main/resources/application.yaml`;
+
+    // Shaped like the released HAPI application.yaml: a banner comment block
+    // above the tester section, and a following section after a blank line.
+    const testerBlock = `    tester:
+      home:
+        name: Local Tester
+        server_address: 'http://localhost:8080/fhir'
+        fhir_version: R4
+`;
+    const serverYaml = `hapi:
+  fhir:
+    fhir_version: R4
+
+    # -------------------------------------------------------------------------------
+    # S. Testers (webui)
+    # -------------------------------------------------------------------------------
+${testerBlock}
+    # -------------------------------------------------------------------------------
+    # T. Outbound HTTP client
+    # -------------------------------------------------------------------------------
+    inline_resource_storage_below_size: 4000
+`;
+
+    beforeEach(() => {
+      const serverConfig: ServerProjectConfiguration = {
+        root: serverRoot,
+        projectType: 'application',
+        sourceRoot: `${serverRoot}/src`,
+        tags: ['fhir', 'server'],
+        packageBase: 'com.example',
+        fhirVersion: FhirVersion.R4,
+        hapiReleaseVersion: '8.10.0-3',
+        pluginVersion: '0.0.1',
+      };
+      addProjectConfiguration(tree, serverRoot, serverConfig);
+      tree.write(yamlPath, serverYaml);
+    });
+
+    it('should remove only the tester section from the server configuration', async () => {
+      await frontendGenerator(tree, { ...options, server: serverRoot });
+
+      expect(tree.read(yamlPath, 'utf-8')).toBe(serverYaml.replace(testerBlock, ''));
+    });
+
+    it('should keep the comment block above the tester section', async () => {
+      await frontendGenerator(tree, { ...options, server: serverRoot });
+
+      const result = tree.read(yamlPath, 'utf-8') as string;
+      expect(result).toContain('    # S. Testers (webui)\n');
+      expect(result).not.toContain('Local Tester');
+      expect(parse(result).hapi.fhir.tester).toBeUndefined();
+      expect(parse(result).hapi.fhir.fhir_version).toBe('R4');
+    });
+
+    it('should leave a configuration without a tester section unchanged', async () => {
+      const withoutTester = serverYaml.replace(testerBlock, '');
+      tree.write(yamlPath, withoutTester);
+
+      await frontendGenerator(tree, { ...options, server: serverRoot });
+
+      expect(tree.read(yamlPath, 'utf-8')).toBe(withoutTester);
+    });
+
+    it('should preserve an existing Dockerfile as Dockerfile.orig before writing the combined one', async () => {
+      tree.write('Dockerfile', 'FROM starter\n');
+
+      await frontendGenerator(tree, { ...options, server: serverRoot });
+
+      expect(tree.read('Dockerfile.orig', 'utf-8')).toBe('FROM starter\n');
+      expect(tree.read('Dockerfile', 'utf-8')).toContain('build-frontend');
+    });
+
+    it('should keep the first backup when the integration runs again', async () => {
+      tree.write('Dockerfile', 'FROM starter\n');
+      tree.write('Dockerfile.orig', 'FROM original\n');
+
+      await frontendGenerator(tree, { ...options, server: serverRoot });
+
+      expect(tree.read('Dockerfile.orig', 'utf-8')).toBe('FROM original\n');
+    });
+
+    it('should integrate with the server the user picks when none is named', async () => {
+      select.mockResolvedValue(serverRoot);
+      const passedOptions = { ...options };
+
+      await frontendGenerator(tree, passedOptions);
+
+      // The picked server is used without writing it back to the caller's options.
+      expect(passedOptions.server).toBeUndefined();
+      expect(select).toHaveBeenCalledTimes(1);
+      const config = readProjectConfiguration(tree, 'test-frontend');
+      expect(config.targets?.['copy-to-server']).toBeDefined();
+      expect(tree.read(yamlPath, 'utf-8')).toBe(serverYaml.replace(testerBlock, ''));
+    });
+
+    it('should skip integration when the user picks no server', async () => {
+      const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+      const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+      select.mockResolvedValue('none');
+
+      await frontendGenerator(tree, { ...options });
+
+      expect(select).toHaveBeenCalledTimes(1);
+      // "none" is a deliberate skip, not a server that failed to resolve.
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(infoSpy).toHaveBeenCalledWith(
+        'No server project selected for integration. Skipping integration step.',
+      );
+      const config = readProjectConfiguration(tree, 'test-frontend');
+      expect(config.targets?.['copy-to-server']).toBeUndefined();
+      expect(tree.read(yamlPath, 'utf-8')).toBe(serverYaml);
+      errorSpy.mockRestore();
+      infoSpy.mockRestore();
+    });
+
+    it('should report a named server project that is not in the workspace', async () => {
+      const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+
+      await frontendGenerator(tree, { ...options, server: 'no-such-server' });
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        "Server project 'no-such-server' not found.",
+      );
+      // The frontend is still generated; only the integration step is skipped.
+      const config = readProjectConfiguration(tree, 'test-frontend');
+      expect(config.targets?.['copy-to-server']).toBeUndefined();
+      expect(tree.read(yamlPath, 'utf-8')).toBe(serverYaml);
+      errorSpy.mockRestore();
+    });
   });
 
   describe('clinical template', () => {
@@ -252,6 +432,23 @@ describe('frontend generator', () => {
         expect(tree.exists('test-topnav/src/components/app-sidebar.tsx')).toBe(false);
         expect(tree.exists('test-topnav/src/components/ui/sidebar.tsx')).toBe(false);
         expect(tree.exists('test-topnav/src/components/ui/sheet.tsx')).toBe(false);
+      });
+
+      it('should use the layout the user picks when none is given', async () => {
+        select.mockResolvedValue('topnav');
+
+        await frontendGenerator(tree, {
+          name: 'test-prompted',
+          template: 'clinical',
+        });
+
+        expect(select).toHaveBeenCalledTimes(1);
+        const config = readProjectConfiguration(tree, 'test-prompted');
+        expect((config as FrontendProjectConfiguration).navigationLayout).toBe(
+          'topnav',
+        );
+        const root = tree.read('test-prompted/src/routes/__root.tsx', 'utf-8');
+        expect(root).not.toContain('SidebarProvider');
       });
 
       it('should still include clinical-specific components', async () => {

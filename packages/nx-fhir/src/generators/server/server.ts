@@ -1,6 +1,5 @@
 import {
   addProjectConfiguration,
-  formatFiles,
   Tree,
   logger,
   generateFiles,
@@ -13,8 +12,10 @@ import * as unzipper from 'unzipper';
 import { ServerProjectConfiguration } from '../../shared/models';
 import { select } from '@inquirer/prompts';
 import { registerNxPlugin, updateServerYaml } from '../../shared/utils';
+import { isDryRun } from '../../shared/utils/dry-run';
 import {
-  HAPI_RELEASE_URLS,
+  getHapiReleaseUrl,
+  isHapiVersionSupported,
   PLUGIN_VERSION,
   SUPPORTED_HAPI_VERSIONS,
 } from '../../shared/constants/versions';
@@ -37,12 +38,26 @@ async function promptForRelease(releases: string[]): Promise<string> {
 }
 
 /**
+ * Selects the starter archive entries that belong in a generated project.
+ * Everything else in the upstream repository (CI config, helm charts, docs)
+ * is dropped.
+ */
+export function isStarterProjectFile(fileName: string): boolean {
+  return (
+    fileName.startsWith('src/') ||
+    fileName === '.gitignore' ||
+    fileName === 'Dockerfile' ||
+    fileName === 'pom.xml'
+  );
+}
+
+/**
  * Downloads and extracts the specified HAPI FHIR JPA Starter release to a temporary directory.
  */
 export async function downloadAndExtract(release: string) {
   const tempDir = join(tmpdir(), `nx-fhir-server-${crypto.randomUUID()}`);
   mkdirSync(tempDir, { recursive: true });
-  const url = HAPI_RELEASE_URLS[release];
+  const url = getHapiReleaseUrl(release);
   logger.info(`Downloading from ${url}`);
   try {
     const response = await fetch(url);
@@ -62,12 +77,7 @@ export async function downloadAndExtract(release: string) {
 
     for await (const entry of stream) {
       const fileName = entry.path.split('/').slice(1).join('/'); // remove root dir
-      if (
-        fileName.startsWith('src/') ||
-        fileName === '.gitignore' ||
-        fileName === 'Dockerfile' ||
-        fileName === 'pom.xml'
-      ) {
+      if (isStarterProjectFile(fileName)) {
         const filePath = path.join(tempDir, fileName);
         if (entry.type === 'Directory') {
           mkdirSync(filePath, { recursive: true });
@@ -141,11 +151,11 @@ export async function serverGenerator(
   options: ServerGeneratorSchema,
 ) {
   const release =
-    options.release ?? (await promptForRelease(SUPPORTED_HAPI_VERSIONS));
-  if (!SUPPORTED_HAPI_VERSIONS.includes(release)) {
+    options.release ??
+    (await promptForRelease([...SUPPORTED_HAPI_VERSIONS].reverse()));
+  if (!isHapiVersionSupported(release)) {
     throw new Error(`Unsupported HAPI version: ${release}`);
   }
-  const isDryRun = process.argv.includes('--dry-run');
 
   logger.info(`Using HAPI JPA starter release: ${release}`);
 
@@ -163,7 +173,7 @@ export async function serverGenerator(
   };
   addProjectConfiguration(tree, projectName, projectConfiguration);
 
-  if (isDryRun) {
+  if (isDryRun()) {
     logger.info(
       'Dry-run mode enabled; skipping download and extraction of HAPI FHIR JPA Starter.',
     );
@@ -214,14 +224,17 @@ export async function serverGenerator(
       );
       throw error;
     } finally {
-      if (tempDir && !isDryRun) {
+      if (tempDir && !isDryRun()) {
         logger.info(`Cleaning up temporary files in ${tempDir}`);
         rmSync(tempDir, { recursive: true, force: true });
       }
     }
   }
 
-  await formatFiles(tree);
+  // The vendored HAPI starter files are deliberately left as upstream ships
+  // them. Server migrations three-way merge against the unformatted upstream
+  // release, so reformatting here would make every file differ from the merge
+  // base by formatting alone.
 }
 
 export default serverGenerator;

@@ -1,21 +1,82 @@
 name: run-tests
 on: [push]
+
+# A push that supersedes an in-flight run cancels it. The e2e job boots a real
+# HAPI server through Maven, so a stacked queue costs 20+ minutes per commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
-    name: Run Tests
+    name: Run Tests (${{ matrix.package-manager }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package-manager: [bun, npm]
     container:
       image: maven:3.9-eclipse-temurin-17
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v5
+
+      # Node must exist before the cache steps: actions/cache is a JavaScript
+      # action, and under act it runs on the node found in this container.
+      # GitHub runners mount their own node, so the order only matters locally.
       - run: apt update
-      - run: apt install -y curl
+      - run: apt install -y curl unzip
       - run: curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
       - run: apt install -y nodejs
-      - run: rm bun.lock
-      - run: npm i
-      - run: npm test
+      - name: Install bun
+        if: matrix.package-manager == 'bun'
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+      # Cache steps run before the package installs so the lockfile hashes are
+      # still computable. The npm leg deletes bun.lock further down.
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          # The path is absolute because the JVM in this image reports
+          # user.home as /root whatever HOME is set to, so Maven writes to
+          # /root/.m2 while "~" would expand to the container HOME of
+          # /github/home and cache an empty directory.
+          path: /root/.m2/repository
+          # The generated server pins its HAPI starter release, so the Maven
+          # dependency set only changes when a spec or the version constants change.
+          key: ${{ runner.os }}-maven-${{ hashFiles('e2e/nx-fhir/tests/**/*.e2e.spec.ts', 'packages/nx-fhir/src/shared/constants/versions.ts') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # bun and npm both honour HOME, so "~" is the container HOME here
+      - name: Cache bun install cache
+        if: matrix.package-manager == 'bun'
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Cache npm cache
+        if: matrix.package-manager == 'npm'
+        uses: actions/cache@v4
+        with:
+          # bun.lock is removed on this leg, so the key uses the manifest instead.
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Remove bun lockfile so npm resolves from package.json
+        if: matrix.package-manager == 'npm'
+        run: rm bun.lock
+      - name: Install dependencies
+        run: ${{ matrix.package-manager == 'bun' && 'bun install' || 'npm i' }}
+      - name: Run tests
+        run: ${{ matrix.package-manager == 'bun' && 'bun run test -- --coverage' || 'npm test -- --coverage' }}
       - name: Run E2E Tests
         env:
-          PACKAGE_MANAGER: npm
-        run: npm run e2e --verbose
+          PACKAGE_MANAGER: ${{ matrix.package-manager }}
+        run: ${{ matrix.package-manager == 'bun' && 'bun run e2e' || 'npm run e2e --verbose' }}

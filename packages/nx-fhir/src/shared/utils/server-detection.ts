@@ -1,15 +1,23 @@
 import { joinPathFragments, Tree } from '@nx/devkit';
+import { XMLParser } from 'fast-xml-parser';
 import { parseDocument } from 'yaml';
 import { FhirVersion } from '../models';
-import { SUPPORTED_HAPI_VERSIONS } from '../constants/versions';
+import {
+  HAPI_RELEASE_URLS,
+  SUPPORTED_HAPI_VERSIONS,
+} from '../constants/versions';
 
 export interface DetectedServer {
   /** The directory the server lives in, relative to the workspace root ('.' for the root). */
   root: string;
   /** FHIR version read from application.yaml, if determinable. */
   fhirVersion?: FhirVersion;
-  /** Supported HAPI release correlated from pom.xml, if determinable. */
+  /** The supported HAPI release, set only when pom.xml identifies exactly one. */
   hapiReleaseVersion?: string;
+  /** All supported HAPI releases the pom.xml could correspond to. */
+  hapiReleaseCandidates: string[];
+  /** The base version and starter revision the pom.xml declares, if present. */
+  pomImage?: PomImageIdentity;
   /** Custom Java package base detected under src/main/java, if determinable. */
   packageBase?: string;
 }
@@ -55,12 +63,118 @@ export function detectExistingServer(tree: Tree, dir: string): DetectedServer | 
 
   const yaml = tree.read(yamlPath, 'utf-8') ?? '';
 
+  const hapiReleaseCandidates = detectHapiReleaseCandidates(pom);
+
   return {
     root,
     fhirVersion: detectFhirVersionFromYaml(yaml),
-    hapiReleaseVersion: detectHapiVersionFromPom(pom),
+    hapiReleaseVersion:
+      hapiReleaseCandidates.length === 1 ? hapiReleaseCandidates[0] : undefined,
+    hapiReleaseCandidates,
+    pomImage: detectPomImageIdentity(pom),
     packageBase: detectPackageBase(tree, root),
   };
+}
+
+export interface PomImageIdentity {
+  /** The hapi-fhir parent version base, for example "8.10.0". */
+  base: string;
+  /** The starter revision property value, absent in poms that predate it. */
+  revision?: string;
+  /** Set when the pom declares a revision whose value cannot be read. */
+  revisionUnknown?: boolean;
+}
+
+/**
+ * Parses a pom.xml and returns its project element. Values stay strings and
+ * comments are dropped by the parser, so commented-out blocks cannot be read
+ * as live configuration. Returns undefined for unparseable content.
+ */
+function parsePomProject(pom: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = new XMLParser({ parseTagValue: false }).parse(pom);
+    const project = parsed?.project;
+    return project && typeof project === 'object' ? project : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+const HAPI_GROUP_ID = 'ca.uhn.hapi.fhir';
+
+/** Reads the parent version base and starter revision from a pom.xml. */
+export function detectPomImageIdentity(
+  pom: string,
+): PomImageIdentity | undefined {
+  const project = parsePomProject(pom);
+  const parent = project?.parent as Record<string, unknown> | undefined;
+  // Only a HAPI parent names the starter release; any other parent (for
+  // example spring-boot-starter-parent) carries an unrelated version.
+  if (stringValue(parent?.groupId) !== HAPI_GROUP_ID) {
+    return undefined;
+  }
+  const parentVersion = stringValue(parent?.version);
+  const base = parentVersion
+    ? normalizeBaseVersion(parentVersion)
+    : undefined;
+  if (!base) {
+    return undefined;
+  }
+
+  const properties = project?.properties as
+    | Record<string, unknown>
+    | undefined;
+  const declared = stringValue(
+    properties?.['hapi.fhir.jpa.server.starter.revision'],
+  )?.trim();
+  const propertyReference = declared?.match(/^\$\{([^}]+)\}$/);
+  const revisionValue = propertyReference
+    ? stringValue(properties?.[propertyReference[1]])?.trim() ?? declared
+    : declared;
+  const revision =
+    revisionValue && /^\d+$/.test(revisionValue) ? revisionValue : undefined;
+
+  if (declared && !revision) {
+    // A declared revision that cannot be read names an unknown image.
+    return { base, revisionUnknown: true };
+  }
+  return revision ? { base, revision } : { base };
+}
+
+/**
+ * Collects the version of every element anywhere in a parsed pom whose
+ * groupId names HAPI. Versions of unrelated coordinates never qualify as a
+ * starter release candidate.
+ */
+function collectVersionValues(node: unknown, versions: string[]): string[] {
+  if (!node || typeof node !== 'object') {
+    return versions;
+  }
+  if (Array.isArray(node)) {
+    for (const entry of node) {
+      collectVersionValues(entry, versions);
+    }
+    return versions;
+  }
+  const record = node as Record<string, unknown>;
+  if (stringValue(record.groupId) === HAPI_GROUP_ID) {
+    // A missing version is managed outside this pom; record it as
+    // unparseable so the release stays ambiguous.
+    versions.push(stringValue(record.version) ?? '');
+  }
+  for (const [key, value] of Object.entries(record)) {
+    // Exclusions name coordinates without versions and carry no release
+    // information.
+    if (key === 'exclusions') {
+      continue;
+    }
+    collectVersionValues(value, versions);
+  }
+  return versions;
 }
 
 function normalizeBaseVersion(raw: string): string | undefined {
@@ -68,51 +182,83 @@ function normalizeBaseVersion(raw: string): string | undefined {
   return match ? `${match[1]}.${match[2]}.${match[3]}` : undefined;
 }
 
-function correlateToSupportedVersion(raw: string): string | undefined {
-  const base = normalizeBaseVersion(raw);
-  if (!base) {
-    return undefined;
-  }
-  const matches = SUPPORTED_HAPI_VERSIONS.filter((v) => v.split('-')[0] === base);
-  if (matches.length === 0) {
-    return undefined;
-  }
-  // Prefer an exact base match (e.g. "8.4.0"), otherwise the highest suffixed variant.
-  return matches.find((v) => v === base) ?? matches[matches.length - 1];
+function supportedVersionsForBase(base: string): string[] {
+  return SUPPORTED_HAPI_VERSIONS.filter((v) => v.split('-')[0] === base);
 }
 
+/** Maps a starter image version (the release tag without the "v") to its curated release. */
+export const IMAGE_VERSION_TO_RELEASE: Record<string, string> = Object.fromEntries(
+  Object.entries(HAPI_RELEASE_URLS).flatMap(([label, url]) => {
+    const imageVersion = url.match(/image\/v([^/]+)\.zip$/)?.[1];
+    return imageVersion ? [[imageVersion, label]] : [];
+  }),
+);
+
 /**
- * Best-effort extraction of the HAPI release from a pom.xml, correlated to a supported
- * starter release. Prefers the <parent> version (the hapi-fhir line), then falls back to
- * scanning all <version> tags. Returns undefined when nothing correlates.
+ * Lists every supported starter release a pom.xml could correspond to.
+ *
+ * The starter pom names its image exactly: the hapi-fhir <parent> version is
+ * the base and hapi.fhir.jpa.server.starter.revision is the image revision,
+ * combining to the release tag (parent 8.4.0 + revision 2 = the v8.4.0-2
+ * image). When both are present the result is that one release, or empty for
+ * an unsupported image. A pom without the revision property falls back to
+ * every supported release sharing the base version, which can be ambiguous.
  */
-export function detectHapiVersionFromPom(pom: string): string | undefined {
+export function detectHapiReleaseCandidates(pom: string): string[] {
   if (!pom) {
-    return undefined;
+    return [];
   }
 
-  const candidates: string[] = [];
+  const identity = detectPomImageIdentity(pom);
 
-  const parentBlock = pom.match(/<parent>([\s\S]*?)<\/parent>/i);
-  if (parentBlock) {
-    const parentVersion = parentBlock[1].match(/<version>\s*([^<\s]+)\s*<\/version>/i);
-    if (parentVersion) {
-      candidates.push(parentVersion[1]);
+  if (identity?.revision) {
+    const release =
+      IMAGE_VERSION_TO_RELEASE[`${identity.base}-${identity.revision}`];
+    return release ? [release] : [];
+  }
+
+  // An unreadable revision names an unknown image; falling back to the base
+  // alone could offer a release the pom does not describe.
+  if (identity?.revisionUnknown) {
+    return [];
+  }
+
+  // With a parent identity the base version is authoritative; scanning the
+  // rest of the pom would let an unrelated dependency version masquerade as
+  // the starter release. The full scan only runs when the pom names no
+  // parent at all.
+  const versions: string[] = [];
+  const project = parsePomProject(pom);
+  if (identity) {
+    versions.push(identity.base);
+  } else {
+    collectVersionValues(project, versions);
+  }
+
+  // The result must not depend on XML ordering: distinct HAPI bases in one
+  // pom leave the release ambiguous, so nothing is offered and the release
+  // stays unrecorded until the user names it. Every base counts toward
+  // ambiguity, including untested ones; an untested 7.6.0 next to a tested
+  // 8.8.0 must not turn into a definitive 8.8.0 match. A version that still
+  // cannot be parsed after property resolution could hide such a
+  // disagreement, so it also leaves the release ambiguous.
+  const properties = (project?.properties ?? {}) as Record<string, unknown>;
+  const bases = new Set<string>();
+  for (const version of versions) {
+    const propertyReference = version.match(/^\$\{([^}]+)\}$/);
+    const resolved = propertyReference
+      ? stringValue(properties[propertyReference[1]]) ?? version
+      : version;
+    const base = normalizeBaseVersion(resolved);
+    if (!base) {
+      return [];
     }
+    bases.add(base);
   }
-
-  for (const match of pom.matchAll(/<version>\s*([^<\s]+)\s*<\/version>/gi)) {
-    candidates.push(match[1]);
+  if (bases.size !== 1) {
+    return [];
   }
-
-  for (const candidate of candidates) {
-    const correlated = correlateToSupportedVersion(candidate);
-    if (correlated) {
-      return correlated;
-    }
-  }
-
-  return undefined;
+  return supportedVersionsForBase([...bases][0]);
 }
 
 /**
@@ -174,6 +320,9 @@ function longestCommonPackage(packages: string[]): string | undefined {
   if (packages.length === 0) {
     return undefined;
   }
+  if (packages.length === 1) {
+    return packages[0];
+  }
   const segmented = packages.map((p) => p.split('.'));
   const [first, ...rest] = segmented;
   const prefix: string[] = [];
@@ -184,7 +333,9 @@ function longestCommonPackage(packages: string[]): string | undefined {
       break;
     }
   }
-  return prefix.length > 0 ? prefix.join('.') : packages[0];
+  // A shared prefix of less than two segments (a bare "com" or "org") does
+  // not identify the project's package; the caller falls back to asking.
+  return prefix.length >= 2 ? prefix.join('.') : undefined;
 }
 
 /**

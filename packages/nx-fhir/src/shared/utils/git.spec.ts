@@ -44,6 +44,60 @@ describe('git-utils', () => {
 
       expect(result).toBe(false);
     });
+
+    it('should verify the repository before reading its status', () => {
+      vi.mocked(execSync).mockReturnValueOnce(''); // git rev-parse
+      vi.mocked(execSync).mockReturnValueOnce(''); // git status
+
+      isGitRepositoryClean('/workspace');
+
+      expect(execSync).toHaveBeenNthCalledWith(1, 'git rev-parse --git-dir', {
+        cwd: '/workspace',
+        stdio: 'pipe',
+      });
+      expect(execSync).toHaveBeenNthCalledWith(2, 'git status --porcelain', {
+        cwd: '/workspace',
+        encoding: 'utf-8',
+      });
+    });
+
+    it('should return true when only nx migrate files changed and they are excluded', () => {
+      vi.mocked(execSync).mockReturnValueOnce(''); // git rev-parse
+      vi.mocked(execSync).mockReturnValueOnce(
+        ' M package.json\n' +
+        ' M bun.lock\n' +
+        ' M migrations.json\n'
+      );
+
+      expect(isGitRepositoryClean('/workspace', true)).toBe(true);
+    });
+
+    it('should treat nested nx migrate files as expected changes', () => {
+      vi.mocked(execSync).mockReturnValueOnce(''); // git rev-parse
+      vi.mocked(execSync).mockReturnValueOnce(
+        ' M apps/server/package.json\n' +
+        ' M apps/frontend/package-lock.json\n'
+      );
+
+      expect(isGitRepositoryClean('/workspace', true)).toBe(true);
+    });
+
+    it('should return false when a file outside the nx migrate set changed', () => {
+      vi.mocked(execSync).mockReturnValueOnce(''); // git rev-parse
+      vi.mocked(execSync).mockReturnValueOnce(
+        ' M package.json\n' +
+        ' M src/main.ts\n'
+      );
+
+      expect(isGitRepositoryClean('/workspace', true)).toBe(false);
+    });
+
+    it('should not treat a file that merely ends with an expected name as expected', () => {
+      vi.mocked(execSync).mockReturnValueOnce(''); // git rev-parse
+      vi.mocked(execSync).mockReturnValueOnce(' M my-package.json\n');
+
+      expect(isGitRepositoryClean('/workspace', true)).toBe(false);
+    });
   });
 
   describe('ensureGitRepositoryClean', () => {
@@ -73,6 +127,30 @@ describe('git-utils', () => {
         ensureGitRepositoryClean('/workspace', true);
       }).not.toThrow();
     });
+
+    it('should not run git at all when force is true', () => {
+      ensureGitRepositoryClean('/workspace', true);
+
+      expect(execSync).not.toHaveBeenCalled();
+    });
+
+    it('should not throw when only nx migrate files changed and they are excluded', () => {
+      vi.mocked(execSync).mockReturnValueOnce(''); // git rev-parse
+      vi.mocked(execSync).mockReturnValueOnce(' M package.json\n M bun.lock\n');
+
+      expect(() => {
+        ensureGitRepositoryClean('/workspace', false, true);
+      }).not.toThrow();
+    });
+
+    it('should report that nx migrate files were excluded when it throws', () => {
+      vi.mocked(execSync).mockReturnValueOnce(''); // git rev-parse
+      vi.mocked(execSync).mockReturnValueOnce(' M src/main.ts\n');
+
+      expect(() => {
+        ensureGitRepositoryClean('/workspace', false, true);
+      }).toThrow('Git repository has uncommitted changes (excluding nx migrate files).');
+    });
   });
 
   describe('getUncommittedFiles', () => {
@@ -96,6 +174,43 @@ describe('git-utils', () => {
       const files = getUncommittedFiles('/workspace');
 
       expect(files).toEqual([]);
+    });
+
+    it('should read the status from the given workspace root', () => {
+      vi.mocked(execSync).mockReturnValueOnce('');
+
+      getUncommittedFiles('/some/workspace');
+
+      expect(execSync).toHaveBeenCalledWith('git status --porcelain', {
+        cwd: '/some/workspace',
+        encoding: 'utf-8',
+      });
+    });
+
+    it('should drop nx migrate files when they are excluded', () => {
+      vi.mocked(execSync).mockReturnValueOnce(
+        ' M package.json\n' +
+        ' M apps/server/bun.lock\n' +
+        ' M src/main.ts\n'
+      );
+
+      const files = getUncommittedFiles('/workspace', true);
+
+      expect(files).toEqual(['src/main.ts']);
+    });
+
+    it('should keep nx migrate files when they are not excluded', () => {
+      vi.mocked(execSync).mockReturnValueOnce(' M package.json\n M src/main.ts\n');
+
+      const files = getUncommittedFiles('/workspace');
+
+      expect(files).toEqual(['package.json', 'src/main.ts']);
+    });
+
+    it('should return an empty list for a clean repository', () => {
+      vi.mocked(execSync).mockReturnValueOnce('');
+
+      expect(getUncommittedFiles('/workspace')).toEqual([]);
     });
   });
 });

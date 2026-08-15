@@ -1,11 +1,11 @@
 import {
+  GeneratorCallback,
   Tree,
   logger,
   readJson,
   writeJson,
   getProjects,
   updateProjectConfiguration,
-  formatFiles,
 } from '@nx/devkit';
 import { updateServerGenerator } from '../update-server/update-server';
 import { updateFrontendGenerator } from '../update-frontend/update-frontend';
@@ -101,7 +101,10 @@ function updateProjectPluginVersions(tree: Tree): boolean {
  *
  * Run with: nx g nx-fhir:update
  */
-export async function updateGenerator(tree: Tree, options: UpdateGeneratorSchema) {
+export async function updateGenerator(
+  tree: Tree,
+  options: UpdateGeneratorSchema,
+): Promise<GeneratorCallback | undefined> {
   logger.info('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   logger.info(`Updating to nx-fhir ${PLUGIN_VERSION}`);
   logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
@@ -120,9 +123,16 @@ export async function updateGenerator(tree: Tree, options: UpdateGeneratorSchema
   logger.info('Checking for available HAPI FHIR server updates...');
   logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
+  // Forwarded to the caller so the server outcome is printed after Nx lists
+  // the changed files.
+  let serverOutcome: GeneratorCallback | undefined;
+
   try {
     // Run the update-server generator, passing force option
-    await updateServerGenerator(tree, { force: options.force });
+    serverOutcome = await updateServerGenerator(tree, {
+      force: options.force,
+      fromNxMigrate: options.fromNxMigrate,
+    });
   } catch (error) {
     // If no server projects found or user cancels, that's fine
     const message = error instanceof Error ? error.message : String(error);
@@ -133,6 +143,13 @@ export async function updateGenerator(tree: Tree, options: UpdateGeneratorSchema
       );
     } else if (message.includes('No migration path available')) {
       logger.info('Server is already at the latest supported version.');
+    } else if (message.includes('does not have a hapiReleaseVersion configured')) {
+      // An imported server can have no recorded release; the rest of the
+      // update must still run.
+      logger.info(
+        'The server project has no recorded HAPI release version. Skipping server update check. ' +
+          'Set hapiReleaseVersion in its project.json to enable server updates.'
+      );
     } else {
       // Re-throw unexpected errors
       throw error;
@@ -144,7 +161,10 @@ export async function updateGenerator(tree: Tree, options: UpdateGeneratorSchema
   logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
   try {
-    await updateFrontendGenerator(tree, { force: options.force });
+    await updateFrontendGenerator(tree, {
+      force: options.force,
+      fromNxMigrate: options.fromNxMigrate,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
@@ -154,14 +174,22 @@ export async function updateGenerator(tree: Tree, options: UpdateGeneratorSchema
       );
     } else if (message.includes('No migration path available')) {
       logger.info('Frontend is already at the latest supported template version.');
+    } else if (message.includes('does not have a frontendVersion configured')) {
+      logger.info(
+        'The frontend project has no recorded template version. Skipping frontend update check. ' +
+          'Set frontendVersion in its project.json to enable frontend updates.'
+      );
     } else {
       throw error;
     }
   }
 
-  await formatFiles(tree);
+  // No formatFiles here: the tree holds the merged server and frontend files,
+  // which have to keep their upstream formatting for the next migration.
 
   logger.info('\n✅ Update complete!');
+
+  return serverOutcome;
 }
 
 export default updateGenerator;

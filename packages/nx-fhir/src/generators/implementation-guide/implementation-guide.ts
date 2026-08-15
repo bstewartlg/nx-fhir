@@ -10,6 +10,7 @@ import { ImplementationGuideGeneratorSchema } from './schema';
 import { ImplementationGuideHapiConfig, ImplementationGuidePackage, ServerProjectConfiguration } from '../../shared/models';
 import { promptForServerProject, updateServerYaml } from '../../shared/utils';
 import operationGenerator from '../operation/operation';
+import { getOperationId } from '../operation/lib';
 import { readFileSync } from 'fs';
 import * as tar from 'tar';
 import { OperationGeneratorSchema } from '../operation/schema';
@@ -220,16 +221,22 @@ export async function implementationGuideGenerator(
       // Call operations generator if we have operations to add
       logger.info(`Generating operations from package`);
 
+      // OperationDefinition.id is optional; the shared fallback keeps
+      // id-less operations distinct.
       const answer = await checkbox({
         message: 'Select operations to generate:',
         choices: parsedPackage.operations.map((op) => ({
-          name: `${op.name} (${op.id})`,
-          value: op.id,
+          name: `${op.name} (${getOperationId(op)})`,
+          value: getOperationId(op),
         })),
       });
       logger.info(`Selected operations: ${JSON.stringify(answer, null, 2)}`);
 
-      for (const operation of parsedPackage.operations) {
+      const selectedOperations = parsedPackage.operations.filter((op) =>
+        answer.includes(getOperationId(op)),
+      );
+
+      for (const operation of selectedOperations) {
         logger.info(`Generating operation: ${operation.name}`);
 
         // Prompt for operations directory here so not prompted for each operation

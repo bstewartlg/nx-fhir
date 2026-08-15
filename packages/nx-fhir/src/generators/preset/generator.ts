@@ -1,4 +1,4 @@
-import { formatFiles, logger, Tree } from '@nx/devkit';
+import { logger, Tree, updateJson } from '@nx/devkit';
 import { PresetGeneratorSchema } from './schema';
 import { serverGenerator } from '../server/server';
 import { FhirVersion } from '../../shared/models';
@@ -6,14 +6,47 @@ import { ServerGeneratorSchema } from '../server/schema';
 import { confirm, input, select } from '@inquirer/prompts';
 import { registerNxPlugin } from '../../shared/utils';
 import { detectExistingServer } from '../../shared/utils/server-detection';
+import { isInteractive } from '../../shared/utils/interactive';
 import { importServerGenerator } from '../import-server/import-server';
+
+const DEFAULT_SERVER_DIRECTORY = 'server';
+const DEFAULT_PACKAGE_BASE = 'org.custom.server';
+
+const GITIGNORE_ENTRIES = ['node_modules', '.nx/cache', '.nx/workspace-data'];
+
+/**
+ * Makes sure the workspace .gitignore covers Nx artifacts. A workspace made
+ * by create-nx-workspace already has these entries, but initializing in an
+ * existing directory (for example an imported HAPI server) does not.
+ */
+function ensureGitignoreEntries(tree: Tree) {
+  const existing = tree.exists('.gitignore')
+    ? (tree.read('.gitignore', 'utf-8') ?? '')
+    : '';
+  const lines = new Set(
+    existing.split('\n').map((line) => line.trim().replace(/^\//, '')),
+  );
+  const missing = GITIGNORE_ENTRIES.filter((entry) => !lines.has(entry));
+  if (missing.length === 0) {
+    return;
+  }
+  const prefix = existing === '' || existing.endsWith('\n') ? '' : '\n';
+  tree.write('.gitignore', existing + prefix + missing.join('\n') + '\n');
+}
 
 export async function presetGenerator(
   tree: Tree,
-  options: PresetGeneratorSchema
+  options: PresetGeneratorSchema,
 ) {
-
   registerNxPlugin(tree);
+
+  ensureGitignoreEntries(tree);
+
+  // A boolean analytics field in nx.json suppresses the Nx usage-data prompt.
+  updateJson(tree, 'nx.json', (json) => ({
+    ...json,
+    analytics: json.analytics ?? false,
+  }));
 
   // Detect an existing HAPI server (workspace root first, then a provided serverDirectory)
   // BEFORE deciding whether to scaffold or asking the user to generate one. An already-present
@@ -39,12 +72,18 @@ export async function presetGenerator(
   }
 
   // No existing server to import. Honor an explicit choice, otherwise ask.
+  // Without a terminal the prompts never resolve, so take the same answer the
+  // prompt offers as its default.
+  const interactive = isInteractive();
+
   const shouldGenerate =
     options.server ??
-    (await confirm({
-      message: 'Generate a FHIR server project?',
-      default: true,
-    }));
+    (interactive
+      ? await confirm({
+          message: 'Generate a FHIR server project?',
+          default: true,
+        })
+      : true);
 
   if (!shouldGenerate) {
     return;
@@ -52,30 +91,36 @@ export async function presetGenerator(
 
   // Only prompt for these options if they weren't provided
   if (!options.serverDirectory) {
-    options.serverDirectory = await input({
-      message: 'Enter the directory for the new server source code',
-      default: 'server',
-    });
+    options.serverDirectory = interactive
+      ? await input({
+          message: 'Enter the directory for the new server source code',
+          default: DEFAULT_SERVER_DIRECTORY,
+        })
+      : DEFAULT_SERVER_DIRECTORY;
   }
 
   if (!options.packageBase) {
-    options.packageBase = await input({
-      message: 'Enter the Java package path for your custom code',
-      default: 'org.custom.server',
-    });
+    options.packageBase = interactive
+      ? await input({
+          message: 'Enter the Java package path for your custom code',
+          default: DEFAULT_PACKAGE_BASE,
+        })
+      : DEFAULT_PACKAGE_BASE;
   }
 
   if (!options.fhirVersion) {
-    options.fhirVersion = (await select({
-      message: 'Select the FHIR version to use for the server',
-      choices: [
-        { name: 'STU3', value: 'STU3' },
-        { name: 'R4', value: 'R4' },
-        { name: 'R4B', value: 'R4B' },
-        { name: 'R5', value: 'R5' },
-      ],
-      default: 'R4',
-    })) as FhirVersion;
+    options.fhirVersion = interactive
+      ? ((await select({
+          message: 'Select the FHIR version to use for the server',
+          choices: [
+            { name: 'STU3', value: 'STU3' },
+            { name: 'R4', value: 'R4' },
+            { name: 'R4B', value: 'R4B' },
+            { name: 'R5', value: 'R5' },
+          ],
+          default: 'R4',
+        })) as FhirVersion)
+      : FhirVersion.R4;
   }
 
   // generate server project
@@ -86,7 +131,9 @@ export async function presetGenerator(
     release: options.release,
   } as ServerGeneratorSchema);
 
-  await formatFiles(tree);
+  // No formatFiles here: the tree holds the vendored HAPI starter files the
+  // server generator just wrote, and server migrations merge against the
+  // unformatted upstream release.
 }
 
 export default presetGenerator;

@@ -1,7 +1,6 @@
 import {
   addProjectConfiguration,
   detectPackageManager,
-  formatFiles,
   generateFiles,
   getProjects,
   logger,
@@ -16,7 +15,7 @@ import { execSync } from 'child_process';
 import { select } from '@inquirer/prompts';
 import path = require('path');
 import { FrontendProjectConfiguration, ServerProjectConfiguration } from '../../shared/models';
-import { registerNxPlugin, removeServerYamlProperty } from '../../shared/utils';
+import { registerNxPlugin, removeTesterSection } from '../../shared/utils';
 import {
   getCiInstallCommand,
   getDockerBaseImage,
@@ -25,6 +24,7 @@ import {
   getRunCommand,
 } from '../../shared/utils/package-manager';
 import { CURRENT_FRONTEND_VERSION } from '../../shared/migration/frontend-migration-resolver';
+import { integrationDockerFileNames } from '../../shared/utils/frontend-integration';
 
 /**
  * Template-specific configuration for frontend projects.
@@ -202,8 +202,10 @@ export async function frontendGenerator(
   // Ensure nx-fhir plugin is registered
   registerNxPlugin(tree);
 
-  // Format all the files that were created
-  await formatFiles(tree);
+  // The rendered template files are deliberately left exactly as rendered.
+  // Frontend migrations three-way merge against a fresh render of the old and
+  // new templates, so reformatting here would make every file differ from the
+  // merge base by formatting alone.
 
   // Re-run package install after generating files to get all of the new dependencies
   return () => {
@@ -243,8 +245,11 @@ async function integrateFrontendWithServer(
   frontendProject: ProjectConfiguration,
   options: FrontendGeneratorSchema
 ) {
+  // The choice stays local so the caller's options object is left as it was passed.
+  let server = options.server;
+
   // Prompt to integrate with a server project if not already specified
-  if (!options.server) {
+  if (!server) {
     try {
       getProjects(tree);
       const serverProjects = Array.from(getProjects(tree).values()).filter(
@@ -268,7 +273,7 @@ async function integrateFrontendWithServer(
         });
 
         if (selectedServer !== 'none') {
-          options.server = selectedServer;
+          server = selectedServer;
         }
       } else {
         logger.info('No FHIR server projects found in the workspace.');
@@ -279,7 +284,7 @@ async function integrateFrontendWithServer(
   }
 
   // Still not server to integrate with, nothing more to do
-  if (!options.server) {
+  if (!server) {
     logger.info(
       'No server project selected for integration. Skipping integration step.'
     );
@@ -287,11 +292,11 @@ async function integrateFrontendWithServer(
   }
 
   const serverProject = getProjects(tree).get(
-    options.server
+    server
   ) as ServerProjectConfiguration;
 
   if (!serverProject) {
-    logger.error(`Server project '${options.server}' not found.`);
+    logger.error(`Server project '${server}' not found.`);
     return;
   }
 
@@ -316,9 +321,11 @@ async function integrateFrontendWithServer(
     executor: 'nx:run-commands',
     dependsOn: ['build'],
     options: {
+      // Double quotes and --glob keep these commands working under cmd.exe,
+      // which passes single quotes literally and never expands globs
       commands: [
-        `rimraf ../${serverProject.root}/src/main/resources/static/*`,
-        `cpy 'dist/**' ../${serverProject.root}/src/main/resources/static --cwd=.`,
+        `rimraf --glob "../${serverProject.root}/src/main/resources/static/*"`,
+        `cpy "dist/**" "../${serverProject.root}/src/main/resources/static" --cwd=.`,
       ],
       parallel: false,
       cwd: frontendProject.root,
@@ -342,6 +349,25 @@ async function integrateFrontendWithServer(
     ),
     { packageBase: serverProject.packageBase }
   );
+  // The docker files land in the frontend project's parent directory. When
+  // the server was imported at the workspace root the frontend usually lives
+  // directly beneath it, so the combined frontend + server Dockerfile would
+  // silently overwrite the starter's own docker files. Preserve anything that
+  // is about to be replaced under an .orig name; a backup left by an earlier
+  // run is kept, since it holds the pre-integration original.
+  const dockerOutputDir = path.join(frontendProject.root, '../');
+  for (const fileName of integrationDockerFileNames()) {
+    const existingFile = path.join(dockerOutputDir, fileName);
+    const backupFile = `${existingFile}.orig`;
+    if (tree.exists(existingFile) && !tree.exists(backupFile)) {
+      tree.rename(existingFile, backupFile);
+      logger.warn(
+        `Existing ${fileName} in '${dockerOutputDir}' was preserved as ${fileName}.orig ` +
+          'and replaced by the combined frontend + server version.'
+      );
+    }
+  }
+
   const packageManager = detectPackageManager();
   generateFiles(
     tree,
@@ -360,7 +386,19 @@ async function integrateFrontendWithServer(
 
   // Modify the existing application.yaml to remove the hapi.fhir.tester section.
   // This will prevent Thymeleaf from overriding serving from resources/static by default.
-  removeServerYamlProperty(serverProject.root, tree, 'hapi.fhir.tester');
+  // The section is spliced out by line, so the rest of the file keeps the exact
+  // upstream bytes that later server migrations merge against.
+  const serverYamlPath = path.join(
+    serverProject.root,
+    'src/main/resources/application.yaml'
+  );
+  const serverYaml = tree.read(serverYamlPath, 'utf-8');
+  if (serverYaml) {
+    const withoutTester = removeTesterSection(serverYaml);
+    if (withoutTester !== serverYaml) {
+      tree.write(serverYamlPath, withoutTester);
+    }
+  }
 
   logger.info(
     `Frontend project '${frontendProject.root}' integrated with server project '${serverProject.root}'.`

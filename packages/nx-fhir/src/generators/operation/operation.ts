@@ -1,5 +1,4 @@
 import {
-  formatFiles,
   generateFiles,
   Tree,
   logger,
@@ -187,8 +186,10 @@ export async function operationGenerator(
       operationClassName: hapiOperation.className,
     }
   );
-  
-  await formatFiles(tree);
+
+  // No formatFiles here: the generated Java sources live inside a server
+  // project, and server migrations merge that tree against the unformatted
+  // upstream release.
 }
 
 export default operationGenerator;

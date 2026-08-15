@@ -45,9 +45,8 @@
         "{workspaceRoot}/tools/eslint-rules/**/*"
       ]
     },
-    "@nx/vitest:test": {
-      "cache": true,
-      "inputs": ["default", "^production"]
+    "e2e": {
+      "cache": false
     }
   },
   "plugins": [
@@ -68,9 +67,16 @@
     {
       "plugin": "@nx/vitest",
       "options": {
-        "testTargetName": "vite:test"
+        "testTargetName": "test"
       },
-      "include": ["e2e/**", "packages/**"]
+      "include": ["packages/**"]
+    },
+    {
+      "plugin": "@nx/vitest",
+      "options": {
+        "testTargetName": "e2e"
+      },
+      "include": ["e2e/**"]
     },
     {
       "plugin": "@nx/eslint/plugin",
@@ -80,8 +86,5 @@
       "include": ["packages/nx-fhir/**/*", "packages/create-nx-fhir/**/*"]
     }
   ],
-  "cli": {
-    "packageManager": "bun"
-  },
   "analytics": false
 }

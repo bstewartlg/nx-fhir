@@ -1,8 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { MockInstance } from 'vitest';
+import { createRequire } from 'node:module';
 import {
   CURRENT_DIR_SENTINEL,
   initExistingDirectory,
   isPackageManagerAvailable,
+  stageAnalyticsPreference,
   resolveDirectory,
   resolvePackageManager,
   sanitizeDirectory,
@@ -26,11 +29,13 @@ vi.mock('@nx/devkit', () => ({
   },
 }));
 
-const { mockExecSync, mockExistsSync, mockWriteFileSync } = vi.hoisted(() => ({
-  mockExecSync: vi.fn(),
-  mockExistsSync: vi.fn(() => false),
-  mockWriteFileSync: vi.fn(),
-}));
+const { mockExecSync, mockExistsSync, mockWriteFileSync, mockReadFileSync } =
+  vi.hoisted(() => ({
+    mockExecSync: vi.fn(),
+    mockExistsSync: vi.fn(() => false),
+    mockWriteFileSync: vi.fn(),
+    mockReadFileSync: vi.fn(() => '{}'),
+  }));
 
 vi.mock('child_process', () => ({
   execSync: mockExecSync,
@@ -40,8 +45,17 @@ vi.mock('child_process', () => ({
 vi.mock('fs', () => ({
   existsSync: mockExistsSync,
   writeFileSync: mockWriteFileSync,
-  default: { existsSync: mockExistsSync, writeFileSync: mockWriteFileSync },
+  readFileSync: mockReadFileSync,
+  default: {
+    existsSync: mockExistsSync,
+    writeFileSync: mockWriteFileSync,
+    readFileSync: mockReadFileSync,
+  },
 }));
+
+const { version: PACKAGE_VERSION } = createRequire(import.meta.url)(
+  '../package.json',
+) as { version: string };
 
 
 describe('create-nx-fhir CLI utilities', () => {
@@ -156,7 +170,8 @@ describe('create-nx-fhir CLI utilities', () => {
       expect(result).toBe('prompted-workspace');
       expect(input).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: 'Workspace directory:',
+          message:
+            'Workspace directory (enter "." to use the current directory):',
           validate: expect.any(Function),
         }),
       );
@@ -226,6 +241,10 @@ describe('create-nx-fhir CLI utilities', () => {
   });
 
   describe('isPackageManagerAvailable', () => {
+    afterEach(() => {
+      mockExecSync.mockReset();
+    });
+
     it('should return true for supported package manager', () => {
       SUPPORTED_PACKAGE_MANAGERS.forEach((pm) => {
         expect(isPackageManagerAvailable(pm)).toBe(true);
@@ -236,6 +255,23 @@ describe('create-nx-fhir CLI utilities', () => {
       expect(
         isPackageManagerAvailable('nonexistent-pm' as PackageManager),
       ).toBe(false);
+    });
+
+    it('should not run the version check for an unsupported package manager', () => {
+      isPackageManagerAvailable('yarn' as PackageManager);
+
+      expect(mockExecSync).not.toHaveBeenCalled();
+    });
+
+    it('should return false when the version check fails', () => {
+      mockExecSync.mockImplementation(() => {
+        throw new Error('command not found');
+      });
+
+      expect(isPackageManagerAvailable('bun')).toBe(false);
+      expect(mockExecSync).toHaveBeenCalledWith('bun --version', {
+        stdio: 'ignore',
+      });
     });
   });
 
@@ -256,6 +292,21 @@ describe('create-nx-fhir CLI utilities', () => {
       const args: CliArgs = { directory: ' . ' };
       const result = await resolveDirectory(args);
       expect(result).toBe(CURRENT_DIR_SENTINEL);
+    });
+
+    it('should accept "." during prompt validation', async () => {
+      const { input } = await import('@inquirer/prompts');
+      vi.mocked(input).mockResolvedValue('workspace');
+
+      await resolveDirectory({});
+
+      const validateFn = vi.mocked(input).mock.calls[0][0].validate;
+      if (!validateFn) {
+        throw new Error('Expected input prompt to define a validate function.');
+      }
+
+      expect(validateFn('.')).toBe(true);
+      expect(validateFn(' . ')).toBe(true);
     });
 
     it('should return "." when prompted with "."', async () => {
@@ -295,7 +346,10 @@ describe('create-nx-fhir CLI utilities', () => {
 
       await initExistingDirectory('npm', '1.0.0', {});
 
-      expect(mockWriteFileSync).not.toHaveBeenCalled();
+      expect(mockWriteFileSync).not.toHaveBeenCalledWith(
+        expect.stringContaining('package.json'),
+        expect.anything(),
+      );
     });
 
     it('should run npm install with correct packages', async () => {
@@ -338,9 +392,91 @@ describe('create-nx-fhir CLI utilities', () => {
       expect(generatorCall[0]).toContain('--packageBase=com.org.fhir');
       expect(generatorCall[0]).toContain('--fhirVersion=R4');
     });
+
+    it('should pass the release option as a flag', async () => {
+      mockExistsSync.mockReturnValue(true);
+
+      await initExistingDirectory('npm', '1.0.0', { release: '8.10.0-3' });
+
+      expect(mockExecSync.mock.calls[1][0]).toContain('--release=8.10.0-3');
+    });
+
+    it('should pass server=false as a flag', async () => {
+      mockExistsSync.mockReturnValue(true);
+
+      await initExistingDirectory('npm', '1.0.0', { server: false });
+
+      expect(mockExecSync.mock.calls[1][0]).toContain('--server=false');
+    });
+
+    it('should run the generator without flags when no options are given', async () => {
+      mockExistsSync.mockReturnValue(true);
+
+      await initExistingDirectory('npm', '1.0.0', {});
+
+      expect(mockExecSync.mock.calls[1][0]).toBe('npx nx g nx-fhir:preset');
+    });
+
+    it('should record the analytics preference before running the generator', async () => {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('{"plugins": []}');
+
+      await initExistingDirectory('npm', '1.0.0', {});
+
+      const [nxJsonPath, contents] = mockWriteFileSync.mock.calls[0];
+      expect(nxJsonPath).toContain('nx.json');
+      expect(JSON.parse(contents).analytics).toBe(false);
+      expect(mockWriteFileSync.mock.invocationCallOrder[0]).toBeLessThan(
+        mockExecSync.mock.invocationCallOrder[1],
+      );
+    });
+
+    it('should run both commands in the current working directory', async () => {
+      mockExistsSync.mockReturnValue(true);
+
+      await initExistingDirectory('npm', '1.0.0', {});
+
+      for (const call of mockExecSync.mock.calls) {
+        expect(call[1]).toEqual({ stdio: 'inherit', cwd: process.cwd() });
+      }
+    });
+  });
+
+  describe('stageAnalyticsPreference', () => {
+    it('should record the preference when nx.json does not carry one', () => {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('{"plugins": []}');
+
+      stageAnalyticsPreference('/workspace');
+
+      const [nxJsonPath, contents] = mockWriteFileSync.mock.calls[0];
+      expect(nxJsonPath).toContain('nx.json');
+      expect(JSON.parse(contents)).toEqual({ plugins: [], analytics: false });
+    });
+
+    it('should keep a preference the workspace already recorded', () => {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('{"analytics": true}');
+
+      stageAnalyticsPreference('/workspace');
+
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
+    });
+
+    it('should do nothing without an nx.json', () => {
+      mockExistsSync.mockReturnValue(false);
+
+      stageAnalyticsPreference('/workspace');
+
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
+    });
   });
 
   describe('resolvePackageManager', () => {
+    afterEach(() => {
+      mockExecSync.mockReset();
+    });
+
     it('should return requested package manager if available', () => {
       SUPPORTED_PACKAGE_MANAGERS.forEach((pm) => {
         const result = resolvePackageManager(pm);
@@ -357,5 +493,229 @@ describe('create-nx-fhir CLI utilities', () => {
       const result = resolvePackageManager('nonexistent-pm' as PackageManager);
       expect(SUPPORTED_PACKAGE_MANAGERS).toContain(result);
     });
+
+    it('should warn and fall back to npm when the requested manager is unavailable', async () => {
+      const { logger } = await import('@nx/devkit');
+      mockExecSync.mockImplementation((command: string) => {
+        if (command.startsWith('bun')) {
+          throw new Error('command not found');
+        }
+        return '';
+      });
+
+      expect(resolvePackageManager('bun')).toBe('npm');
+      expect(logger.warn).toHaveBeenCalledWith(
+        "Package manager 'bun' is not available. Falling back to 'npm'.",
+      );
+    });
+
+    it('should exit when neither the requested manager nor npm is available', async () => {
+      const { logger } = await import('@nx/devkit');
+      const exitSpy = vi
+        .spyOn(process, 'exit')
+        .mockImplementation((() => undefined) as never);
+      mockExecSync.mockImplementation(() => {
+        throw new Error('command not found');
+      });
+
+      resolvePackageManager('bun');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'npm is not available. Please install npm to continue.',
+      );
+      expect(exitSpy).toHaveBeenCalledWith(1);
+
+      exitSpy.mockRestore();
+    });
+  });
+});
+
+describe('create-nx-fhir CLI entrypoint', () => {
+  const originalArgv = process.argv;
+  const originalNodeEnv = process.env.NODE_ENV;
+  let exitSpy: MockInstance;
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mockExecSync.mockReset();
+    mockExistsSync.mockReturnValue(true);
+    process.env.NODE_ENV = 'development';
+    exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+  });
+
+  afterEach(() => {
+    process.argv = originalArgv;
+    process.env.NODE_ENV = originalNodeEnv;
+    exitSpy.mockRestore();
+    vi.resetModules();
+  });
+
+  async function loadMocks() {
+    const { createWorkspace } = await import('create-nx-workspace');
+    const { logger } = await import('@nx/devkit');
+    return { createWorkspace: vi.mocked(createWorkspace), logger };
+  }
+
+  // Importing the module runs the CLI because NODE_ENV is no longer 'test'
+  async function runCli(args: string[]) {
+    process.argv = ['node', 'create-nx-fhir', ...args];
+    await import('./index');
+  }
+
+  it('should create a workspace with the resolved directory and preset version', async () => {
+    const { createWorkspace, logger } = await loadMocks();
+    createWorkspace.mockResolvedValue({
+      directory: 'my-app',
+    } as Awaited<ReturnType<typeof createWorkspace>>);
+
+    await runCli(['My App']);
+    await vi.waitFor(() => expect(createWorkspace).toHaveBeenCalled());
+
+    expect(createWorkspace).toHaveBeenCalledWith(
+      `nx-fhir@${PACKAGE_VERSION}`,
+      expect.objectContaining({
+        name: 'my-app',
+        nxCloud: 'skip',
+        packageManager: 'bun',
+        interactive: false,
+        analytics: false,
+        server: undefined,
+      }),
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      'Successfully created the workspace here: my-app.',
+    );
+  });
+
+  it('should forward every preset option to the workspace creation', async () => {
+    const { createWorkspace } = await loadMocks();
+    createWorkspace.mockResolvedValue({
+      directory: 'fhir-app',
+    } as Awaited<ReturnType<typeof createWorkspace>>);
+
+    await runCli([
+      'fhir-app',
+      '--packageManager=npm',
+      '--server',
+      '--serverDirectory=backend',
+      '--packageBase=com.org.fhir',
+      '--release=8.10.0-3',
+      '--fhirVersion=R4B',
+    ]);
+    await vi.waitFor(() => expect(createWorkspace).toHaveBeenCalled());
+
+    expect(createWorkspace).toHaveBeenCalledWith(
+      `nx-fhir@${PACKAGE_VERSION}`,
+      expect.objectContaining({
+        name: 'fhir-app',
+        packageManager: 'npm',
+        server: true,
+        serverDirectory: 'backend',
+        packageBase: 'com.org.fhir',
+        release: '8.10.0-3',
+        fhirVersion: 'R4B',
+      }),
+    );
+  });
+
+  it('should omit preset options that were not provided', async () => {
+    const { createWorkspace } = await loadMocks();
+    createWorkspace.mockResolvedValue({
+      directory: 'bare-app',
+    } as Awaited<ReturnType<typeof createWorkspace>>);
+
+    await runCli(['bare-app']);
+    await vi.waitFor(() => expect(createWorkspace).toHaveBeenCalled());
+
+    const options = createWorkspace.mock.calls[0][1];
+    expect(options).not.toHaveProperty('serverDirectory');
+    expect(options).not.toHaveProperty('packageBase');
+    expect(options).not.toHaveProperty('release');
+    expect(options).not.toHaveProperty('fhirVersion');
+  });
+
+  it('should initialize the current directory instead of creating a workspace', async () => {
+    const { createWorkspace, logger } = await loadMocks();
+    mockExistsSync.mockReturnValue(true);
+
+    await runCli(['.', '--server=false', '--release=8.10.0-3']);
+    await vi.waitFor(() => expect(mockExecSync).toHaveBeenCalledTimes(3));
+
+    expect(createWorkspace).not.toHaveBeenCalled();
+    expect(mockExecSync).toHaveBeenCalledWith(
+      `bun add --dev nx @nx/devkit nx-fhir@${PACKAGE_VERSION}`,
+      expect.objectContaining({ stdio: 'inherit' }),
+    );
+    expect(mockExecSync).toHaveBeenCalledWith(
+      'npx nx g nx-fhir:preset --server=false --release=8.10.0-3',
+      expect.objectContaining({ stdio: 'inherit' }),
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      'Successfully initialized nx-fhir in the current directory.',
+    );
+  });
+
+  it('should prompt for the directory when no name is given', async () => {
+    const { createWorkspace } = await loadMocks();
+    const { input } = await import('@inquirer/prompts');
+    vi.mocked(input).mockResolvedValue('prompted-app');
+    createWorkspace.mockResolvedValue({
+      directory: 'prompted-app',
+    } as Awaited<ReturnType<typeof createWorkspace>>);
+
+    await runCli([]);
+    await vi.waitFor(() => expect(createWorkspace).toHaveBeenCalled());
+
+    expect(createWorkspace).toHaveBeenCalledWith(
+      `nx-fhir@${PACKAGE_VERSION}`,
+      expect.objectContaining({ name: 'prompted-app' }),
+    );
+  });
+
+  it('should log the error message and exit when workspace creation fails', async () => {
+    const { createWorkspace, logger } = await loadMocks();
+    createWorkspace.mockRejectedValue(new Error('workspace creation failed'));
+
+    await runCli(['broken-app']);
+    await vi.waitFor(() => expect(logger.error).toHaveBeenCalled());
+
+    expect(logger.error).toHaveBeenCalledWith('workspace creation failed');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('should log a thrown value that carries no message', async () => {
+    const { createWorkspace, logger } = await loadMocks();
+    createWorkspace.mockRejectedValue('plain failure');
+
+    await runCli(['broken-app']);
+    await vi.waitFor(() => expect(logger.error).toHaveBeenCalled());
+
+    expect(logger.error).toHaveBeenCalledWith('plain failure');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('should log the thrown object when its message is undefined', async () => {
+    const { createWorkspace, logger } = await loadMocks();
+    const failure = { message: undefined };
+    createWorkspace.mockRejectedValue(failure);
+
+    await runCli(['broken-app']);
+    await vi.waitFor(() => expect(logger.error).toHaveBeenCalled());
+
+    expect(logger.error).toHaveBeenCalledWith(failure);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('should not run the CLI when NODE_ENV is test', async () => {
+    const { createWorkspace } = await loadMocks();
+    process.env.NODE_ENV = 'test';
+
+    await runCli(['skipped-app']);
+
+    expect(createWorkspace).not.toHaveBeenCalled();
+    expect(mockExecSync).not.toHaveBeenCalled();
   });
 });

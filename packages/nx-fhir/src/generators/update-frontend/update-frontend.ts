@@ -1,5 +1,4 @@
 import {
-  formatFiles,
   getProjects,
   Tree,
   logger,
@@ -13,6 +12,7 @@ import {
 } from '../../shared/migration/frontend-migration-resolver';
 import { ensureGitRepositoryClean, getUncommittedFiles } from '../../shared/utils/git';
 import { runFrontendMigration } from '../../shared/migration/frontend-migration';
+import { isInteractive } from '../../shared/utils/interactive';
 
 export async function updateFrontendGenerator(
   tree: Tree,
@@ -58,13 +58,35 @@ export async function updateFrontendGenerator(
       throw new Error('No FHIR frontend projects found in the workspace');
     }
 
-    options.project = await select({
-      message: 'Which frontend project would you like to update?',
-      choices: frontendProjects,
-    });
+    if (!isInteractive()) {
+      if (frontendProjects.length === 1) {
+        options.project = frontendProjects[0].name;
+        logger.info(
+          `No terminal available to select a project. Using the only frontend project "${options.project}".`,
+        );
+      } else if (options.fromNxMigrate) {
+        // Skipping keeps a non-interactive nx migrate running; there is no
+        // safe automatic choice between several projects.
+        logger.warn(
+          `Multiple frontend projects found (${frontendProjects.map((p) => p.name).join(', ')}) and there is no terminal to ask on. ` +
+            'Skipping the frontend update. Run "nx g nx-fhir:update-frontend --project=<name>" for each project.',
+        );
+        return;
+      } else {
+        throw new Error(
+          'No frontend project was specified and there is no terminal to ask on. ' +
+            `Pass --project with one of: ${frontendProjects.map((p) => p.name).join(', ')}`,
+        );
+      }
+    } else {
+      options.project = await select({
+        message: 'Which frontend project would you like to update?',
+        choices: frontendProjects,
+      });
 
-    if (!options.project) {
-      throw new Error('No project selected');
+      if (!options.project) {
+        throw new Error('No project selected');
+      }
     }
   }
 
@@ -95,13 +117,27 @@ export async function updateFrontendGenerator(
     }
 
     const SKIP = '__skip__';
-    const selectedVersion = await select({
-      message: `Update ${options.project} from frontend template ${projectConfig.frontendVersion}?`,
-      choices: [
-        ...reachableVersions.map((v) => ({ name: v, value: v })),
-        { name: 'Skip', value: SKIP },
-      ],
-    });
+    // getReachableFrontendVersions only ever returns the current template
+    // version, so the last entry is the newest version reachable.
+    const latestVersion = reachableVersions[reachableVersions.length - 1];
+    // Without a terminal, take the Skip choice; an unattended run must not
+    // start a merge that can write conflict markers.
+    const selectedVersion = isInteractive()
+      ? await select({
+          message: `Update ${options.project} from frontend template ${projectConfig.frontendVersion}?`,
+          choices: [
+            ...reachableVersions.map((v) => ({ name: v, value: v })),
+            { name: 'Skip', value: SKIP },
+          ],
+        })
+      : SKIP;
+
+    if (!isInteractive()) {
+      logger.warn(
+        `No terminal available to select a target version. Skipping the frontend update. ` +
+          `Run "nx g nx-fhir:update-frontend --project=${options.project} --targetVersion=${latestVersion}" to update (newest reachable: ${latestVersion}).`,
+      );
+    }
 
     if (selectedVersion === SKIP) {
       logger.info(`Skipping frontend update for ${options.project}.`);
@@ -156,17 +192,26 @@ export async function updateFrontendGenerator(
       logger.warn(`    It's recommended to resolve conflicts before continuing.`);
       logger.warn(`    Look for <<<<<<< markers in your files.`);
 
-      const shouldContinue = await confirm({
-        message: `Continue to the next migration (${nextMigration.from} → ${nextMigration.to})? (${remainingMigrations.length} step(s) remaining)`,
-        default: false,
-      });
+      // Without a terminal the prompt can never be answered, so take the same
+      // answer the prompt defaults to and pause the chain.
+      const shouldContinue = isInteractive()
+        ? await confirm({
+            message: `Continue to the next migration (${nextMigration.from} → ${nextMigration.to})? (${remainingMigrations.length} step(s) remaining)`,
+            default: false,
+          })
+        : false;
+
+      if (!isInteractive()) {
+        logger.warn(
+          '    No terminal available to confirm. Pausing the migration chain.',
+        );
+      }
 
       if (!shouldContinue) {
         logger.info('\nMigration chain paused.');
         logger.info(`Project ${options.project} is now at version ${migration.to}.`);
         logger.info('After resolving conflicts, run the update-frontend generator again to continue.');
 
-        await formatFiles(tree);
         return;
       }
     }
@@ -176,7 +221,8 @@ export async function updateFrontendGenerator(
     `\n✅ Successfully updated ${options.project} to frontend template version ${options.targetVersion}`,
   );
 
-  await formatFiles(tree);
+  // No formatFiles here: the merged files keep the template formatting so the
+  // next migration still has a clean merge base.
 }
 
 export default updateFrontendGenerator;

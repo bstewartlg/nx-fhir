@@ -1,4 +1,4 @@
-import { getProjects, logger, readJson, readNxJson, Tree, updateNxJson } from "@nx/devkit";
+import { getProjects, joinPathFragments, logger, readJson, readNxJson, Tree, updateNxJson } from "@nx/devkit";
 import { select } from '@inquirer/prompts';
 import * as path from 'path';
 import { parseDocument } from "yaml";
@@ -33,7 +33,11 @@ export async function registerNxPlugin(tree: Tree) {
 
   
   // Add scripts to root package.json if not present;
-  const packageJson = readJson(tree, 'package.json');
+  // readJson throws on a missing file, and installation-based Nx workspaces
+  // have no root package.json.
+  const packageJson = tree.exists('package.json')
+    ? readJson(tree, 'package.json')
+    : null;
 
   if (!packageJson) {
     logger.info('No package.json found at the workspace root. Skipping script additions.');
@@ -63,13 +67,22 @@ export async function registerNxPlugin(tree: Tree) {
 export async function getServerProjects(tree: Tree): Promise<string[]> {
   const projects = getProjects(tree);
   const serverProjects: string[] = [];
-  
+
+  // The plugin fingerprint for a server is fhirVersion in the project
+  // configuration plus the starter pom.xml; requiring the pom keeps generated
+  // frontends and plain Maven applications out of server prompts. A project
+  // configuration may carry the nx-fhir-server tag without a fhirVersion key,
+  // so the tag also qualifies alongside the pom.
   for (const [projectName, projectConfig] of projects) {
-    if (projectConfig.projectType === 'application') {
+    const isServer =
+      ('fhirVersion' in projectConfig ||
+        (projectConfig.tags ?? []).includes('nx-fhir-server')) &&
+      tree.exists(joinPathFragments(projectConfig.root, 'pom.xml'));
+    if (projectConfig.projectType === 'application' && isServer) {
       serverProjects.push(projectName);
     }
   }
-  
+
   return serverProjects;
 }
 
@@ -161,5 +174,45 @@ export function removeServerYamlProperty(projectRoot: string, tree: Tree, proper
   const serverConfigDoc = parseDocument(configFile);
   serverConfigDoc.deleteIn(property.split('.'));
   tree.write(configPath, serverConfigDoc.toString());
+
+}
+
+
+/**
+ * Returns the HAPI application.yaml content with the `hapi.fhir.tester`
+ * section spliced out. Every other line keeps its exact bytes, including the
+ * comments above the section and the blank line that separates the section
+ * from the next one.
+ *
+ * A YAML document round trip would reformat comment indentation across the
+ * whole file and drop the comments attached to the deleted node. Those
+ * rewrites collide with upstream edits in the same region when a later
+ * three-way merge runs, so the section is removed by line instead.
+ *
+ * Content without a tester section is returned unchanged.
+ */
+export function removeTesterSection(content: string): string {
+
+  const lines = content.split('\n');
+  const start = lines.findIndex((line) => /^ {4}tester:\s*$/.test(line));
+
+  if (start === -1) {
+    return content;
+  }
+
+  const isSectionBody = (line: string) => /^\s{6}/.test(line) || line.trim() === '';
+
+  let end = start + 1;
+  while (end < lines.length && isSectionBody(lines[end])) {
+    end++;
+  }
+
+  // Trailing blank lines belong to the separation before the next section.
+  while (end > start + 1 && lines[end - 1].trim() === '') {
+    end--;
+  }
+
+  lines.splice(start, end - start);
+  return lines.join('\n');
 
 }

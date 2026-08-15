@@ -3,6 +3,10 @@ import { execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { TestExecutorSchema } from './schema';
+import {
+  getPackageManager,
+  getRunCommand,
+} from '../../shared/utils/package-manager';
 
 export default async function testExecutor(
   options: TestExecutorSchema,
@@ -35,17 +39,36 @@ export default async function testExecutor(
     return { success: false };
   }
 
-  try {
-    if (isServer) {
-      return testServer(options, fullProjectPath);
-    } else {
-      return testFrontend(options, fullProjectPath);
-    }
-  } catch (error) {
-    logger.error(`Failed to test ${context.projectName}: ${error instanceof Error ? error.message : String(error)}`);
+  // The test command runs through a shell, so the file filter must not be
+  // able to introduce shell syntax. Characters the shell expands unquoted
+  // stay rejected, which excludes spaces, $ in nested-class names, and
+  // Maven %regex[...] selectors; ? matches any character in Maven patterns,
+  // so Outer?Inner selects the nested class Outer$Inner.
+  // A leading dash would reach Vitest as an option (for example --help exits
+  // without running any test), so testFile must name a file or selector.
+  if (
+    options.testFile &&
+    (!SAFE_TEST_FILE.test(options.testFile) || options.testFile.startsWith('-'))
+  ) {
+    logger.error(
+      `Invalid testFile "${options.testFile}". The value must not begin with "-". Allowed characters: letters, digits, and . _ - / : # * ? , ! + (plus \\ on Windows)`
+    );
     return { success: false };
   }
+
+  if (isServer) {
+    return testServer(options, fullProjectPath);
+  } else {
+    return testFrontend(options, fullProjectPath);
+  }
 }
+
+// sh strips an unquoted backslash while cmd.exe keeps it, so the Windows
+// path separator is only accepted where it survives the shell.
+const SAFE_TEST_FILE =
+  process.platform === 'win32'
+    ? /^[A-Za-z0-9._/\\:#*?,!+-]+$/
+    : /^[A-Za-z0-9._/:#*?,!+-]+$/;
 
 function testServer(
   options: TestExecutorSchema,
@@ -85,32 +108,39 @@ function testFrontend(
 ): { success: boolean } {
   logger.info('🧪 Running Vitest Frontend tests...');
 
-  const args = ['run', 'test'];
-  
+  const vitestArgs: string[] = [];
+
   if (options.watch) {
-    args.push('--', '--watch');
-  }
-  
-  if (options.coverage) {
-    args.push('--', '--coverage');
-  }
-  
-  if (options.testFile) {
-    args.push('--', options.testFile);
+    vitestArgs.push('--watch');
   }
 
-  const command = `npm ${args.join(' ')}`;
-  
+  if (options.coverage) {
+    vitestArgs.push('--coverage');
+  }
+
+  if (options.testFile) {
+    vitestArgs.push(options.testFile);
+  }
+
+  // npm forwards script arguments only after a single -- separator; bun
+  // forwards everything after the script name.
+  const packageManager = getPackageManager();
+  let command = getRunCommand(packageManager, 'test');
+  if (vitestArgs.length > 0) {
+    const separator = packageManager === 'npm' ? ' -- ' : ' ';
+    command += separator + vitestArgs.join(' ');
+  }
+
   try {
     execSync(command, {
       cwd: projectPath,
       stdio: 'inherit',
     });
-    
+
     logger.info('✅ Frontend tests passed');
     return { success: true };
   } catch (error) {
-    logger.error(`npm tests failed: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(`Frontend tests failed: ${error instanceof Error ? error.message : String(error)}`);
     return { success: false };
   }
 }
