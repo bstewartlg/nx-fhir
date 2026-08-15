@@ -27,14 +27,14 @@ jobs:
       - run: apt install -y curl unzip
       - run: curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
       - run: apt install -y nodejs
+      # The repository itself is always installed and driven with bun. The
+      # matrix package manager only selects what the e2e suites use inside the
+      # generated test workspaces, which is the product's npm coverage.
       - name: Install bun
-        if: matrix.package-manager == 'bun'
         run: |
           curl -fsSL https://bun.sh/install | bash
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
-      # Cache steps run before the package installs so the lockfile hashes are
-      # still computable. The npm leg deletes bun.lock further down.
       - name: Cache Maven repository
         uses: actions/cache@v4
         with:
@@ -51,7 +51,6 @@ jobs:
 
       # bun and npm both honour HOME, so "~" is the container HOME here
       - name: Cache bun install cache
-        if: matrix.package-manager == 'bun'
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -59,24 +58,25 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
+      # The e2e suites on this leg install generated workspaces with npm, so
+      # the npm download cache is worth keeping warm.
       - name: Cache npm cache
         if: matrix.package-manager == 'npm'
         uses: actions/cache@v4
         with:
-          # bun.lock is removed on this leg, so the key uses the manifest instead.
           path: ~/.npm
           key: ${{ runner.os }}-npm-${{ hashFiles('package.json') }}
           restore-keys: |
             ${{ runner.os }}-npm-
 
-      - name: Remove bun lockfile so npm resolves from package.json
-        if: matrix.package-manager == 'npm'
-        run: rm bun.lock
       - name: Install dependencies
-        run: ${{ matrix.package-manager == 'bun' && 'bun install' || 'npm i' }}
+        run: bun install
+      # The unit tests mock all package manager interactions, so one run
+      # covers both legs.
       - name: Run tests
-        run: ${{ matrix.package-manager == 'bun' && 'bun run test -- --coverage' || 'npm test -- --coverage' }}
+        if: matrix.package-manager == 'bun'
+        run: bun run test -- --coverage
       - name: Run E2E Tests
         env:
           PACKAGE_MANAGER: ${{ matrix.package-manager }}
-        run: ${{ matrix.package-manager == 'bun' && 'bun run e2e' || 'npm run e2e --verbose' }}
+        run: bun run e2e

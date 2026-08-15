@@ -14,7 +14,6 @@ import {
   getListCommand,
   getRunCommand,
   getExecuteCommand,
-  getPackCommand,
   getCiInstallCommand,
   getDockerBaseImage,
   getLockfileName,
@@ -170,17 +169,6 @@ describe('package-manager utils', () => {
       expect(() => getExecuteCommand(unsupported, 'some-cli')).toThrow(
         'Unsupported package manager: pnpm',
       );
-    });
-  });
-
-  describe('getPackCommand', () => {
-    it('should return the pack command for each package manager', () => {
-      expect(getPackCommand('bun')).toBe('bun pm pack');
-      expect(getPackCommand('npm')).toBe('npm pack');
-    });
-
-    it('should throw for an unsupported package manager', () => {
-      expect(() => getPackCommand(unsupported)).toThrow('Unsupported package manager: pnpm');
     });
   });
 

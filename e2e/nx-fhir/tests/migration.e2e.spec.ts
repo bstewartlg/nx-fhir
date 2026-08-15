@@ -17,7 +17,6 @@ import {
   getExecuteCommand,
   getInstallCommand,
   getPackageManager,
-  getPackCommand,
 } from '@nx-fhir/shared/utils/package-manager';
 import { buildCleanEnv } from './utils';
 
@@ -72,13 +71,16 @@ describe('migration e2e test', () => {
     );
     logger.info(`Workspace root: ${workspaceRoot}`);
 
-    execSync(getExecuteCommand(packageManager, 'nx build nx-fhir'), {
+    // The plugin repository is developed with bun only, so building and
+    // packing the plugin always uses bun. The selected package manager drives
+    // only the commands that run inside the generated test workspace.
+    execSync('bunx nx build nx-fhir', {
       stdio: 'inherit',
       cwd: workspaceRoot,
       env: cleanEnv,
     });
 
-    const packCommand = getPackCommand(packageManager);
+    const packCommand = 'bun pm pack';
     logger.info(`Packing nx-fhir package: ${packCommand}`);
     execSync(packCommand, {
       cwd: nxFhirBuildPath,

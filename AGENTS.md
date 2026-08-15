@@ -65,7 +65,7 @@ bun link nx-fhir
 ### E2E Testing with Specific Package Manager
 
 ```sh
-PACKAGE_MANAGER=npm npm run e2e    # Use npm instead of bun for e2e
+PACKAGE_MANAGER=npm bun run e2e    # Generated test workspaces use npm instead of bun
 ```
 
 ## Architecture

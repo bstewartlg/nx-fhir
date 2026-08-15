@@ -10,10 +10,10 @@ To run all e2e tests:
 bun run e2e
 ```
 
-To run with npm for all build/install/generate tasks:
+To run with npm for the install/build/generate tasks inside the generated test workspaces (the plugin itself is always built and packed with bun):
 
 ```bash
-PACKAGE_MANAGER=npm npm run e2e
+PACKAGE_MANAGER=npm bun run e2e
 ```
 
 ## Test Suites

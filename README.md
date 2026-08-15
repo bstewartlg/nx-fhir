@@ -74,10 +74,10 @@ Run the full end-to-end suite:
 bun run e2e
 ```
 
-To run the e2e tests with a specific package manager for all of the build/install/generate tasks (bun or npm):
+To run the e2e tests with a specific package manager (bun or npm) for the install/build/generate tasks inside the generated test workspaces:
 
 ```sh
-PACKAGE_MANAGER=npm npm run e2e
+PACKAGE_MANAGER=npm bun run e2e
 ```
 
 The e2e suite (`e2e/nx-fhir/tests/`) covers:

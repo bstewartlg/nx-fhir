@@ -96,19 +96,6 @@ export function getExecuteCommand(
   }
 }
 
-export function getPackCommand(
-  packageManager: PackageManager
-): string {
-  switch (packageManager) {
-    case 'bun':
-      return `bun pm pack`;
-    case 'npm':
-      return `npm pack`;
-    default:
-      throw new Error(`Unsupported package manager: ${packageManager}`);
-  }
-}
-
 /**
  * Gets the CI install command for the specified package manager (frozen lockfile)
  */
