@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "FeatureBulkPublish",
+  "title": "bulk-publish Feature Generator",
+  "description": "Adds spec-conformant $bulk-publish bulk data publication to an existing HAPI FHIR server",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Name of the Nx server project to add the feature to"
+    },
+    "resourceTypes": {
+      "type": "string",
+      "description": "Comma-separated FHIR resource types to publish; an entry may carry a search filter, e.g. Organization,Patient?active=true; omit to publish every supported type"
+    },
+    "intervalMs": {
+      "type": "number",
+      "description": "Publish interval in milliseconds",
+      "default": 60000,
+      "minimum": 1,
+      "multipleOf": 1
+    },
+    "transactionLagMs": {
+      "type": "number",
+      "description": "How far behind the export start each snapshot claims its transactionTime, in milliseconds",
+      "default": 60000,
+      "minimum": 0,
+      "multipleOf": 1
+    },
+    "storagePath": {
+      "type": "string",
+      "description": "Snapshot storage path relative to the server working directory",
+      "default": "./publish-data"
+    },
+    "resetOnStartup": {
+      "type": "boolean",
+      "description": "Delete published snapshots on server startup",
+      "default": false
+    },
+    "publicBaseUrl": {
+      "type": "string",
+      "description": "Public base URL used in manifest file links when the server sits behind a proxy"
+    }
+  }
+}

@@ -12,6 +12,7 @@ import { ServerProjectConfiguration } from '../../shared/models';
 import { getEmptyHapiOperation, getHapiOperation } from './lib';
 import { OperationDefinition } from 'fhir/r5';
 import { promptForServerProject } from '../../shared/utils';
+import { ensureServerWiring } from '../../shared/utils/server-wiring';
 
 
 /**
@@ -155,6 +156,13 @@ export async function operationGenerator(
 
   if (!tree.exists(javaSourcePath)) {
     throw new Error(`Java source directory '${javaSourcePath}' does not exist in project '${selectedServerProject}'.`);
+  }
+
+  if (serverProjectConfig.packageBase) {
+    ensureServerWiring(tree, {
+      root: serverProjectConfig.root,
+      packageBase: serverProjectConfig.packageBase,
+    });
   }
 
   let directory = options.directory;

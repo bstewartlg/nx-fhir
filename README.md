@@ -31,7 +31,7 @@ This should publish all packages to the local registry and allow you to run the 
 bunx create-nx-fhir
 ```
 
-To continuously build and locally republish all packages as changes are made (note: --initialRun combined with --all currently does not behave as expected: <https://github.com/nrwl/nx/issues/32281>):
+To continuously build and locally republish all packages as changes are made:
 
 ```sh
 bun nx watch --initialRun --all -- npx nx run-many --nx-bail=false -t unpublish,nx-release-publish -- --registry http://localhost:4873

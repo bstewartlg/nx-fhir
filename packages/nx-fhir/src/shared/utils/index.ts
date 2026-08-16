@@ -86,7 +86,10 @@ export async function getServerProjects(tree: Tree): Promise<string[]> {
   return serverProjects;
 }
 
-export async function promptForServerProject(tree: Tree): Promise<string> {
+export async function promptForServerProject(
+  tree: Tree,
+  message = 'Select a server project to add the operation to:'
+): Promise<string> {
   const serverProjects = await getServerProjects(tree);
   if (serverProjects.length === 0) {
     throw new Error('No server projects found in the workspace. Please create a server project first using the server generator.');
@@ -98,7 +101,7 @@ export async function promptForServerProject(tree: Tree): Promise<string> {
   }
 
   return (await select({
-    message: 'Select a server project to add the operation to:',
+    message,
     choices: serverProjects,
   }));
 }
@@ -144,6 +147,27 @@ export function getJavaType(fhirType: string, isOutput = false): string {
   return fhirType;
 }
 
+
+
+/**
+ * Appends the entries a .gitignore does not already list, creating the file when
+ * it is missing. A leading and a trailing slash are ignored when comparing, so
+ * an entry written as "/target", "target" or "target/" counts as present.
+ */
+export function ensureGitignoreEntries(tree: Tree, gitignorePath: string, entries: string[]) {
+  const existing = tree.exists(gitignorePath)
+    ? (tree.read(gitignorePath, 'utf-8') ?? '')
+    : '';
+  const normalize = (entry: string) =>
+    entry.trim().replace(/^\//, '').replace(/\/$/, '');
+  const lines = new Set(existing.split('\n').map(normalize));
+  const missing = entries.filter((entry) => !lines.has(normalize(entry)));
+  if (missing.length === 0) {
+    return;
+  }
+  const prefix = existing === '' || existing.endsWith('\n') ? '' : '\n';
+  tree.write(gitignorePath, existing + prefix + missing.join('\n') + '\n');
+}
 
 
 export function updateServerYaml(projectRoot: string, tree: Tree, property: string, value: unknown) {

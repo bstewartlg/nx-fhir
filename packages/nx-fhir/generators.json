@@ -21,6 +21,16 @@
       "description": "implementation-guide generator",
       "aliases": ["ig"]
     },
+    "feature": {
+      "factory": "./src/generators/feature/feature",
+      "schema": "./src/generators/feature/schema.json",
+      "description": "Add a packaged feature to an existing server project"
+    },
+    "feature-bulk-publish": {
+      "factory": "./src/generators/feature-bulk-publish/feature-bulk-publish",
+      "schema": "./src/generators/feature-bulk-publish/schema.json",
+      "description": "Add $bulk-publish bulk data publication to an existing server project"
+    },
     "preset": {
       "factory": "./src/generators/preset/generator",
       "schema": "./src/generators/preset/schema.json",

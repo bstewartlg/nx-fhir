@@ -73,12 +73,19 @@ export interface ServerAssets {
   capabilityStatement?: CapabilityStatement;
 }
 
+export interface InstalledFeature {
+  version: number;
+  options: Record<string, unknown>;
+}
+
 export interface ServerProjectConfiguration extends ProjectConfiguration {
   packageBase: string;
   fhirVersion: FhirVersion;
   /** Absent when an import could not establish the release; update-server requires it. */
   hapiReleaseVersion?: string;
   pluginVersion: string;
+  /** Features installed by the feature generator, keyed by feature name. */
+  features?: Record<string, InstalledFeature>;
 }
 
 export interface FrontendProjectConfiguration extends ProjectConfiguration {

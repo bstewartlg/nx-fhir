@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "Feature",
+  "title": "Feature Generator",
+  "description": "Adds a packaged feature to an existing nx-fhir server project",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Name of the Nx server project to add the feature to"
+    },
+    "feature": {
+      "type": "string",
+      "description": "Name of the feature to add. Prompts with the available features when omitted"
+    }
+  }
+}

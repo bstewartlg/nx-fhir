@@ -507,6 +507,83 @@ describe('operation generator placement', () => {
   });
 });
 
+describe('operation generator server wiring', () => {
+  const baseProviderPath =
+    'test-project/src/main/java/com/example/common/BaseProvider.java';
+  const customConfigPath =
+    'test-project/src/main/java/ca/uhn/fhir/jpa/starter/CustomServerConfig.java';
+  const wiringOptions: OperationGeneratorSchema = {
+    project: 'server',
+    defContent: JSON.stringify(patientEverything),
+    directory: 'com/example/providers',
+  };
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('creates BaseProvider and CustomServerConfig when the server has neither', async () => {
+    const tree = createServerTree();
+
+    await operationGenerator(tree, wiringOptions);
+
+    expect(tree.read(baseProviderPath, 'utf-8')).toContain(
+      'package com.example.common;',
+    );
+    expect(tree.read(customConfigPath, 'utf-8')).toContain(
+      '@ComponentScan(basePackages = {"com.example"})',
+    );
+  });
+
+  it('creates only the missing wiring files and preserves the rest', async () => {
+    const tree = createServerTree();
+    const baseInterceptorPath =
+      'test-project/src/main/java/com/example/common/BaseInterceptor.java';
+    tree.write(baseInterceptorPath, 'base interceptor marker');
+
+    await operationGenerator(tree, wiringOptions);
+
+    expect(tree.read(baseInterceptorPath, 'utf-8')).toBe(
+      'base interceptor marker',
+    );
+    expect(tree.read(baseProviderPath, 'utf-8')).toContain(
+      'package com.example.common;',
+    );
+    expect(tree.read(customConfigPath, 'utf-8')).toContain(
+      '@ComponentScan(basePackages = {"com.example"})',
+    );
+  });
+
+  it('throws when the application package covers neither the starter package nor the package base', async () => {
+    const tree = createServerTree();
+    tree.write(
+      'test-project/src/main/java/com/acme/boot/Application.java',
+      [
+        'package com.acme.boot;',
+        '',
+        '@SpringBootApplication',
+        'public class Application {}',
+        '',
+      ].join('\n'),
+    );
+
+    await expect(operationGenerator(tree, wiringOptions)).rejects.toThrow(
+      /'com\.acme\.boot'.*'com\.example'/s,
+    );
+  });
+
+  it('leaves existing wiring files unchanged', async () => {
+    const tree = createServerTree();
+    tree.write(baseProviderPath, 'base provider marker');
+    tree.write(customConfigPath, 'custom config marker');
+
+    await operationGenerator(tree, wiringOptions);
+
+    expect(tree.read(baseProviderPath, 'utf-8')).toBe('base provider marker');
+    expect(tree.read(customConfigPath, 'utf-8')).toBe('custom config marker');
+  });
+});
+
 describe('getClassName', () => {
   it('appends Operation when no resource types are bound', () => {
     expect(getClassName('patient-everything')).toBe('PatientEverythingOperation');

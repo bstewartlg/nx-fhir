@@ -4,7 +4,7 @@ import { serverGenerator } from '../server/server';
 import { FhirVersion } from '../../shared/models';
 import { ServerGeneratorSchema } from '../server/schema';
 import { confirm, input, select } from '@inquirer/prompts';
-import { registerNxPlugin } from '../../shared/utils';
+import { ensureGitignoreEntries, registerNxPlugin } from '../../shared/utils';
 import { detectExistingServer } from '../../shared/utils/server-detection';
 import { isInteractive } from '../../shared/utils/interactive';
 import { importServerGenerator } from '../import-server/import-server';
@@ -14,33 +14,15 @@ const DEFAULT_PACKAGE_BASE = 'org.custom.server';
 
 const GITIGNORE_ENTRIES = ['node_modules', '.nx/cache', '.nx/workspace-data'];
 
-/**
- * Makes sure the workspace .gitignore covers Nx artifacts. A workspace made
- * by create-nx-workspace already has these entries, but initializing in an
- * existing directory (for example an imported HAPI server) does not.
- */
-function ensureGitignoreEntries(tree: Tree) {
-  const existing = tree.exists('.gitignore')
-    ? (tree.read('.gitignore', 'utf-8') ?? '')
-    : '';
-  const lines = new Set(
-    existing.split('\n').map((line) => line.trim().replace(/^\//, '')),
-  );
-  const missing = GITIGNORE_ENTRIES.filter((entry) => !lines.has(entry));
-  if (missing.length === 0) {
-    return;
-  }
-  const prefix = existing === '' || existing.endsWith('\n') ? '' : '\n';
-  tree.write('.gitignore', existing + prefix + missing.join('\n') + '\n');
-}
-
 export async function presetGenerator(
   tree: Tree,
   options: PresetGeneratorSchema,
 ) {
   registerNxPlugin(tree);
 
-  ensureGitignoreEntries(tree);
+  // A workspace made by create-nx-workspace already ignores the Nx artifacts, but
+  // initializing in an existing directory (for example an imported HAPI server) does not.
+  ensureGitignoreEntries(tree, '.gitignore', GITIGNORE_ENTRIES);
 
   // A boolean analytics field in nx.json suppresses the Nx usage-data prompt.
   updateJson(tree, 'nx.json', (json) => ({
