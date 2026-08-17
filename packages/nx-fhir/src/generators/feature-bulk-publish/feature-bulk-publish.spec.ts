@@ -135,8 +135,16 @@ describe('feature-bulk-publish generator', () => {
     });
   });
 
-  it('publishes every supported type when a non-interactive run omits resourceTypes', async () => {
-    await featureBulkPublishGenerator(tree, { project: 'server' });
+  it('rejects a non-interactive run that omits resourceTypes without allTypes', async () => {
+    await expect(
+      featureBulkPublishGenerator(tree, { project: 'server' }),
+    ).rejects.toThrow(
+      'No resource types provided. Provide resourceTypes, or set allTypes to publish every type the server supports.',
+    );
+  });
+
+  it('publishes every supported type when a non-interactive run sets allTypes', async () => {
+    await featureBulkPublishGenerator(tree, { project: 'server', allTypes: true });
 
     expect(publishConfig(tree)['resource-types']).toEqual([]);
   });

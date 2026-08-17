@@ -11,7 +11,12 @@
     },
     "resourceTypes": {
       "type": "string",
-      "description": "Comma-separated FHIR resource types to publish; an entry may carry a search filter, e.g. Organization,Patient?active=true; omit to publish every supported type"
+      "description": "Comma-separated FHIR resource types to publish; an entry may carry a search filter, e.g. Organization,Patient?active=true; required unless allTypes is set"
+    },
+    "allTypes": {
+      "type": "boolean",
+      "description": "Publish every resource type the server supports to unauthenticated readers; required when resourceTypes is omitted",
+      "default": false
     },
     "intervalMs": {
       "type": "number",

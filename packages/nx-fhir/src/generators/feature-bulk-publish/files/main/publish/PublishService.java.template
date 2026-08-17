@@ -88,6 +88,10 @@ public class PublishService {
 	private final PublishProperties publishProps;
 	private final MatchUrlService matchUrlService;
 
+	// With an empty configured list the published set is only known at runtime, so the resolved
+	// entries are logged; the guard keeps the log to one line per distinct set instead of per tick.
+	private List<String> lastLoggedEntries;
+
 	public PublishService(
 			FhirContext fhirContext,
 			DaoRegistry daoRegistry,
@@ -199,6 +203,10 @@ public class PublishService {
 		try {
 			Files.createDirectories(dir);
 			List<String> entries = resolveEntries();
+			if (!entries.equals(lastLoggedEntries)) {
+				ourLog.info("Bulk publish covers {}", entries);
+				lastLoggedEntries = entries;
+			}
 			List<FileMeta> previousFiles = previousMeta == null ? List.of() : previousMeta.files();
 			List<FileMeta> previousOutcomes = previousMeta == null ? List.of() : previousMeta.outcomeFiles();
 			List<FileMeta> files = new ArrayList<>();

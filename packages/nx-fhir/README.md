@@ -9,6 +9,7 @@ An Nx plugin for building FHIR servers and frontends.
 - Scaffold TanStack Router-based React frontend SPAs with browser or clinical templates
 - Generate custom FHIR operations from OperationDefinition resources
 - Add FHIR Implementation Guides to your server
+- Add packaged server features such as scheduled `$bulk-publish` bulk data publication
 - Keep your HAPI FHIR server and frontend up to date with newer releases via `nx migrate`
 
 ## Installation
@@ -142,6 +143,51 @@ nx g nx-fhir:ig
 ```
 
 This will also prompt to generate any custom operations defined in the IG and use any `CapabilityStatement` present in the IG.
+
+### Feature
+
+Add a packaged feature to an existing server project:
+
+```sh
+nx g nx-fhir:feature
+```
+
+This prompts for the server project and the feature to install, then collects the feature's own options. Each feature can also be installed directly through its own generator (for example `nx g nx-fhir:feature-bulk-publish`).
+
+Installed features are recorded in the server's `project.json`, and installing the same feature twice is rejected. Every feature declares the range of HAPI FHIR releases its generated code is verified against, and the generator refuses to install into a server outside that range. Run `update-server` first to bring the server into range.
+
+The generated code becomes part of your server source. Treat it as a starting point: authentication, authorization, and other deployment concerns remain the responsibility of your server implementation.
+
+#### Bulk Publish
+
+Adds spec-conformant `$bulk-publish` bulk data publication to a server:
+
+```sh
+nx g nx-fhir:feature-bulk-publish
+```
+
+A scheduled publisher exports the configured resource types to gzipped ndjson snapshot files and serves them behind a `$bulk-publish` manifest endpoint. Unchanged data keeps identical file URLs between publish runs, and a dataset with no changes publishes nothing new. A resource type that fails to export is reported through an `OperationOutcome` ndjson file referenced by the manifest instead of stopping the publish run.
+
+**Options:**
+- `--project`: Name of the Nx server project to add the feature to
+- `--resourceTypes`: Comma-separated resource types to publish; an entry may carry a search filter, e.g. `Organization,Patient?active=true`; required unless `--allTypes` is set
+- `--allTypes`: Publish every resource type the server supports; required when `--resourceTypes` is omitted
+- `--intervalMs`: Publish interval in milliseconds (default: `60000`)
+- `--transactionLagMs`: How far behind the export start each snapshot claims its `transactionTime`, in milliseconds (default: `60000`)
+- `--storagePath`: Snapshot storage path relative to the server working directory (default: `./publish-data`)
+- `--resetOnStartup`: Delete published snapshots on server startup (default: `false`)
+- `--publicBaseUrl`: Public base URL used in manifest file links when the server sits behind a proxy
+
+**Example:**
+```sh
+nx g nx-fhir:feature-bulk-publish --project=my-fhir-server --resourceTypes=InsurancePlan,MedicationKnowledge --intervalMs=300000
+```
+
+The manifest and snapshot files are served without authentication (`requiresAccessToken: false`), so the configured resource type list defines what your server makes public. Only list resource types your deployment intends to expose. With `--allTypes`, every type the server supports is published, narrowed by `hapi.fhir.supported_resource_types` when set; the server logs the resolved list on its first publish run.
+
+The generated configuration lives under `publish:` in `application.yaml`. Additional tuning keys the generator does not write can be added there: `publish.retention`, `publish.grace-period-ms`, and `publish.export-page-size`.
+
+Requires HAPI FHIR 7.4.0 or later. The generated `BulkPublishIT` integration test runs under `mvn verify`.
 
 ### Update Server
 

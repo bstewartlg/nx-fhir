@@ -100,11 +100,25 @@ describe('bulk-publish feature', () => {
       expect(confirm).not.toHaveBeenCalled();
     });
 
-    it('resolves omitted resourceTypes to the empty list in a non-interactive run', async () => {
+    it('rejects an omitted resourceTypes in a non-interactive run without allTypes', async () => {
+      await expect(
+        bulkPublishFeature.collectOptions(tree, serverProject(tree), {
+          intervalMs: 30000,
+          transactionLagMs: 15000,
+          storagePath: './pub',
+          resetOnStartup: false,
+        }),
+      ).rejects.toThrow(
+        'No resource types provided. Provide resourceTypes, or set allTypes to publish every type the server supports.',
+      );
+    });
+
+    it('resolves omitted resourceTypes to the empty list when allTypes is set', async () => {
       const options = await bulkPublishFeature.collectOptions(
         tree,
         serverProject(tree),
         {
+          allTypes: true,
           intervalMs: 30000,
           transactionLagMs: 15000,
           storagePath: './pub',
@@ -113,6 +127,33 @@ describe('bulk-publish feature', () => {
       );
 
       expect(options.resourceTypes).toEqual([]);
+    });
+
+    it('reads the uncoerced allTypes string true the feature picker forwards', async () => {
+      const options = await bulkPublishFeature.collectOptions(
+        tree,
+        serverProject(tree),
+        {
+          allTypes: 'true',
+          intervalMs: 30000,
+          transactionLagMs: 15000,
+          storagePath: './pub',
+          resetOnStartup: false,
+        },
+      );
+
+      expect(options.resourceTypes).toEqual([]);
+    });
+
+    it('rejects allTypes combined with a resourceTypes list', async () => {
+      await expect(
+        bulkPublishFeature.collectOptions(tree, serverProject(tree), {
+          allTypes: true,
+          resourceTypes: 'Organization',
+        }),
+      ).rejects.toThrow(
+        'allTypes cannot be combined with a resourceTypes list. Provide one or the other.',
+      );
     });
 
     it.each([
@@ -124,7 +165,7 @@ describe('bulk-publish feature', () => {
       const options = await bulkPublishFeature.collectOptions(
         tree,
         serverProject(tree),
-        { resetOnStartup: given },
+        { resourceTypes: 'Organization', resetOnStartup: given },
       );
 
       expect(options.resetOnStartup).toBe(expected);
@@ -135,6 +176,7 @@ describe('bulk-publish feature', () => {
       async (given) => {
         await expect(
           bulkPublishFeature.collectOptions(tree, serverProject(tree), {
+            resourceTypes: 'Organization',
             resetOnStartup: given,
           }),
         ).rejects.toThrow(
@@ -166,11 +208,11 @@ describe('bulk-publish feature', () => {
       );
     });
 
-    it('resolves a separators-only resourceTypes value to the empty list', async () => {
+    it('treats a separators-only resourceTypes value as an empty list under allTypes consent', async () => {
       const options = await bulkPublishFeature.collectOptions(
         tree,
         serverProject(tree),
-        { ...resolvedOptions, resourceTypes: ',' },
+        { ...resolvedOptions, resourceTypes: ',', allTypes: true },
       );
 
       expect(options.resourceTypes).toEqual([]);
@@ -323,6 +365,60 @@ describe('bulk-publish feature', () => {
         storagePath: './publish-data',
         resetOnStartup: false,
       });
+    });
+
+    it('asks for consent when an interactive run leaves the resource types empty', async () => {
+      isInteractive.mockReturnValue(true);
+      input
+        .mockResolvedValueOnce('')
+        .mockImplementationOnce(async (q) => q.default)
+        .mockImplementationOnce(async (q) => q.default)
+        .mockImplementationOnce(async (q) => q.default);
+      confirm
+        .mockResolvedValueOnce(true)
+        .mockImplementationOnce(async (q) => q.default);
+
+      const options = await bulkPublishFeature.collectOptions(
+        tree,
+        serverProject(tree),
+        {},
+      );
+
+      expect(confirm.mock.calls[0][0].message).toContain(
+        'every resource type the server supports',
+      );
+      expect(confirm.mock.calls[0][0].default).toBe(false);
+      expect(options.resourceTypes).toEqual([]);
+    });
+
+    it('rejects an interactive empty resource type list when consent is declined', async () => {
+      isInteractive.mockReturnValue(true);
+      input.mockResolvedValueOnce('');
+      confirm.mockResolvedValueOnce(false);
+
+      await expect(
+        bulkPublishFeature.collectOptions(tree, serverProject(tree), {}),
+      ).rejects.toThrow(
+        'Bulk publish needs a resource type list. Rerun and provide resource types, or set allTypes to publish every supported type.',
+      );
+    });
+
+    it('skips the resource type prompt when an interactive run sets allTypes', async () => {
+      isInteractive.mockReturnValue(true);
+      input
+        .mockImplementationOnce(async (q) => q.default)
+        .mockImplementationOnce(async (q) => q.default)
+        .mockImplementationOnce(async (q) => q.default);
+      confirm.mockImplementationOnce(async (q) => q.default);
+
+      const options = await bulkPublishFeature.collectOptions(
+        tree,
+        serverProject(tree),
+        { allTypes: true },
+      );
+
+      expect(options.resourceTypes).toEqual([]);
+      expect(input.mock.calls[0][0].message).toContain('Publish interval');
     });
   });
 

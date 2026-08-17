@@ -100,7 +100,7 @@ function parseResourceTypes(value: unknown): string[] {
  * The feature picker forwards command line values uncoerced, so a boolean arrives as a string.
  * Only the two spellings of a boolean are accepted; anything else is a typo the user must fix.
  */
-function parseResetOnStartup(value: unknown): boolean {
+function parseBooleanOption(name: string, value: unknown): boolean {
   if (typeof value === 'boolean') {
     return value;
   }
@@ -108,7 +108,7 @@ function parseResetOnStartup(value: unknown): boolean {
   if (normalized === 'true' || normalized === 'false') {
     return normalized === 'true';
   }
-  throw new Error(`Invalid resetOnStartup '${value}'. Provide true or false.`);
+  throw new Error(`Invalid ${name} '${value}'. Provide true or false.`);
 }
 
 export const bulkPublishFeature: FeatureDefinition = {
@@ -121,10 +121,15 @@ export const bulkPublishFeature: FeatureDefinition = {
   minHapiVersion: '7.4.0',
 
   async collectOptions(tree, project, provided) {
+    const allTypes =
+      provided.allTypes !== undefined
+        ? parseBooleanOption('allTypes', provided.allTypes)
+        : false;
+
     let resourceTypes: string[];
     if (provided.resourceTypes !== undefined) {
       resourceTypes = parseResourceTypes(provided.resourceTypes);
-    } else if (isInteractive()) {
+    } else if (!allTypes && isInteractive()) {
       resourceTypes = parseResourceTypes(
         await input({
           message:
@@ -132,8 +137,32 @@ export const bulkPublishFeature: FeatureDefinition = {
         }),
       );
     } else {
-      // An empty list is the server's "publish every supported type" mode.
       resourceTypes = [];
+    }
+
+    if (allTypes && resourceTypes.length > 0) {
+      throw new Error(
+        'allTypes cannot be combined with a resourceTypes list. Provide one or the other.',
+      );
+    }
+    // An empty list is the server's "publish every supported type" mode. The published files are
+    // readable without authentication, so that mode requires explicit consent.
+    if (resourceTypes.length === 0 && !allTypes) {
+      if (!isInteractive()) {
+        throw new Error(
+          'No resource types provided. Provide resourceTypes, or set allTypes to publish every type the server supports.',
+        );
+      }
+      const publishEverything = await confirm({
+        message:
+          'Publish every resource type the server supports to unauthenticated readers?',
+        default: false,
+      });
+      if (!publishEverything) {
+        throw new Error(
+          'Bulk publish needs a resource type list. Rerun and provide resource types, or set allTypes to publish every supported type.',
+        );
+      }
     }
 
     const intervalMs =
@@ -185,7 +214,7 @@ export const bulkPublishFeature: FeatureDefinition = {
 
     const resetOnStartup =
       provided.resetOnStartup !== undefined
-        ? parseResetOnStartup(provided.resetOnStartup)
+        ? parseBooleanOption('resetOnStartup', provided.resetOnStartup)
         : isInteractive()
           ? await confirm({
               message: 'Delete published snapshots on server startup?',
