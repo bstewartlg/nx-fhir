@@ -1,4 +1,4 @@
-import { logger, Tree, updateJson } from '@nx/devkit';
+import { joinPathFragments, logger, Tree, updateJson } from '@nx/devkit';
 import { PresetGeneratorSchema } from './schema';
 import { serverGenerator } from '../server/server';
 import { FhirVersion } from '../../shared/models';
@@ -45,7 +45,11 @@ export async function presetGenerator(
     );
     await importServerGenerator(tree, {
       directory: detected.root,
-      name: options.name,
+      // The name answer names the workspace. A recorded project name stays,
+      // because scripts and CI refer to it.
+      name: tree.exists(joinPathFragments(detected.root, 'project.json'))
+        ? undefined
+        : options.name,
       packageBase: options.packageBase,
       fhirVersion: options.fhirVersion,
       release: options.release,

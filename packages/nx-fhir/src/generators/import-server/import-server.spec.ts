@@ -1,6 +1,7 @@
 import { vi } from 'vitest';
 import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
 import { logger, readJson, readProjectConfiguration, Tree } from '@nx/devkit';
+import * as path from 'path';
 
 const select = vi.hoisted(() => vi.fn());
 const input = vi.hoisted(() => vi.fn());
@@ -325,6 +326,77 @@ describe('import-server generator', () => {
     );
   });
 
+  it('keeps the recorded packageBase and fhirVersion when detection finds nothing', async () => {
+    writeFakeServer(tree, 'srv');
+    tree.write(
+      'srv/src/main/resources/application.yaml',
+      'hapi:\n  fhir:\n    server_address: http://localhost:8080/fhir\n',
+    );
+    tree.write(
+      'srv/src/main/java/com/a/A.java',
+      'package com.a;\npublic class A {}\n',
+    );
+    tree.write(
+      'srv/src/main/java/org/b/B.java',
+      'package org.b;\npublic class B {}\n',
+    );
+    tree.write(
+      'srv/project.json',
+      JSON.stringify(
+        {
+          name: 'srv',
+          projectType: 'application',
+          sourceRoot: 'srv/src',
+          packageBase: 'org.keep.me',
+          fhirVersion: 'R5',
+        },
+        null,
+        2,
+      ),
+    );
+
+    const originalCi = process.env.CI;
+    process.env.CI = 'true';
+    try {
+      await importServerGenerator(tree, { directory: 'srv', name: 'srv' });
+    } finally {
+      if (originalCi === undefined) {
+        delete process.env.CI;
+      } else {
+        process.env.CI = originalCi;
+      }
+    }
+
+    const pj = readJson(tree, 'srv/project.json');
+    expect(pj.packageBase).toBe('org.keep.me');
+    expect(pj.fhirVersion).toBe('R5');
+  });
+
+  it('lets detection override a recorded fhirVersion', async () => {
+    writeFakeServer(tree, 'srv', { fhirVersion: 'R4' });
+    tree.write(
+      'srv/project.json',
+      JSON.stringify(
+        {
+          name: 'srv',
+          projectType: 'application',
+          sourceRoot: 'srv/src',
+          fhirVersion: 'R5',
+        },
+        null,
+        2,
+      ),
+    );
+
+    await importServerGenerator(tree, {
+      directory: 'srv',
+      name: 'srv',
+      release: '8.8.0-1',
+    });
+
+    expect(readJson(tree, 'srv/project.json').fhirVersion).toBe('R4');
+  });
+
   it('registers a server living at the workspace root with sourceRoot "src"', async () => {
     writeFakeServer(tree, '.', { version: '8.4.0' });
 
@@ -374,6 +446,41 @@ describe('import-server generator', () => {
 
     const packageJson = readJson(tree, 'package.json');
     expect(packageJson.nx?.includedScripts).toBeUndefined();
+  });
+
+  it('names a nameless root package.json after the workspace directory', async () => {
+    writeFakeServer(tree, '.', { version: '8.4.0' });
+    tree.write('package.json', '{}');
+
+    await importServerGenerator(tree, {
+      directory: '.',
+      name: 'root-server',
+      release: '8.4.0-2',
+      fhirVersion: FhirVersion.R4,
+      packageBase: 'org.test.server',
+    });
+
+    // Nx reads a package.json with an nx key as a project and rejects one without a name.
+    const packageJson = readJson(tree, 'package.json');
+    expect(packageJson.name).toBe(path.basename(tree.root));
+    expect(packageJson.nx?.includedScripts).toEqual([]);
+  });
+
+  it('adds node_modules and the Nx cache directories to .gitignore for a root import', async () => {
+    writeFakeServer(tree, '.', { version: '8.4.0' });
+
+    await importServerGenerator(tree, {
+      directory: '.',
+      name: 'root-server',
+      release: '8.4.0-2',
+      fhirVersion: FhirVersion.R4,
+      packageBase: 'org.test.server',
+    });
+
+    const gitignore = tree.read('.gitignore', 'utf-8');
+    expect(gitignore).toContain('node_modules');
+    expect(gitignore).toContain('.nx/cache');
+    expect(gitignore).toContain('.nx/workspace-data');
   });
 
   it('applies the provided name and unions tags when a project.json already exists', async () => {
@@ -434,10 +541,61 @@ describe('import-server generator', () => {
     expect(readJson(tree, 'srv/project.json').name).toBe('keep-me');
   });
 
+  it('writes project.json without a root key and with a trailing newline', async () => {
+    writeFakeServer(tree, 'srv');
+    tree.write(
+      'srv/project.json',
+      JSON.stringify(
+        {
+          name: 'srv',
+          root: 'srv',
+          projectType: 'application',
+          sourceRoot: 'srv/src',
+        },
+        null,
+        2,
+      ),
+    );
+
+    await importServerGenerator(tree, {
+      directory: 'srv',
+      name: 'srv',
+      release: '8.8.0-1',
+      fhirVersion: FhirVersion.R4,
+      packageBase: 'org.test.server',
+    });
+
+    expect(readJson(tree, 'srv/project.json').root).toBeUndefined();
+    expect(tree.read('srv/project.json', 'utf-8')).toMatch(/\n$/);
+  });
+
   it('throws a clear error when no HAPI server is present', async () => {
     await expect(
       importServerGenerator(tree, { directory: 'nope' }),
     ).rejects.toThrow(/No existing HAPI FHIR server found/);
+  });
+
+  it('throws before logging when nx.json is missing', async () => {
+    writeFakeServer(tree, 'srv');
+    tree.delete('nx.json');
+    const info = vi.spyOn(logger, 'info');
+
+    try {
+      await expect(
+        importServerGenerator(tree, {
+          directory: 'srv',
+          name: 'srv',
+          release: '8.8.0-1',
+          fhirVersion: FhirVersion.R4,
+          packageBase: 'org.test.server',
+        }),
+      ).rejects.toThrow(/nx\.json.*nx init/);
+      expect(info).not.toHaveBeenCalledWith(
+        expect.stringContaining('Registered existing'),
+      );
+    } finally {
+      info.mockRestore();
+    }
   });
 
   it('uses provided options without prompting and detection fills the rest', async () => {

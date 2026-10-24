@@ -193,6 +193,24 @@ export function stageAnalyticsPreference(directory: string): void {
   );
 }
 
+export interface NxInstallation {
+  version: string;
+  plugins?: Record<string, string>;
+}
+
+/**
+ * Returns the `installation` block of nx.json. A workspace with this block
+ * runs Nx through the `.nx/nxw.js` wrapper, which installs Nx and the listed
+ * plugins under `.nx/installation` without a package.json.
+ */
+export function readInstallation(cwd: string): NxInstallation | undefined {
+  const nxJsonPath = path.join(cwd, 'nx.json');
+  if (!fs.existsSync(nxJsonPath)) {
+    return undefined;
+  }
+  return JSON.parse(fs.readFileSync(nxJsonPath, 'utf-8')).installation;
+}
+
 export async function initExistingDirectory(
   packageManager: PackageManager,
   presetVersion: string,
@@ -200,6 +218,39 @@ export async function initExistingDirectory(
 ): Promise<void> {
   const cwd = process.cwd();
   const name = path.basename(cwd);
+
+  // Build preset generator CLI flags. The preset requires a name and prompts
+  // for one when it is missing, and the directory is the answer this CLI
+  // already uses for package.json
+  const flagParts: string[] = [`--name=${name}`];
+  if (presetOptions.server !== undefined)
+    flagParts.push(`--server=${presetOptions.server}`);
+  if (presetOptions.serverDirectory)
+    flagParts.push(`--serverDirectory=${presetOptions.serverDirectory}`);
+  if (presetOptions.packageBase)
+    flagParts.push(`--packageBase=${presetOptions.packageBase}`);
+  if (presetOptions.release)
+    flagParts.push(`--release=${presetOptions.release}`);
+  if (presetOptions.fhirVersion)
+    flagParts.push(`--fhirVersion=${presetOptions.fhirVersion}`);
+  const flags = flagParts.join(' ');
+
+  const nxJsonPath = path.join(cwd, 'nx.json');
+  // An unpinned nx resolves to the newest major, which the plugin's
+  // @nx/devkit range does not cover. The CLI and the plugin share one
+  // @nx/devkit range, so the CLI's own copy names a supported Nx.
+  const nxVersion = require('@nx/devkit/package.json').version;
+
+  // A workspace runs one Nx, and a package.json Nx cannot load the plugins
+  // that the wrapper installed under .nx/installation, so the wrapper is
+  // replaced. Nx requires its @nx plugins at its own version.
+  const installation = readInstallation(cwd);
+  const carriedPackages = Object.entries(installation?.plugins ?? {})
+    .filter(([plugin]) => plugin !== 'nx-fhir')
+    .map(
+      ([plugin, version]) =>
+        `${plugin}@${plugin.startsWith('@nx/') ? nxVersion : version}`,
+    );
 
   // Ensure package.json exists
   const pkgJsonPath = path.join(cwd, 'package.json');
@@ -212,7 +263,6 @@ export async function initExistingDirectory(
   }
 
   // Ensure nx.json exists
-  const nxJsonPath = path.join(cwd, 'nx.json');
   if (!fs.existsSync(nxJsonPath)) {
     logger.info('Creating nx.json...');
     fs.writeFileSync(
@@ -227,29 +277,35 @@ export async function initExistingDirectory(
 
   // Install dependencies
   const installCmd = buildInstallCommand(packageManager, [
-    'nx',
-    '@nx/devkit',
+    `nx@${nxVersion}`,
+    `@nx/devkit@${nxVersion}`,
     `nx-fhir@${presetVersion}`,
+    ...carriedPackages,
   ]);
   logger.info(`Installing dependencies: ${installCmd}`);
   execSync(installCmd, { stdio: 'inherit', cwd });
 
-  // Build preset generator CLI flags
-  const flagParts: string[] = [];
-  if (presetOptions.server !== undefined)
-    flagParts.push(`--server=${presetOptions.server}`);
-  if (presetOptions.serverDirectory)
-    flagParts.push(`--serverDirectory=${presetOptions.serverDirectory}`);
-  if (presetOptions.packageBase)
-    flagParts.push(`--packageBase=${presetOptions.packageBase}`);
-  if (presetOptions.release)
-    flagParts.push(`--release=${presetOptions.release}`);
-  if (presetOptions.fhirVersion)
-    flagParts.push(`--fhirVersion=${presetOptions.fhirVersion}`);
+  // The wrapper goes only after the install succeeds, so a failed install
+  // leaves the installation block that a rerun converts again
+  if (installation) {
+    logger.info(
+      'Converting the Nx wrapper installation to a package.json install...',
+    );
+    const nxJson = JSON.parse(fs.readFileSync(nxJsonPath, 'utf-8'));
+    delete nxJson.installation;
+    fs.writeFileSync(nxJsonPath, JSON.stringify(nxJson, null, 2) + '\n');
+    fs.rmSync(path.join(cwd, '.nx/installation'), {
+      recursive: true,
+      force: true,
+    });
+    for (const wrapperFile of ['.nx/nxw.js', 'nx', 'nx.bat']) {
+      fs.rmSync(path.join(cwd, wrapperFile), { force: true });
+    }
+  }
 
   stageAnalyticsPreference(cwd);
 
-  const generatorCmd = `npx nx g nx-fhir:preset ${flagParts.join(' ')}`.trim();
+  const generatorCmd = `npx nx g nx-fhir:preset ${flags}`.trim();
   logger.info(`Running preset generator: ${generatorCmd}`);
   execSync(generatorCmd, { stdio: 'inherit', cwd });
 }

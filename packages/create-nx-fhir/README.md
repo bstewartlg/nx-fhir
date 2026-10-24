@@ -137,7 +137,9 @@ This will:
 - Install `nx`, `@nx/devkit`, and `nx-fhir` as dev dependencies
 - Run the nx-fhir preset generator
 
-Existing files are preserved. If the directory already contains a HAPI FHIR JPA Starter server, it is detected and imported as an Nx project (only a `project.json` is added) instead of generating a new server. The HAPI release and FHIR version are auto-detected from `pom.xml` and `application.yaml`. You can also set this up manually:
+A directory that runs Nx through the Nx wrapper is converted. `create-nx-fhir .` moves the plugins from the `installation` block of `nx.json` into a `package.json`, installs them, and removes the wrapper files `.nx/nxw.js`, `nx`, and `nx.bat`.
+
+Other existing files are preserved. If the directory already contains a HAPI FHIR JPA Starter server, it is detected and imported as an Nx project (only a `project.json` is added) instead of generating a new server. The HAPI release and FHIR version are auto-detected from `pom.xml` and `application.yaml`. You can also set this up manually:
 
 ```sh
 bun add --dev nx @nx/devkit nx-fhir

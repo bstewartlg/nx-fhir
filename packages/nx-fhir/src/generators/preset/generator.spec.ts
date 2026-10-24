@@ -188,6 +188,26 @@ describe('preset generator', () => {
     expect(readJson(tree, 'project.json').name).toBe('fhir-app');
   });
 
+  it('keeps the project name already recorded in project.json', async () => {
+    writeRootServer(tree);
+    tree.write(
+      'project.json',
+      JSON.stringify({ name: 'server', projectType: 'application' }, null, 2),
+    );
+
+    // Scripts and CI refer to the recorded name, so the workspace name answer must not replace it.
+    await presetGenerator(tree, {
+      name: 'fhir-app',
+      server: true,
+      directory: 'fhir-app',
+      release: '8.8.0-1',
+      fhirVersion: FhirVersion.R4,
+      packageBase: 'org.test.server',
+    });
+
+    expect(readJson(tree, 'project.json').name).toBe('server');
+  });
+
   it('imports an existing server without prompting when the server option is omitted', async () => {
     writeRootServer(tree);
 

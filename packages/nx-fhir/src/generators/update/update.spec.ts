@@ -8,12 +8,8 @@ import {
   readProjectConfiguration,
   writeJson,
 } from '@nx/devkit';
-import { createRequire } from 'node:module';
 
 import { PLUGIN_VERSION } from '../../shared/constants/versions';
-
-const NX_VERSION = createRequire(import.meta.url)('../../../package.json')
-  .dependencies['@nx/devkit'];
 
 const callOrder: string[] = [];
 const updateServerGenerator = vi.hoisted(() => vi.fn());
@@ -151,63 +147,30 @@ describe('update generator', () => {
   });
 
   describe('nx.json installation versions', () => {
-    it('updates the nx version and the plugin versions', async () => {
+    it('leaves the installation block unchanged and warns', async () => {
       writeJson(tree, 'nx.json', {
         installation: {
-          version: '20.0.0',
-          plugins: { '@nx/js': '20.0.0', 'nx-fhir': '0.0.1' },
+          version: '22.1.3',
+          plugins: { '@nx/maven': '22.1.3', 'nx-fhir': '0.0.1' },
         },
       });
+      const before = tree.read('nx.json', 'utf-8');
 
       await updateGenerator(tree, {});
 
-      const nxJson = readJson(tree, 'nx.json');
-      expect(nxJson.installation.version).toBe(NX_VERSION);
-      expect(nxJson.installation.plugins['@nx/js']).toBe(NX_VERSION);
-      expect(nxJson.installation.plugins['nx-fhir']).toBe(PLUGIN_VERSION);
+      expect(tree.read('nx.json', 'utf-8')).toBe(before);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('create-nx-fhir .'),
+      );
     });
 
-    it('keeps plugins that the plugin does not own', async () => {
-      writeJson(tree, 'nx.json', {
-        installation: {
-          version: '20.0.0',
-          plugins: { '@other/plugin': '1.2.3' },
-        },
-      });
+    it('does nothing without an installation block', async () => {
+      const before = tree.read('nx.json', 'utf-8');
 
       await updateGenerator(tree, {});
 
-      expect(readJson(tree, 'nx.json').installation.plugins).toEqual({
-        '@other/plugin': '1.2.3',
-      });
-    });
-
-    it('ignores an nx.json without an installation section', async () => {
-      const before = readJson(tree, 'nx.json');
-
-      await updateGenerator(tree, {});
-
-      expect(readJson(tree, 'nx.json')).toEqual(before);
-    });
-
-    it('runs on a workspace without an nx.json', async () => {
-      tree.delete('nx.json');
-
-      await expect(updateGenerator(tree, {})).resolves.toBeUndefined();
-    });
-
-    it('writes nothing when the versions already match', async () => {
-      writeJson(tree, 'nx.json', {
-        installation: {
-          version: NX_VERSION,
-          plugins: { '@nx/js': NX_VERSION, 'nx-fhir': PLUGIN_VERSION },
-        },
-      });
-      const before = readJson(tree, 'nx.json');
-
-      await updateGenerator(tree, {});
-
-      expect(readJson(tree, 'nx.json')).toEqual(before);
+      expect(tree.read('nx.json', 'utf-8')).toBe(before);
+      expect(logger.warn).not.toHaveBeenCalled();
     });
   });
 

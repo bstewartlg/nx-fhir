@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { MockInstance } from 'vitest';
 import { createRequire } from 'node:module';
+import { basename, join, relative } from 'path';
 import {
   CURRENT_DIR_SENTINEL,
   initExistingDirectory,
@@ -29,13 +30,19 @@ vi.mock('@nx/devkit', () => ({
   },
 }));
 
-const { mockExecSync, mockExistsSync, mockWriteFileSync, mockReadFileSync } =
-  vi.hoisted(() => ({
-    mockExecSync: vi.fn(),
-    mockExistsSync: vi.fn(() => false),
-    mockWriteFileSync: vi.fn(),
-    mockReadFileSync: vi.fn(() => '{}'),
-  }));
+const {
+  mockExecSync,
+  mockExistsSync,
+  mockWriteFileSync,
+  mockReadFileSync,
+  mockRmSync,
+} = vi.hoisted(() => ({
+  mockExecSync: vi.fn(),
+  mockExistsSync: vi.fn<(filePath: string) => boolean>(() => false),
+  mockWriteFileSync: vi.fn<(filePath: string, contents: string) => void>(),
+  mockReadFileSync: vi.fn<(filePath: string) => string>(() => '{}'),
+  mockRmSync: vi.fn(),
+}));
 
 vi.mock('child_process', () => ({
   execSync: mockExecSync,
@@ -46,15 +53,21 @@ vi.mock('fs', () => ({
   existsSync: mockExistsSync,
   writeFileSync: mockWriteFileSync,
   readFileSync: mockReadFileSync,
+  rmSync: mockRmSync,
   default: {
     existsSync: mockExistsSync,
     writeFileSync: mockWriteFileSync,
     readFileSync: mockReadFileSync,
+    rmSync: mockRmSync,
   },
 }));
 
 const { version: PACKAGE_VERSION } = createRequire(import.meta.url)(
   '../package.json',
+) as { version: string };
+
+const { version: NX_VERSION } = createRequire(import.meta.url)(
+  '@nx/devkit/package.json',
 ) as { version: string };
 
 
@@ -319,6 +332,120 @@ describe('create-nx-fhir CLI utilities', () => {
   });
 
   describe('initExistingDirectory', () => {
+    // clearAllMocks keeps implementations, so a staged file set would leak
+    // into later tests and send them down the wrapper branch
+    afterEach(() => {
+      mockExistsSync.mockReset();
+      mockReadFileSync.mockReset();
+      mockWriteFileSync.mockReset();
+      mockRmSync.mockReset();
+    });
+
+    // Serves files from memory, keyed by path relative to the working
+    // directory, so a test can read back what the CLI wrote
+    function stageFiles(files: Record<string, string>): Record<string, string> {
+      const key = (filePath: string) => relative(process.cwd(), filePath);
+      mockExistsSync.mockImplementation((filePath) => key(filePath) in files);
+      mockReadFileSync.mockImplementation((filePath) => files[key(filePath)]);
+      mockWriteFileSync.mockImplementation((filePath, contents) => {
+        files[key(filePath)] = contents;
+      });
+      return files;
+    }
+
+    it('pins nx and @nx/devkit to the installed devkit version', async () => {
+      mockExistsSync.mockReturnValue(true);
+
+      await initExistingDirectory('npm', '1.2.3', {});
+
+      const installCommand: string = mockExecSync.mock.calls[0][0];
+      expect(installCommand).toContain(
+        `nx@${NX_VERSION} @nx/devkit@${NX_VERSION}`,
+      );
+      expect(installCommand.split(' ')).not.toContain('nx');
+    });
+
+    it('converts a wrapper workspace to a package.json install', async () => {
+      const files = stageFiles({
+        'nx.json': JSON.stringify({
+          installation: {
+            version: '22.1.3',
+            plugins: { '@nx/maven': '22.1.3', 'nx-fhir': '0.1.2' },
+          },
+          plugins: ['@nx/maven'],
+        }),
+        '.nx/nxw.js': '',
+        '.nx/installation': '',
+        nx: '',
+        'nx.bat': '',
+      });
+
+      await initExistingDirectory('bun', '1.2.3', { server: false });
+
+      expect(JSON.parse(files['nx.json'])).toEqual({
+        plugins: ['@nx/maven'],
+        analytics: false,
+      });
+      expect(files['package.json']).toBeDefined();
+      expect(mockExecSync.mock.calls[0][0]).toBe(
+        `bun add --dev nx@${NX_VERSION} @nx/devkit@${NX_VERSION} nx-fhir@1.2.3 @nx/maven@${NX_VERSION}`,
+      );
+      const cwd = process.cwd();
+      expect(mockRmSync.mock.calls).toEqual([
+        [join(cwd, '.nx/installation'), { recursive: true, force: true }],
+        [join(cwd, '.nx/nxw.js'), { force: true }],
+        [join(cwd, 'nx'), { force: true }],
+        [join(cwd, 'nx.bat'), { force: true }],
+      ]);
+      const nxJsonWrite = mockWriteFileSync.mock.calls.findIndex(([filePath]) =>
+        filePath.endsWith('nx.json'),
+      );
+      expect(mockExecSync.mock.invocationCallOrder[0]).toBeLessThan(
+        Math.min(
+          mockWriteFileSync.mock.invocationCallOrder[nxJsonWrite],
+          ...mockRmSync.mock.invocationCallOrder,
+        ),
+      );
+      expect(mockExecSync).toHaveBeenCalledTimes(2);
+      expect(mockExecSync).toHaveBeenLastCalledWith(
+        `npx nx g nx-fhir:preset --name=${basename(cwd)} --server=false`,
+        { stdio: 'inherit', cwd },
+      );
+    });
+
+    it('carries a plugin outside the @nx scope at its recorded version', async () => {
+      stageFiles({
+        'nx.json': JSON.stringify({
+          installation: {
+            version: '22.1.3',
+            plugins: { '@acme/tool': '1.2.3' },
+          },
+        }),
+      });
+
+      await initExistingDirectory('npm', '1.2.3', {});
+
+      const installCommand: string = mockExecSync.mock.calls[0][0];
+      expect(installCommand.split(' ')).toContain('@acme/tool@1.2.3');
+      expect(installCommand).not.toContain(`@acme/tool@${NX_VERSION}`);
+    });
+
+    it('creates package.json when nx.json has no installation block', async () => {
+      const files = stageFiles({ 'nx.json': '{"plugins": []}' });
+
+      await initExistingDirectory('npm', '1.2.3', {});
+
+      expect(JSON.parse(files['package.json'])).toMatchObject({
+        version: '0.0.0',
+        private: true,
+      });
+      expect(mockExecSync).toHaveBeenCalledTimes(2);
+      expect(mockExecSync).toHaveBeenLastCalledWith(
+        `npx nx g nx-fhir:preset --name=${basename(process.cwd())}`,
+        { stdio: 'inherit', cwd: process.cwd() },
+      );
+    });
+
     it('should create package.json when missing', async () => {
       mockExistsSync.mockReturnValue(false);
 
@@ -358,7 +485,7 @@ describe('create-nx-fhir CLI utilities', () => {
       await initExistingDirectory('npm', '1.2.3', {});
 
       expect(mockExecSync).toHaveBeenCalledWith(
-        'npm install --save-dev nx @nx/devkit nx-fhir@1.2.3',
+        `npm install --save-dev nx@${NX_VERSION} @nx/devkit@${NX_VERSION} nx-fhir@1.2.3`,
         expect.objectContaining({ stdio: 'inherit' }),
       );
     });
@@ -369,7 +496,7 @@ describe('create-nx-fhir CLI utilities', () => {
       await initExistingDirectory('bun', '1.2.3', {});
 
       expect(mockExecSync).toHaveBeenCalledWith(
-        'bun add --dev nx @nx/devkit nx-fhir@1.2.3',
+        `bun add --dev nx@${NX_VERSION} @nx/devkit@${NX_VERSION} nx-fhir@1.2.3`,
         expect.objectContaining({ stdio: 'inherit' }),
       );
     });
@@ -414,7 +541,9 @@ describe('create-nx-fhir CLI utilities', () => {
 
       await initExistingDirectory('npm', '1.0.0', {});
 
-      expect(mockExecSync.mock.calls[1][0]).toBe('npx nx g nx-fhir:preset');
+      expect(mockExecSync.mock.calls[1][0]).toBe(
+        `npx nx g nx-fhir:preset --name=${basename(process.cwd())}`,
+      );
     });
 
     it('should record the analytics preference before running the generator', async () => {
@@ -646,11 +775,11 @@ describe('create-nx-fhir CLI entrypoint', () => {
 
     expect(createWorkspace).not.toHaveBeenCalled();
     expect(mockExecSync).toHaveBeenCalledWith(
-      `bun add --dev nx @nx/devkit nx-fhir@${PACKAGE_VERSION}`,
+      `bun add --dev nx@${NX_VERSION} @nx/devkit@${NX_VERSION} nx-fhir@${PACKAGE_VERSION}`,
       expect.objectContaining({ stdio: 'inherit' }),
     );
     expect(mockExecSync).toHaveBeenCalledWith(
-      'npx nx g nx-fhir:preset --server=false --release=8.10.0-3',
+      `npx nx g nx-fhir:preset --name=${basename(process.cwd())} --server=false --release=8.10.0-3`,
       expect.objectContaining({ stdio: 'inherit' }),
     );
     expect(logger.info).toHaveBeenCalledWith(

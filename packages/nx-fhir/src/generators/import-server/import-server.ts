@@ -6,12 +6,13 @@ import {
   readJson,
   Tree,
   updateJson,
+  writeJson,
 } from '@nx/devkit';
 import * as path from 'path';
 import { input, select } from '@inquirer/prompts';
 import { ImportServerGeneratorSchema } from './schema';
 import { FhirVersion, ServerProjectConfiguration } from '../../shared/models';
-import { registerNxPlugin } from '../../shared/utils';
+import { ensureGitignoreEntries, registerNxPlugin } from '../../shared/utils';
 import { isInteractive } from '../../shared/utils/interactive';
 import {
   detectExistingServer,
@@ -41,12 +42,20 @@ function untestedReleaseWarning(release: string): string {
  * Registers an already-present HAPI FHIR JPA Starter server as an Nx project.
  *
  * This is non-destructive: it only writes project.json and registers the nx-fhir plugin.
+ * A server at the workspace root also gets entries in the shared package.json and .gitignore.
  * It never downloads a release or modifies the server's pom.xml, sources, or application.yaml.
  */
 export async function importServerGenerator(
   tree: Tree,
   options: ImportServerGeneratorSchema,
 ) {
+  // registerNxPlugin needs nx.json and runs after the success log, so the check comes first.
+  if (!tree.exists('nx.json')) {
+    throw new Error(
+      'nx.json not found. Run "nx init" first, or run create-nx-fhir in this directory.',
+    );
+  }
+
   const directory =
     options.directory && options.directory.trim() !== ''
       ? options.directory
@@ -60,14 +69,6 @@ export async function importServerGenerator(
     );
   }
 
-  const release = await resolveRelease(options.release, detected);
-  const fhirVersion = await resolveFhirVersion(
-    options.fhirVersion ?? detected.fhirVersion,
-  );
-  const packageBase = await resolvePackageBase(
-    options.packageBase ?? detected.packageBase,
-  );
-
   const root = detected.root;
   const sourceRoot = root === '.' ? 'src' : joinPathFragments(root, 'src');
 
@@ -75,6 +76,16 @@ export async function importServerGenerator(
   const existing = tree.exists(projectJsonPath)
     ? readJson(tree, projectJsonPath)
     : null;
+
+  // Detection reads the files that run the server, so it wins over a value
+  // recorded in project.json. A recorded value wins over a guessed default.
+  const release = await resolveRelease(options.release, detected);
+  const fhirVersion = await resolveFhirVersion(
+    options.fhirVersion ?? detected.fhirVersion ?? existing?.fhirVersion,
+  );
+  const packageBase = await resolvePackageBase(
+    options.packageBase ?? detected.packageBase ?? existing?.packageBase,
+  );
 
   // Prefer an explicit name, then the name already recorded in project.json, and only
   // fall back to the directory name when neither is available.
@@ -106,14 +117,15 @@ export async function importServerGenerator(
         ...(projectConfiguration.tags ?? []),
       ]),
     ];
-    tree.write(
-      projectJsonPath,
-      JSON.stringify(
-        { ...existing, ...projectConfiguration, name: projectName, tags },
-        null,
-        2,
-      ),
-    );
+    writeJson(tree, projectJsonPath, {
+      ...existing,
+      ...projectConfiguration,
+      // Nx takes the root from the location of project.json, so
+      // addProjectConfiguration does not write it either.
+      root: undefined,
+      name: projectName,
+      tags,
+    });
   } else {
     addProjectConfiguration(tree, projectName, projectConfiguration);
   }
@@ -128,13 +140,26 @@ export async function importServerGenerator(
   // This prevents looping when running something like "nx run server:serve"
   if (root === '.' && tree.exists('package.json')) {
     updateJson(tree, 'package.json', (json) => {
+      // The nx key makes Nx read this file as a project, and Nx rejects a
+      // project package.json without a name.
+      json.name ??= path.basename(tree.root);
       json.nx = { ...(json.nx ?? {}), includedScripts: [] };
       return json;
     });
   }
 
-  // Safe to format: this generator only writes plugin authored JSON
-  // (project.json, nx.json, package.json). It never touches the imported
+  // A root server shares its .gitignore with the workspace, so the importer
+  // adds the entries the preset adds for a new workspace.
+  if (root === '.') {
+    ensureGitignoreEntries(tree, '.gitignore', [
+      'node_modules',
+      '.nx/cache',
+      '.nx/workspace-data',
+    ]);
+  }
+
+  // Safe to format: this generator only writes plugin authored files
+  // (project.json, nx.json, package.json, .gitignore). It never touches the imported
   // server sources, which have to keep the formatting migrations merge against.
   await formatFiles(tree);
 }

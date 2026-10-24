@@ -111,7 +111,7 @@ The plugin auto-detects project types:
 - **Server**: Has `pom.xml` + `fhirVersion` in project.json
 - **Frontend**: Has `package.json` with `@types/fhir` or `nx-fhir-frontend` tag
 
-The `import-server` generator and the `preset` flow reuse this fingerprint via `shared/utils/server-detection.ts` to import an already-present HAPI server (writing only `project.json`). `preset` runs the detection first, so an existing server is imported without prompting. The HAPI release is identified from `pom.xml`: the hapi-fhir parent version plus the `hapi.fhir.jpa.server.starter.revision` property. Curated releases cover 8.0.0 through 8.12.0-2. 7.x and older are verified against published GitHub releases (`shared/utils/hapi-release-discovery.ts`), and `update-server` bridges them to the nearest curated release (`buildBridgeMigration` in `hapi-migration-resolver.ts`). Non-interactive runs record the release only when the pom names exactly one candidate. An ambiguous pom leaves `hapiReleaseVersion` unset until the user provides `--release`.
+The `import-server` generator and the `preset` flow reuse this fingerprint via `shared/utils/server-detection.ts` to import an already-present HAPI server, writing `project.json`, the plugin entry in `nx.json`, and for a root import the `.gitignore` entries and the `name` plus `nx.includedScripts` of the root `package.json`, never the server files. An existing `project.json` keeps its name and its recorded `packageBase` and `fhirVersion` unless detection or an explicit option names another value. `preset` runs the detection first, so an existing server is imported without prompting. The HAPI release is identified from `pom.xml`: the hapi-fhir parent version plus the `hapi.fhir.jpa.server.starter.revision` property. Curated releases cover 8.0.0 through 8.12.0-2. 7.x and older are verified against published GitHub releases (`shared/utils/hapi-release-discovery.ts`), and `update-server` bridges them to the nearest curated release (`buildBridgeMigration` in `hapi-migration-resolver.ts`). Non-interactive runs record the release only when the pom names exactly one candidate. An ambiguous pom leaves `hapiReleaseVersion` unset until the user provides `--release`.
 
 ### Migrations (`packages/nx-fhir/src/migrations/`)
 
@@ -129,6 +129,8 @@ HAPI migration resolver uses BFS graph traversal to find migration paths between
 - Also merges the server-integration files the generator wrote outside the frontend root: the combined frontend + server Dockerfile and `.dockerignore` in the frontend project's parent directory, and the SPA/CORS Java classes in the server source tree. Integration is detected from the frontend project's `copy-to-server` target (`shared/utils/frontend-integration.ts`).
 
 **Docker file ownership**: When a frontend is generated directly under the server root (typical for a server imported at the workspace root), the integration Dockerfile replaces the starter's. The frontend generator preserves the replaced files as `<name>.orig`, and `runHapiMigration` strips the integration-owned docker files from both release sides before the server merge, leaving their updates to the frontend template migration.
+
+`create-nx-fhir .` converts a workspace that runs Nx through the Nx wrapper into a `package.json` install and carries the plugins from the `installation` block. The update generator leaves an `installation` block unchanged and points to that conversion.
 
 ### Shared Code (`packages/nx-fhir/src/shared/`)
 

@@ -3,7 +3,6 @@ import {
   Tree,
   logger,
   readJson,
-  writeJson,
   getProjects,
   updateProjectConfiguration,
 } from '@nx/devkit';
@@ -12,59 +11,21 @@ import { updateFrontendGenerator } from '../update-frontend/update-frontend';
 import { PLUGIN_VERSION } from '../../shared/constants/versions';
 import { UpdateGeneratorSchema } from './schema';
 
-// Read Nx version from our peer dependency
-const NX_VERSION = require('../../../package.json').dependencies['@nx/devkit'];
-
 /**
- * Updates nx.json installation versions for non-JavaScript workspaces
+ * Warns when nx.json has an installation block, which means the workspace runs
+ * Nx through the Nx wrapper. The block is left unchanged because a version
+ * written into it either reinstalls Nx under a wrapper that cannot run that
+ * Nx or changes nothing for the plugin version that is already running.
+ * create-nx-fhir converts such a workspace to a package.json install.
  */
-function updateNxJsonInstallation(tree: Tree): boolean {
-  if (!tree.exists('nx.json')) {
-    return false;
+function warnAboutNxWrapper(tree: Tree): void {
+  if (!tree.exists('nx.json') || !readJson(tree, 'nx.json').installation) {
+    return;
   }
 
-  const nxJson = readJson(tree, 'nx.json');
-
-  // Only update if using installation-based setup (non-JS workspaces)
-  if (!nxJson.installation) {
-    return false;
-  }
-
-  let updated = false;
-
-  // Update the main nx version
-  if (nxJson.installation.version && nxJson.installation.version !== NX_VERSION) {
-    nxJson.installation.version = NX_VERSION;
-    updated = true;
-  }
-
-  // Update plugin versions in installation.plugins
-  if (nxJson.installation.plugins) {
-    const plugins = nxJson.installation.plugins;
-
-    // Update Nx plugins to match the Nx version
-    for (const pluginName of Object.keys(plugins)) {
-      if (pluginName.startsWith('@nx/') && plugins[pluginName] !== NX_VERSION) {
-        plugins[pluginName] = NX_VERSION;
-        updated = true;
-      }
-    }
-
-    // Update nx-fhir plugin
-    if (plugins['nx-fhir'] && plugins['nx-fhir'] !== PLUGIN_VERSION) {
-      plugins['nx-fhir'] = PLUGIN_VERSION;
-      updated = true;
-    }
-  }
-
-  if (updated) {
-    writeJson(tree, 'nx.json', nxJson);
-    logger.info(
-      `Updated nx.json installation versions to Nx ${NX_VERSION}, nx-fhir ${PLUGIN_VERSION}`
-    );
-  }
-
-  return updated;
+  logger.warn(
+    'This workspace runs Nx through the Nx wrapper. Run "create-nx-fhir ." to convert it to a package.json install. The nx.json installation block is left unchanged.'
+  );
 }
 
 /**
@@ -95,7 +56,7 @@ function updateProjectPluginVersions(tree: Tree): boolean {
  * Update generator for nx-fhir plugin.
  *
  * This generator:
- * 1. Updates nx.json installation versions (for non-JS workspaces)
+ * 1. Warns when the workspace runs Nx through the Nx wrapper
  * 2. Updates pluginVersion in project.json for nx-fhir managed projects
  * 3. Checks for available HAPI server updates
  *
@@ -109,13 +70,14 @@ export async function updateGenerator(
   logger.info(`Updating to nx-fhir ${PLUGIN_VERSION}`);
   logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-  // Update nx.json installation versions (for non-JS workspaces)
-  const nxJsonUpdated = updateNxJsonInstallation(tree);
+  // A version written into the wrapper's installation block can break an
+  // Nx 22 wrapper before any migration runs, so the generator only warns
+  warnAboutNxWrapper(tree);
 
   // Update pluginVersion in all nx-fhir managed projects
   const projectsUpdated = updateProjectPluginVersions(tree);
 
-  if (!nxJsonUpdated && !projectsUpdated) {
+  if (!projectsUpdated) {
     logger.info('All version references are already up to date.');
   }
 

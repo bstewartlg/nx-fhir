@@ -33,6 +33,8 @@ cd my-existing-project
 bunx create-nx-fhir@latest .
 ```
 
+A directory that runs Nx through the Nx wrapper is converted. `create-nx-fhir .` moves the plugins from the `installation` block of `nx.json` into a `package.json`, installs them, and removes the wrapper files `.nx/nxw.js`, `nx`, and `nx.bat`.
+
 See the [create-nx-fhir README](https://www.npmjs.com/package/create-nx-fhir) for details.
 
 ### Add to Existing Nx Workspace
@@ -263,6 +265,8 @@ nx migrate --run-migrations
 ```
 
 During migration, you'll be prompted to select target versions for any server or frontend projects that have updates available. The server migration uses a three-way merge to preserve your customizations while applying upstream changes.
+
+Convert a workspace that runs Nx through the Nx wrapper with `create-nx-fhir .` before you run `nx migrate`, because the Nx 22 wrapper fails with `Cannot find module './installation/node_modules/nx/bin/nx'` once a migration moves the workspace to Nx 23.
 
 ## Nx Executors
 

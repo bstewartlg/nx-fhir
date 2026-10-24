@@ -427,8 +427,11 @@ describe('create-nx-fhir e2e test', () => {
   }, 900000);
 
   it('should import a pre-existing HAPI server instead of scaffolding one', async () => {
-    // A server checkout that predates nx-fhir has no project.json, and target
-    // is Maven build output that must not be carried over
+    // The fixture is a server already registered by hand, with an nx.json
+    // that lists nx-fhir and a minimal project.json, so the import has an
+    // existing project name to lose. The project.json of the generated server
+    // is left out of the copy, and target is Maven build output that must not
+    // be carried over
     const excludedNames = new Set(['target', 'node_modules', '.git']);
     const sourceServerDir = join(workspaceDir, 'server');
     const sourceProjectJson = join(sourceServerDir, 'project.json');
@@ -439,6 +442,30 @@ describe('create-nx-fhir e2e test', () => {
       filter: (src) =>
         !excludedNames.has(basename(src)) && src !== sourceProjectJson,
     });
+    writeFileSync(
+      join(importWorkspaceDir, 'nx.json'),
+      JSON.stringify(
+        {
+          $schema: './node_modules/nx/schemas/nx-schema.json',
+          plugins: ['nx-fhir'],
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+    writeFileSync(
+      join(importWorkspaceDir, 'project.json'),
+      JSON.stringify(
+        {
+          name: 'server',
+          projectType: 'application',
+          sourceRoot: 'src',
+          tags: ['nx-fhir-server'],
+        },
+        null,
+        2,
+      ) + '\n',
+    );
 
     const pomPath = join(importWorkspaceDir, 'pom.xml');
     const yamlPath = join(
@@ -464,6 +491,8 @@ describe('create-nx-fhir e2e test', () => {
     // Nx leaves "root" out of project.json because the file location implies
     // it; sourceRoot is what shows the server was imported where it already sat
     expect(projectJson.sourceRoot).toBe('src');
+    expect(projectJson.name).toBe('server');
+    expect(projectJson.root).toBeUndefined();
     expect(projectJson.tags).toContain('nx-fhir-server');
     expect(projectJson.fhirVersion).toBe('R4');
     // Identified exactly from the pom's parent version and starter revision
