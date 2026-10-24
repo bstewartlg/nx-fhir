@@ -17,9 +17,10 @@ import { buildCleanEnv } from './utils';
 const pluginVersion = JSON.parse(
   readFileSync(join(workspaceRoot, 'packages/nx-fhir/package.json'), 'utf-8'),
 ).version;
-// create-nx-workspace releases mirror the nx releases, so the workspace is
-// created with the nx version this repository develops against. Using @latest
-// breaks the e2e when a new Nx major ships, and it poisoned the bunx cache once.
+// create-nx-workspace is pinned to the nx version this repository develops
+// against so the bunx cache holds one known build. The workspace itself gets
+// the nx version the nrwl/empty-template repository pins, which can be a
+// newer major than this one.
 const nxVersion = JSON.parse(
   readFileSync(join(workspaceRoot, 'package.json'), 'utf-8'),
 ).devDependencies.nx.replace(/^[\^~]/, '');
@@ -36,7 +37,7 @@ describe('server generator e2e test', () => {
   const options: ServerGeneratorSchema = {
     directory: 'server',
     packageBase: 'org.custom.server',
-    release: '8.10.0-3',
+    release: '8.12.0-2',
     fhirVersion: FhirVersion.R4,
   };
   // Not the HAPI default of 8080, so the test both proves the generated
@@ -195,9 +196,11 @@ describe('server generator e2e test', () => {
     // detached gives the serve command its own process group so the whole tree
     // (npx -> nx -> maven -> java) can be killed together during cleanup.
     // Killing only the top process leaves the java server holding the port.
+    // Without a TTY, nx prints only a task summary and keeps the task output
+    // in its cache, so the stream style is needed for the readiness line.
     const serverProcess = spawn(
       getExecuteCommand(packageManager),
-      ['nx', 'serve', 'server'],
+      ['nx', 'serve', 'server', '--output-style=stream'],
       {
         cwd: projectDirectory,
         env: cleanEnv,

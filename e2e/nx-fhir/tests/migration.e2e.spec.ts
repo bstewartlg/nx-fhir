@@ -39,10 +39,10 @@ const packageManager = getPackageManager();
 const cleanEnv = buildCleanEnv();
 
 // The server is generated three releases behind the target so the update
-// chains 8.8.0-1 -> 8.10.0-1 -> 8.10.0-2 -> 8.10.0-3, which is the only way to
+// chains 8.10.0-2 -> 8.10.0-3 -> 8.12.0-1 -> 8.12.0-2, which is the only way to
 // prove the resolver walks the migration graph instead of taking one hop.
-const startRelease = '8.8.0-1';
-const targetRelease = '8.10.0-3';
+const startRelease = '8.10.0-2';
+const targetRelease = '8.12.0-2';
 
 // The newest nx-fhir on npm that still ships the common/ + template/ frontend
 // file layout the migration expects. The frontend is generated with this
@@ -50,8 +50,8 @@ const targetRelease = '8.10.0-3';
 const publishedFrontendVersion = '0.2.1';
 
 // Replaces the upstream default of 8080 before the migration and is asserted
-// afterwards. server.port sits well outside every region the 8.8.0-1 to
-// 8.10.0-3 releases touch, so a correct three-way merge has no reason to drop
+// afterwards. server.port sits well outside every region the 8.10.0-2 to
+// 8.12.0-2 releases touch, so a correct three-way merge has no reason to drop
 // or conflict on it.
 const customServerPort = 8383;
 
@@ -173,13 +173,15 @@ describe('migration e2e test', () => {
 
     expect(readServerProjectJson().hapiReleaseVersion).toBe(targetRelease);
 
-    // The starter records its HAPI version as the parent POM version
+    // The starter records its HAPI version as the parent POM version, without
+    // the image revision suffix.
     const pomXml = readFileSync(
       join(projectDirectory, 'server/pom.xml'),
       'utf-8',
     );
     const parentBlock = pomXml.match(/<parent>[\s\S]*?<\/parent>/)?.[0] ?? '';
-    expect(parentBlock).toContain('<version>8.10.0</version>');
+    const targetParentVersion = targetRelease.replace(/-\d+$/, '');
+    expect(parentBlock).toContain(`<version>${targetParentVersion}</version>`);
 
     // An uncustomized upgrade path should merge without manual intervention.
     // Anything left here is a real conflict the user would have to resolve.

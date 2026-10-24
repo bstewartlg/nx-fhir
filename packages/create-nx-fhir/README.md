@@ -103,10 +103,10 @@ npx create-nx-fhir@latest my-app --server --fhirVersion=R4
 ```
 
 #### `--release <version>`
-Specific HAPI FHIR JPA Starter release version (for example `8.10.0-3`).
+Specific HAPI FHIR JPA Starter release version (for example `8.12.0-2`).
 
 ```sh
-npx create-nx-fhir@latest my-app --server --release=8.10.0-3
+npx create-nx-fhir@latest my-app --server --release=8.12.0-2
 ```
 
 ### `--verbose`

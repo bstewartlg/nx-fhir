@@ -137,7 +137,7 @@ public class FhirRouteInterceptor {
 		return knownOperations.updateAndGet(known -> known != null ? known : registeredOperations.get());
 	}
 
-	/** The agent sets url.query only when the request had one; the overwrite follows the same rule. */
+	/** The agent sets url.query only when the request had one, so the overwrite follows the same rule. */
 	private static boolean hasQueryString(RequestDetails details) {
 		return details instanceof ServletRequestDetails servlet
 				&& servlet.getServletRequest().getQueryString() != null;

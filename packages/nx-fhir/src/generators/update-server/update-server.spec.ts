@@ -455,7 +455,7 @@ describe('update-server generator', () => {
     afterEach(() => vi.restoreAllMocks());
 
     it('throws when no newer version is reachable', async () => {
-      const latestTree = createTreeWithServer('8.10.0-3');
+      const latestTree = createTreeWithServer('8.12.0-2');
 
       await expect(
         updateServerGenerator(latestTree, { project: projectName }),

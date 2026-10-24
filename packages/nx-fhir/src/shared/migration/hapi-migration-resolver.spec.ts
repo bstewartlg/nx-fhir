@@ -23,6 +23,8 @@ const FULL_CHAIN = [
   '8.10.0-1',
   '8.10.0-2',
   '8.10.0-3',
+  '8.12.0-1',
+  '8.12.0-2',
 ];
 
 describe('hapi-migration-resolver', () => {
@@ -44,14 +46,14 @@ describe('hapi-migration-resolver', () => {
       ]);
     });
 
-    it('should find full migration chain from 8.0.0 to 8.10.0-3', () => {
-      const path = buildMigrationPath('8.0.0', '8.10.0-3');
+    it('should find full migration chain from 8.0.0 to 8.12.0-2', () => {
+      const path = buildMigrationPath('8.0.0', '8.12.0-2');
 
-      expect(path).toHaveLength(13);
+      expect(path).toHaveLength(15);
       expect(path[0].from).toBe('8.0.0');
       expect(path[0].to).toBe('8.0.0-1');
-      expect(path[12].from).toBe('8.10.0-2');
-      expect(path[12].to).toBe('8.10.0-3');
+      expect(path[14].from).toBe('8.12.0-1');
+      expect(path[14].to).toBe('8.12.0-2');
     });
 
     it('should throw error when no path exists', () => {
@@ -175,19 +177,23 @@ describe('hapi-migration-resolver', () => {
     it('should find reachable versions from 8.6.0-1', () => {
       const reachable = getReachableVersions('8.6.0-1');
 
-      expect(reachable).toHaveLength(5);
+      expect(reachable).toHaveLength(7);
       expect(reachable).toContain('8.6.5-1');
       expect(reachable).toContain('8.8.0-1');
       expect(reachable).toContain('8.10.0-1');
       expect(reachable).toContain('8.10.0-2');
       expect(reachable).toContain('8.10.0-3');
+      expect(reachable).toContain('8.12.0-1');
+      expect(reachable).toContain('8.12.0-2');
     });
 
     it('should find reachable versions from 8.10.0-2', () => {
       const reachable = getReachableVersions('8.10.0-2');
 
-      expect(reachable).toHaveLength(1);
+      expect(reachable).toHaveLength(3);
       expect(reachable).toContain('8.10.0-3');
+      expect(reachable).toContain('8.12.0-1');
+      expect(reachable).toContain('8.12.0-2');
     });
 
     it('should return empty array for version with no migrations', () => {
@@ -213,6 +219,8 @@ describe('hapi-migration-resolver', () => {
         '8.10.0-1',
         '8.10.0-2',
         '8.10.0-3',
+        '8.12.0-1',
+        '8.12.0-2',
       ]);
     });
   });

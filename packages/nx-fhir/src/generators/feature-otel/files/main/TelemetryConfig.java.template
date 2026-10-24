@@ -6,7 +6,6 @@ import ca.uhn.fhir.jpa.starter.AppProperties;
 import ca.uhn.fhir.rest.server.RestfulServer;
 import ca.uhn.fhir.rest.server.RestfulServerConfiguration;
 import ca.uhn.fhir.rest.server.interceptor.LoggingInterceptor;
-import ca.uhn.fhir.rest.server.method.BaseMethodBinding;
 import ca.uhn.fhir.rest.server.method.OperationMethodBinding;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import jakarta.annotation.PostConstruct;
@@ -65,7 +64,7 @@ public class TelemetryConfig {
 	 */
 	static Set<String> registeredOperations(RestfulServer server) {
 		RestfulServerConfiguration configuration = server.createConfiguration();
-		Stream<BaseMethodBinding> bindings = Stream.concat(
+		Stream<?> bindings = Stream.concat(
 				Stream.concat(configuration.getServerBindings().stream(), configuration.getGlobalBindings().stream()),
 				configuration.getResourceBindings().stream().flatMap(resource -> resource.getMethodBindings().stream()));
 		return bindings

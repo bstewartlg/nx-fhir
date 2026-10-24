@@ -5,8 +5,8 @@ export const SUPPORTED_PACKAGE_MANAGERS = ['bun', 'npm'] as const;
 // The otel compose file and the serve executor's --otel download share this pin.
 export const OTEL_JAVAAGENT_VERSION = '2.32.0';
 
-export const DEFAULT_HAPI_VERSION = '8.10.0-3';
-export const SUPPORTED_HAPI_VERSIONS = ['8.0.0', '8.0.0-1', '8.0.0-2', '8.2.0-1', '8.2.0-2', '8.4.0-1', '8.4.0-2', '8.4.0-3', '8.6.0-1', '8.6.5-1', '8.8.0-1', '8.10.0-1', '8.10.0-2', '8.10.0-3'];
+export const DEFAULT_HAPI_VERSION = '8.12.0-2';
+export const SUPPORTED_HAPI_VERSIONS = ['8.0.0', '8.0.0-1', '8.0.0-2', '8.2.0-1', '8.2.0-2', '8.4.0-1', '8.4.0-2', '8.4.0-3', '8.6.0-1', '8.6.5-1', '8.8.0-1', '8.10.0-1', '8.10.0-2', '8.10.0-3', '8.12.0-1', '8.12.0-2'];
 
 export const HAPI_RELEASE_URLS: Record<string, string> = Object.fromEntries(
   SUPPORTED_HAPI_VERSIONS.map((release) => [release, starterImageZipUrl(release)]),
