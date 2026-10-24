@@ -28,7 +28,7 @@ bun nx run-many --nx-bail=false -t unpublish,nx-release-publish -- --registry ht
 This should publish all packages to the local registry and allow you to run the `create-nx-fhir` package from the local registry:
 
 ```sh
-bunx create-nx-fhir
+NPM_CONFIG_REGISTRY=http://localhost:4873/ bunx create-nx-fhir@0.0.0-dev
 ```
 
 To continuously build and locally republish all packages as changes are made:

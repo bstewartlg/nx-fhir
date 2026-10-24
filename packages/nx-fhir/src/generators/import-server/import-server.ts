@@ -20,6 +20,7 @@ import {
 import {
   fetchStarterImageVersions,
   matchImageVersion,
+  nearestImageVersions,
 } from '../../shared/utils/hapi-release-discovery';
 import {
   isHapiVersionSupported,
@@ -163,6 +164,9 @@ async function resolveRelease(
   // GitHub can still identify it exactly. Discovery is skipped whenever the
   // API is unreachable.
   let discovered: string | undefined;
+  // Published images that only share the pom base's major.minor: suggestions,
+  // never recorded without the user naming one.
+  let nearest: string[] = [];
   // An unreadable revision leaves the image unknown; matching on the base
   // alone would guess.
   if (
@@ -177,6 +181,12 @@ async function resolveRelease(
         detected.pomImage.base,
         detected.pomImage.revision,
       );
+      // A declared revision names one image exactly; near matches only make
+      // sense for revision-less poms, where the parent version may have been
+      // bumped past the last published image.
+      if (!discovered && !detected.pomImage.revision) {
+        nearest = nearestImageVersions(imageVersions, detected.pomImage.base);
+      }
     }
   }
 
@@ -193,6 +203,10 @@ async function resolveRelease(
               },
             ]
           : []),
+        ...nearest.map((version) => ({
+          name: `${version} (nearest published release to pom.xml's HAPI ${detected.pomImage?.base}, outside the tested set)`,
+          value: version as string | null,
+        })),
         ...[...SUPPORTED_HAPI_VERSIONS].reverse().map((v) => ({
           name: v,
           value: v as string | null,
@@ -201,13 +215,14 @@ async function resolveRelease(
       ],
       default:
         discovered ??
+        nearest[0] ??
         (candidates.length > 0 ? candidates[candidates.length - 1] : null),
     });
     if (release === null) {
       logger.warn(RELEASE_NOT_RECORDED_HELP);
       return undefined;
     }
-    if (release === discovered) {
+    if (release === discovered || nearest.includes(release)) {
       logger.warn(untestedReleaseWarning(release));
       return release;
     }
@@ -234,6 +249,14 @@ async function resolveRelease(
 
   // Recording a guess would give a later update-server run the wrong
   // three-way-merge base, so the release stays unset until the user names it.
+  if (nearest.length > 0) {
+    logger.warn(
+      `hapiReleaseVersion was not recorded: pom.xml names HAPI ${detected.pomImage?.base}, ` +
+        `which matches no published starter image. The nearest published release is ${nearest[0]}; ` +
+        `pass --release ${nearest[0]}, or set hapiReleaseVersion in project.json, to record it before running update-server.`,
+    );
+    return undefined;
+  }
   logger.warn(
     (candidates.length === 0
       ? 'The pom.xml does not correspond to a supported HAPI FHIR JPA Starter release. '

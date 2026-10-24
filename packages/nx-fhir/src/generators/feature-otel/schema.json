@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "FeatureOtel",
+  "title": "otel Feature Generator",
+  "description": "Adds OpenTelemetry route tagging and a baseline Grafana dashboard to an existing HAPI FHIR server",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Name of the Nx server project to add the feature to"
+    },
+    "serviceName": {
+      "type": "string",
+      "description": "service.name resource attribute; defaults to the project name"
+    },
+    "dashboard": {
+      "type": "boolean",
+      "description": "Write the baseline Grafana dashboard and its provisioning file under otel/grafana",
+      "default": true
+    },
+    "compose": {
+      "type": "boolean",
+      "description": "Write docker-compose.otel.yml with a local Grafana LGTM stack",
+      "default": true
+    },
+    "serve": {
+      "type": "boolean",
+      "description": "Enable nx serve --otel, which fetches and attaches the OpenTelemetry Java agent",
+      "default": true
+    }
+  }
+}

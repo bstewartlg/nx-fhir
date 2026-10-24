@@ -39,6 +39,8 @@ async function promptForRelease(releases: string[]): Promise<string> {
 
 /**
  * Selects the starter archive entries that belong in a generated project.
+ * The Dockerfile copies `server.xml` and `catalina.properties` into the
+ * Tomcat image, so both files are kept with it.
  * Everything else in the upstream repository (CI config, helm charts, docs)
  * is dropped.
  */
@@ -47,7 +49,9 @@ export function isStarterProjectFile(fileName: string): boolean {
     fileName.startsWith('src/') ||
     fileName === '.gitignore' ||
     fileName === 'Dockerfile' ||
-    fileName === 'pom.xml'
+    fileName === 'pom.xml' ||
+    fileName === 'server.xml' ||
+    fileName === 'catalina.properties'
   );
 }
 

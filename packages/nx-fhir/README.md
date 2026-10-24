@@ -9,7 +9,7 @@ An Nx plugin for building FHIR servers and frontends.
 - Scaffold TanStack Router-based React frontend SPAs with browser or clinical templates
 - Generate custom FHIR operations from OperationDefinition resources
 - Add FHIR Implementation Guides to your server
-- Add packaged server features such as scheduled `$bulk-publish` bulk data publication
+- Add packaged server features such as scheduled `$bulk-publish` bulk data publication and OpenTelemetry instrumentation
 - Keep your HAPI FHIR server and frontend up to date with newer releases via `nx migrate`
 
 ## Installation
@@ -188,6 +188,32 @@ The manifest and snapshot files are served without authentication (`requiresAcce
 The generated configuration lives under `publish:` in `application.yaml`. Additional tuning keys the generator does not write can be added there: `publish.retention`, `publish.grace-period-ms`, and `publish.export-page-size`.
 
 Requires HAPI FHIR 7.4.0 or later. The generated `BulkPublishIT` integration test runs under `mvn verify`.
+
+#### OpenTelemetry (otel)
+
+Adds OpenTelemetry route tagging and a baseline Grafana dashboard to a server:
+
+```sh
+nx g nx-fhir:feature-otel
+```
+
+The OpenTelemetry Java agent records the server's HTTP spans, metrics, and logs. The generated interceptor sets a bounded `http.route` on each request, such as `/fhir/{type}/{id}`, so the signals group by FHIR interaction and the route count does not grow with the resource types clients request. Search query strings stay out of spans and the request log unless `telemetry.capture-query-strings` is `true` in `application.yaml`. The generator also writes `OTEL.md` to the server root, which lists the generated files, the agent settings, and the run commands.
+
+**Options:**
+- `--project`: Name of the Nx server project to add the feature to
+- `--serviceName`: The `service.name` resource attribute and the Grafana dashboard uid; up to 40 letters, digits, `_` or `-` (default: the project name)
+- `--dashboard`: Write a baseline Grafana dashboard and its provisioning file under `otel/grafana/`; the dashboard shows request and operation totals, the last server start, and starts in the selected range, resource types, interactions, and operations from a bounded request counter, and the CPU and memory use of the JVM (default: `true`)
+- `--compose`: Write `docker-compose.otel.yml`, which runs the server next to a local `grafana/otel-lgtm` stack (default: `true`)
+- `--serve`: Enable `nx serve <project-name> --otel`, which runs the server with the OpenTelemetry Java agent attached (default: `true`)
+
+**Example:**
+```sh
+nx g nx-fhir:feature-otel --project=my-fhir-server --compose=false
+```
+
+`nx serve <project-name> --otel` downloads the agent with `mvn dependency:copy` and attaches it to the server. The agent sends OTLP over HTTP to `http://localhost:4318`, so run a collector there or set `OTEL_EXPORTER_OTLP_ENDPOINT`. The serve executor accepts `--otel` only on a server that has this feature installed with the `serve` option.
+
+Requires HAPI FHIR 8.0.0 or later.
 
 ### Update Server
 

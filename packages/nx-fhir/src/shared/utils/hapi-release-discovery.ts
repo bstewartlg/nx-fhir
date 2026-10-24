@@ -48,3 +48,27 @@ export function matchImageVersion(
   );
   return family.length === 1 ? family[0] : undefined;
 }
+
+/**
+ * Lists published images sharing the pom base's major.minor when none match
+ * it exactly, newest first. A pom whose HAPI parent was bumped past the last
+ * published image (7.6.1 on top of the 7.6.0 starter) matches nothing
+ * exactly; these are the starters it plausibly descends from.
+ */
+export function nearestImageVersions(
+  imageVersions: string[],
+  parentBase: string,
+): string[] {
+  const [major, minor] = parentBase.split('.');
+  const prefix = `${major}.${minor}.`;
+  const rank = (version: string) => {
+    const [base, revision] = version.split('-');
+    return Number(base.split('.')[2]) * 1000 + Number(revision ?? 0);
+  };
+  return imageVersions
+    .filter(
+      (version) =>
+        version.startsWith(prefix) && version.split('-')[0] !== parentBase,
+    )
+    .sort((a, b) => rank(b) - rank(a));
+}

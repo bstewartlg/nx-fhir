@@ -3,6 +3,7 @@ import { confirm, input } from '@inquirer/prompts';
 import * as path from 'path';
 
 import { FeatureDefinition } from '../feature/types';
+import { parseBooleanOption } from '../feature/options';
 import { ensureGitignoreEntries, updateServerYaml } from '../../shared/utils';
 import {
   detectApplicationClass,
@@ -94,21 +95,6 @@ function parseResourceTypes(value: unknown): string[] {
     entries.push(filter ? entry : type);
   }
   return entries;
-}
-
-/**
- * The feature picker forwards command line values uncoerced, so a boolean arrives as a string.
- * Only the two spellings of a boolean are accepted; anything else is a typo the user must fix.
- */
-function parseBooleanOption(name: string, value: unknown): boolean {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-  const normalized = typeof value === 'string' ? value.toLowerCase() : '';
-  if (normalized === 'true' || normalized === 'false') {
-    return normalized === 'true';
-  }
-  throw new Error(`Invalid ${name} '${value}'. Provide true or false.`);
 }
 
 export const bulkPublishFeature: FeatureDefinition = {

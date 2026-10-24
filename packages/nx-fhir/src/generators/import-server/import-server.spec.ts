@@ -1,6 +1,6 @@
 import { vi } from 'vitest';
 import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
-import { readJson, readProjectConfiguration, Tree } from '@nx/devkit';
+import { logger, readJson, readProjectConfiguration, Tree } from '@nx/devkit';
 
 const select = vi.hoisted(() => vi.fn());
 const input = vi.hoisted(() => vi.fn());
@@ -516,6 +516,32 @@ describe('import-server generator', () => {
       expect(config.hapiReleaseVersion).toBeUndefined();
     });
 
+    it('suggests the nearest published release when the pom base matches no image', async () => {
+      writeFakeServer(tree, 'patched-server', { version: '7.6.1' });
+      fetchStarterImageVersions.mockResolvedValueOnce([
+        '8.10.0-3',
+        '7.6.0',
+        '7.4.0',
+      ]);
+      const warn = vi.spyOn(logger, 'warn');
+
+      await asNonInteractive(() =>
+        importServerGenerator(tree, {
+          directory: 'patched-server',
+          name: 'patched-server',
+        }),
+      );
+
+      const config = readProjectConfiguration(
+        tree,
+        'patched-server',
+      ) as ServerProjectConfiguration;
+      expect(config.hapiReleaseVersion).toBeUndefined();
+      const message = warn.mock.calls.map((c) => c[0]).join('\n');
+      expect(message).toContain('7.6.1');
+      expect(message).toContain('--release 7.6.0');
+    });
+
     it('accepts a provided release outside the tested set when it is published', async () => {
       writeFakeServer(tree, 'pinned-server', { version: '7.6.0' });
       fetchStarterImageVersions.mockResolvedValueOnce(['7.6.0']);
@@ -692,6 +718,34 @@ describe('import-server generator', () => {
         'revisioned-server',
       ) as ServerProjectConfiguration;
       expect(config.hapiReleaseVersion).toBe('8.10.0-3');
+    });
+
+    it('offers the nearest published release as the default prompt choice', async () => {
+      writeFakeServer(tree, 'patched-server', { version: '7.6.1' });
+      fetchStarterImageVersions.mockResolvedValueOnce([
+        '8.10.0-3',
+        '7.6.0',
+        '7.4.0',
+      ]);
+      select.mockResolvedValueOnce('7.6.0');
+
+      await asInteractive(() =>
+        importServerGenerator(tree, {
+          directory: 'patched-server',
+          name: 'patched-server',
+        }),
+      );
+
+      const releasePrompt = select.mock.calls[0][0];
+      expect(releasePrompt.default).toBe('7.6.0');
+      expect(releasePrompt.choices[0].name).toContain('nearest published');
+      expect(releasePrompt.choices[0].name).toContain('7.6.1');
+
+      const config = readProjectConfiguration(
+        tree,
+        'patched-server',
+      ) as ServerProjectConfiguration;
+      expect(config.hapiReleaseVersion).toBe('7.6.0');
     });
   });
 });

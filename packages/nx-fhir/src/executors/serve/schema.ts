@@ -4,4 +4,5 @@ export interface ServeExecutorSchema {
   open?: boolean;
   profile?: string;
   debug?: boolean;
+  otel?: boolean;
 }

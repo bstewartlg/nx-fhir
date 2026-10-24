@@ -27,6 +27,11 @@
       "type": "boolean",
       "description": "Enable debug mode",
       "default": false
+    },
+    "otel": {
+      "type": "boolean",
+      "description": "Attach the OpenTelemetry Java agent to the server JVM (server only; needs the otel feature)",
+      "default": false
     }
   }
 }

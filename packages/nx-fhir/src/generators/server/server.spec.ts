@@ -34,6 +34,8 @@ describe('isStarterProjectFile', () => {
     expect(isStarterProjectFile('pom.xml')).toBe(true);
     expect(isStarterProjectFile('Dockerfile')).toBe(true);
     expect(isStarterProjectFile('.gitignore')).toBe(true);
+    expect(isStarterProjectFile('server.xml')).toBe(true);
+    expect(isStarterProjectFile('catalina.properties')).toBe(true);
   });
 
   it('drops repository files that do not belong in a project', () => {
@@ -43,6 +45,8 @@ describe('isStarterProjectFile', () => {
     expect(isStarterProjectFile('.github/workflows/build.yml')).toBe(false);
     expect(isStarterProjectFile('README.md')).toBe(false);
     expect(isStarterProjectFile('server/pom.xml')).toBe(false);
+    expect(isStarterProjectFile('charts/server.xml')).toBe(false);
+    expect(isStarterProjectFile('conf/catalina.properties')).toBe(false);
   });
 });
 
