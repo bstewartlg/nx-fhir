@@ -33,6 +33,9 @@ import ca.uhn.fhir.rest.annotation.Operation;
 <%_ if (operation.inputParameters && operation.inputParameters.length > 0) { -%>
 import ca.uhn.fhir.rest.annotation.OperationParam;
 <% } -%>
+<%_ if (baseTakesServer) { -%>
+import ca.uhn.fhir.rest.server.RestfulServer;
+<%_ } -%>
 import ca.uhn.fhir.rest.server.exceptions.NotImplementedOperationException;
 <%_ if (manualResponse) { -%>
 import jakarta.servlet.http.HttpServletResponse;
@@ -52,6 +55,13 @@ import <%= packageBase %>.common.BaseProvider;
 
 @Component
 public class <%= operation.className %> extends BaseProvider {
+<%_ if (baseTakesServer) { -%>
+
+  public <%= operation.className %>(RestfulServer restfulServer) {
+    super(restfulServer);
+  }
+
+<%_ } -%>
   <%_ 
     for (const operationType of operationsToGenerate) {
   -%>

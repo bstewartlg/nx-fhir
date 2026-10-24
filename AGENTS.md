@@ -156,6 +156,10 @@ generators/{name}/
   └── files/             # EJS template files (.template extension)
 ```
 
+### Generated Java Beans
+
+Generated Spring beans take their dependencies through a single constructor, with no `@Autowired` fields. `BaseProvider` and `BaseInterceptor` take the `RestfulServer` in a protected constructor, and the `operation`, `bulk-publish`, and `ig` generators emit the subclass constructor only when `baseClassTakesServer` in `shared/utils/server-wiring.ts` finds that constructor in the server's base class.
+
 ### Three-Way Merge for Migrations
 
 Server migrations use `migrateWithThreeWayMerge()` from `shared/utils/merge.ts`:

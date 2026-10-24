@@ -108,7 +108,7 @@ function readCustomBeanPackages(tree: Tree, projectRoot: string): string[] {
 /**
  * Creates the shared base classes and the CustomServerConfig component scan
  * for a server that is missing any of them. Servers created by the server
- * generator ship with all of them; a server added by import-server has only a
+ * generator ship with all of them. A server added by import-server has only a
  * project.json, and generated components need this wiring to compile and be
  * picked up by Spring. Files that already exist are never modified.
  */
@@ -157,4 +157,36 @@ export function ensureServerWiring(
     substitutions,
     { overwriteStrategy: OverwriteStrategy.KeepExisting },
   );
+}
+
+/**
+ * True when the server's base class takes the RestfulServer through a one-argument constructor,
+ * so a subclass must declare a constructor that passes the server up. A base class with no such
+ * constructor, for example one that injects the server into a field, compiles its subclasses only
+ * without one. A missing base class counts as taking the server because ensureServerWiring writes
+ * a base class that does.
+ */
+export function baseClassTakesServer(
+  tree: Tree,
+  project: { root: string; packageBase?: string },
+  className: 'BaseProvider' | 'BaseInterceptor',
+): boolean {
+  const source = tree.read(
+    path.join(
+      project.root,
+      'src',
+      'main',
+      'java',
+      (project.packageBase ?? '').replace(/\./g, '/'),
+      'common',
+      `${className}.java`,
+    ),
+    'utf-8',
+  );
+  if (source === null) {
+    return true;
+  }
+  return new RegExp(
+    `\\b${className}\\s*\\(\\s*(?:final\\s+)?RestfulServer\\s+\\w+\\s*\\)`,
+  ).test(source);
 }

@@ -6,6 +6,7 @@ import { FeatureDefinition } from '../feature/types';
 import { parseBooleanOption } from '../feature/options';
 import { ensureGitignoreEntries, updateServerYaml } from '../../shared/utils';
 import {
+  baseClassTakesServer,
   detectApplicationClass,
   ensureServerWiring,
   listTemplateOutputs,
@@ -47,7 +48,7 @@ function parseResourceTypes(value: unknown): string[] {
         .split(',')
         .map((type) => type.trim())
         .filter((type) => type.length > 0);
-  // Exact duplicates collapse; two entries that differ only by their filter collide on the
+  // Exact duplicates collapse. Two entries that differ only by their filter collide on the
   // published file name and are rejected below.
   const entries: string[] = [];
   const seenTypes = new Set<string>();
@@ -239,6 +240,7 @@ export const bulkPublishFeature: FeatureDefinition = {
       root: project.root,
       packageBase: project.packageBase,
     });
+    const baseTakesServer = baseClassTakesServer(tree, project, 'BaseProvider');
 
     const mainTarget = path.join(project.root, 'src', 'main', 'java', packagePath);
     const testTarget = path.join(project.root, 'src', 'test', 'java', packagePath);
@@ -270,13 +272,13 @@ export const bulkPublishFeature: FeatureDefinition = {
       }
     }
 
-    // The pre-check above reports every collision at once; the strategy is the backstop for a
+    // The pre-check above reports every collision at once. The strategy is the backstop for a
     // path it fails to predict.
     generateFiles(
       tree,
       path.join(__dirname, 'files', 'main'),
       mainTarget,
-      substitutions,
+      { ...substitutions, baseTakesServer },
       { overwriteStrategy: OverwriteStrategy.ThrowIfExisting },
     );
 

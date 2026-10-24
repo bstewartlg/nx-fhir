@@ -19,6 +19,20 @@ const isInteractive = vi.hoisted(() => vi.fn(() => false));
 vi.mock('../../shared/utils/interactive', () => ({ isInteractive }));
 
 const javaRoot = 'test-project/src/main/java/com/example';
+
+const fieldInjectedBase = (packageBase: string, className: string) => [
+  `package ${packageBase}.common;`,
+  '',
+  'import org.springframework.beans.factory.annotation.Autowired;',
+  'import ca.uhn.fhir.rest.server.RestfulServer;',
+  '',
+  `public abstract class ${className} {`,
+  '  @Autowired',
+  '  protected RestfulServer restfulServer;',
+  '}',
+  '',
+].join('\n');
+
 const javaTestRoot = 'test-project/src/test/java/com/example';
 const yamlPath = 'test-project/src/main/resources/application.yaml';
 
@@ -527,6 +541,32 @@ describe('bulk-publish feature', () => {
           'utf-8',
         ),
       ).toContain('@ComponentScan(basePackages = {"com.example"})');
+    });
+
+    it('passes the server to the base constructor the wiring writes', async () => {
+      await bulkPublishFeature.apply(tree, serverProject(tree), {
+        ...resolvedOptions,
+      });
+
+      const provider = tree.read(`${javaRoot}/providers/BulkPublishProvider.java`, 'utf-8');
+      expect(provider).toContain('import ca.uhn.fhir.rest.server.RestfulServer;');
+      expect(provider).toContain('\t\t\tRestfulServer restfulServer,\n\t\t\tPublishService publishService,');
+      expect(provider).toContain('\t\tsuper(restfulServer);\n\t\tthis.publishService = publishService;');
+    });
+
+    it('declares no server parameter when the base class injects it into a field', async () => {
+      tree.write(
+        `${javaRoot}/common/BaseProvider.java`,
+        fieldInjectedBase('com.example', 'BaseProvider'),
+      );
+
+      await bulkPublishFeature.apply(tree, serverProject(tree), {
+        ...resolvedOptions,
+      });
+
+      const provider = tree.read(`${javaRoot}/providers/BulkPublishProvider.java`, 'utf-8');
+      expect(provider).not.toContain('RestfulServer');
+      expect(provider).toContain('\tpublic BulkPublishProvider(\n\t\t\tPublishService publishService,');
     });
 
     it('keeps publish settings the server already had', async () => {

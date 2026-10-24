@@ -9,6 +9,7 @@ import * as path from 'path';
 import { ImplementationGuideGeneratorSchema } from './schema';
 import { ImplementationGuideHapiConfig, ImplementationGuidePackage, ServerProjectConfiguration } from '../../shared/models';
 import { promptForServerProject, updateServerYaml } from '../../shared/utils';
+import { baseClassTakesServer } from '../../shared/utils/server-wiring';
 import operationGenerator from '../operation/operation';
 import { getOperationId } from '../operation/lib';
 import { readFileSync } from 'fs';
@@ -221,7 +222,7 @@ export async function implementationGuideGenerator(
       // Call operations generator if we have operations to add
       logger.info(`Generating operations from package`);
 
-      // OperationDefinition.id is optional; the shared fallback keeps
+      // OperationDefinition.id is optional. The shared fallback keeps
       // id-less operations distinct.
       const answer = await checkbox({
         message: 'Select operations to generate:',
@@ -311,6 +312,10 @@ export async function implementationGuideGenerator(
           packageBase: serverProjectConfig.packageBase,
           modelPackageVersion: serverProjectConfig.fhirVersion ? serverProjectConfig.fhirVersion.toLowerCase() : 'r4',
           capabilityStatementFileName,
+          baseTakesServer: baseClassTakesServer(tree, {
+            root: serverProjectConfig.root,
+            packageBase: serverProjectConfig.packageBase,
+          }, 'BaseInterceptor'),
         }
       );
     }

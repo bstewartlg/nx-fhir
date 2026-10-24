@@ -3,6 +3,9 @@ package <%= packageBase %>.providers;
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.rest.annotation.Operation;
 import ca.uhn.fhir.rest.api.Constants;
+<%_ if (baseTakesServer) { -%>
+import ca.uhn.fhir.rest.server.RestfulServer;
+<%_ } -%>
 import ca.uhn.fhir.util.OperationOutcomeUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -34,10 +37,16 @@ public class BulkPublishProvider extends BaseProvider {
 	private final ObjectMapper objectMapper;
 
 	public BulkPublishProvider(
+<%_ if (baseTakesServer) { -%>
+			RestfulServer restfulServer,
+<%_ } -%>
 			PublishService publishService,
 			PublishProperties publishProps,
 			FhirContext fhirContext,
 			ObjectMapper objectMapper) {
+<%_ if (baseTakesServer) { -%>
+		super(restfulServer);
+<%_ } -%>
 		this.publishService = publishService;
 		this.publishProps = publishProps;
 		this.fhirContext = fhirContext;

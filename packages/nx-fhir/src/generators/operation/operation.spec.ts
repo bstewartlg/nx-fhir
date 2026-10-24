@@ -65,6 +65,19 @@ const patientEverything = {
 const providerPath =
   'test-project/src/main/java/com/example/providers/PatientEverythingProvider.java';
 
+const fieldInjectedBase = (packageBase: string, className: string) => [
+  `package ${packageBase}.common;`,
+  '',
+  'import org.springframework.beans.factory.annotation.Autowired;',
+  'import ca.uhn.fhir.rest.server.RestfulServer;',
+  '',
+  `public abstract class ${className} {`,
+  '  @Autowired',
+  '  protected RestfulServer restfulServer;',
+  '}',
+  '',
+].join('\n');
+
 function createServerTree(): Tree {
   const tree = createTreeWithEmptyWorkspace();
   tree.write('test-project/src/main/java/.gitkeep', '');
@@ -533,6 +546,28 @@ describe('operation generator server wiring', () => {
     expect(tree.read(customConfigPath, 'utf-8')).toContain(
       '@ComponentScan(basePackages = {"com.example"})',
     );
+  });
+
+  it('passes the server to the base constructor when the base class takes one', async () => {
+    const tree = createServerTree();
+
+    await operationGenerator(tree, wiringOptions);
+
+    const content = tree.read(providerPath, 'utf-8');
+    expect(content).toContain('import ca.uhn.fhir.rest.server.RestfulServer;');
+    expect(content).toContain('public PatientEverythingProvider(RestfulServer restfulServer) {');
+    expect(content).toContain('super(restfulServer);');
+  });
+
+  it('declares no constructor when the base class injects the server into a field', async () => {
+    const tree = createServerTree();
+    tree.write(baseProviderPath, fieldInjectedBase('com.example', 'BaseProvider'));
+
+    await operationGenerator(tree, wiringOptions);
+
+    const content = tree.read(providerPath, 'utf-8');
+    expect(content).not.toContain('RestfulServer');
+    expect(content).toContain('public class PatientEverythingProvider extends BaseProvider {');
   });
 
   it('creates only the missing wiring files and preserves the rest', async () => {

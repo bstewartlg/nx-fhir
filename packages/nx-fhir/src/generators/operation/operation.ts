@@ -12,7 +12,7 @@ import { ServerProjectConfiguration } from '../../shared/models';
 import { getEmptyHapiOperation, getHapiOperation } from './lib';
 import { OperationDefinition } from 'fhir/r5';
 import { promptForServerProject } from '../../shared/utils';
-import { ensureServerWiring } from '../../shared/utils/server-wiring';
+import { baseClassTakesServer, ensureServerWiring } from '../../shared/utils/server-wiring';
 
 
 /**
@@ -192,6 +192,10 @@ export async function operationGenerator(
       packageBase: serverProjectConfig.packageBase,
       operation: hapiOperation,
       operationClassName: hapiOperation.className,
+      baseTakesServer: baseClassTakesServer(tree, {
+        root: serverProjectConfig.root,
+        packageBase: serverProjectConfig.packageBase,
+      }, 'BaseProvider'),
     }
   );
 

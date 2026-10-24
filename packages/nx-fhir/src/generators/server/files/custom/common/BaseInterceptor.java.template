@@ -1,17 +1,20 @@
 package <%= packageBase %>.common;
 
-import org.springframework.beans.factory.annotation.Autowired;
-
 import ca.uhn.fhir.rest.server.RestfulServer;
 import jakarta.annotation.PostConstruct;
 
 /**
- * Base class for FHIR interceptors to handle autowiring the RestfulServer and registering the interceptor.
+ * Base class for FHIR interceptors. A subclass passes the RestfulServer to this constructor and is
+ * registered on it after construction.
  * 
  * Example usage:
  * <pre>
  * {@code @Component }
  * public class MyInterceptor extends BaseInterceptor {
+ *   public MyInterceptor(RestfulServer restfulServer) {
+ *     super(restfulServer);
+ *   }
+ *
  *   {@code @Hook(Pointcut.STORAGE_PRESTORAGE_RESOURCE_UPDATED)}
  *   public void update(IBaseResource theOldResource, IBaseResource theResource) {
  *     // Custom logic here
@@ -21,12 +24,15 @@ import jakarta.annotation.PostConstruct;
  */
 public abstract class BaseInterceptor {
 
-  @Autowired
-  protected RestfulServer restfulServer;
+  protected final RestfulServer restfulServer;
+
+  protected BaseInterceptor(RestfulServer restfulServer) {
+    this.restfulServer = restfulServer;
+  }
 
   @PostConstruct
   public void registerInterceptor() {
     restfulServer.registerInterceptor(this);
   }
-  
+
 }

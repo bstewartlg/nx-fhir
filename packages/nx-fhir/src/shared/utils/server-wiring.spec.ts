@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'path';
 
 import {
+  baseClassTakesServer,
   detectApplicationClass,
   ensureServerWiring,
   listTemplateOutputs,
@@ -152,5 +153,43 @@ describe('ensureServerWiring', () => {
     ensureServerWiring(tree, { root: 'test-project', packageBase: 'com.acme' });
 
     expect(tree.read(existing, 'utf-8')).toBe('hand written');
+  });
+});
+
+describe('baseClassTakesServer', () => {
+  const project = { root: 'test-project', packageBase: 'com.acme' };
+
+  it('is true for the base classes ensureServerWiring writes', () => {
+    const tree = createServerTree('ca.uhn.fhir.jpa.starter');
+    ensureServerWiring(tree, project);
+
+    expect(baseClassTakesServer(tree, project, 'BaseProvider')).toBe(true);
+    expect(baseClassTakesServer(tree, project, 'BaseInterceptor')).toBe(true);
+  });
+
+  it('is true when the base class is missing, because ensureServerWiring writes one that takes the server', () => {
+    expect(baseClassTakesServer(createServerTree(), project, 'BaseProvider')).toBe(true);
+    expect(baseClassTakesServer(createServerTree(), { root: 'test-project' }, 'BaseProvider')).toBe(true);
+  });
+
+  it('is false for a base class that injects the server into a field', () => {
+    const tree = createServerTree();
+    tree.write(
+      'test-project/src/main/java/com/acme/common/BaseInterceptor.java',
+      [
+        'package com.acme.common;',
+        '',
+        'import org.springframework.beans.factory.annotation.Autowired;',
+        'import ca.uhn.fhir.rest.server.RestfulServer;',
+        '',
+        'public abstract class BaseInterceptor {',
+        '  @Autowired',
+        '  protected RestfulServer restfulServer;',
+        '}',
+        '',
+      ].join('\n'),
+    );
+
+    expect(baseClassTakesServer(tree, project, 'BaseInterceptor')).toBe(false);
   });
 });

@@ -24,6 +24,20 @@ const projectRoot = 'test-project';
 const yamlPath = `${projectRoot}/src/main/resources/application.yaml`;
 const javaRoot = `${projectRoot}/src/main/java`;
 
+const fieldInjectedBase = (packageBase: string, className: string) => [
+  `package ${packageBase}.common;`,
+  '',
+  'import org.springframework.beans.factory.annotation.Autowired;',
+  'import ca.uhn.fhir.rest.server.RestfulServer;',
+  '',
+  `public abstract class ${className} {`,
+  '  @Autowired',
+  '  protected RestfulServer restfulServer;',
+  '}',
+  '',
+].join('\n');
+
+
 const IG_ID = 'example.fhir.testig';
 const IG_KEY = 'examplefhirtestig';
 const IG_VERSION = '2.1.0';
@@ -497,6 +511,25 @@ describe('implementation-guide generator', () => {
       const interceptor = tree.read(interceptorPath, 'utf-8') || '';
       expect(interceptor).toContain('String fileName = "CapabilityStatement-primary-cs.json";');
       expect(interceptor).toContain('import org.hl7.fhir.r4.model.CapabilityStatement;');
+      expect(interceptor).toContain('import ca.uhn.fhir.rest.server.RestfulServer;');
+      expect(interceptor).toContain('public CapabilityStatementCustomizer(RestfulServer restfulServer) {');
+      expect(interceptor).toContain('super(restfulServer);');
+    });
+
+    it('declares no constructor when BaseInterceptor injects the server into a field', async () => {
+      tree.write(
+        `${javaRoot}/com/example/common/BaseInterceptor.java`,
+        fieldInjectedBase('com.example', 'BaseInterceptor'),
+      );
+
+      await implementationGuideGenerator(
+        tree,
+        baseOptions({ package: fullPackage, validate: true, skipCs: false }),
+      );
+
+      const interceptor = tree.read(interceptorPath, 'utf-8') || '';
+      expect(interceptor).not.toContain('RestfulServer');
+      expect(interceptor).toContain('public class CapabilityStatementCustomizer extends BaseInterceptor {');
     });
 
     it('asks which CapabilityStatement to use when the package holds several', async () => {

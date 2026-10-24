@@ -13,7 +13,6 @@ import java.lang.management.ManagementFactory;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -26,17 +25,21 @@ import org.springframework.stereotype.Component;
 @Component
 public class TelemetryConfig {
 
-	@Autowired
-	private RestfulServer restfulServer;
+	private final RestfulServer restfulServer;
+	private final LoggingInterceptor loggingInterceptor;
+	private final AppProperties appProperties;
+	private final TelemetryProperties telemetryProperties;
 
-	@Autowired
-	private LoggingInterceptor loggingInterceptor;
-
-	@Autowired
-	private AppProperties appProperties;
-
-	@Autowired
-	private TelemetryProperties telemetryProperties;
+	public TelemetryConfig(
+			RestfulServer restfulServer,
+			LoggingInterceptor loggingInterceptor,
+			AppProperties appProperties,
+			TelemetryProperties telemetryProperties) {
+		this.restfulServer = restfulServer;
+		this.loggingInterceptor = loggingInterceptor;
+		this.appProperties = appProperties;
+		this.telemetryProperties = telemetryProperties;
+	}
 
 	@PostConstruct
 	public void register() {
