@@ -22,9 +22,13 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Bun
+        # Nx 23.3 runs "bun publish --json" when it detects bun, and bun 1.4.4
+        # rejects that flag. 1.4.3 accepts it, fails on authentication, and Nx
+        # then falls back to npm publish, which carries the OIDC trusted
+        # publishing flow. 1.4.3 reads the committed bun.lock without changes.
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.3
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
