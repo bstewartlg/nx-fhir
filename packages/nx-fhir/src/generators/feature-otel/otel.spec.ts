@@ -241,6 +241,21 @@ describe('otel feature', () => {
       expect(tree.read(`${javaTestRoot}/telemetry/FhirRouteInterceptorTest.java`, 'utf-8')).toContain(
         '"/fhir/{type}/{operation}"',
       );
+    });
+
+    it('counts a request as unhandled only when HAPI rejected it before binding a handler', async () => {
+      await otelFeature.apply(tree, serverProject(tree), resolvedOptions);
+
+      // HAPI's OpenApiInterceptor answers swagger-ui and api-docs before a handler is bound, so a
+      // missing operation type alone cannot mean unhandled. The exception hook marks the rejections.
+      const interceptor = tree.read(`${javaRoot}/telemetry/FhirRouteInterceptor.java`, 'utf-8');
+      expect(interceptor).toContain('@Hook(value = Pointcut.SERVER_HANDLE_EXCEPTION, order = Integer.MIN_VALUE)');
+      expect(interceptor).toContain('return isRejected(details) ? "unhandled" : OTHER;');
+      expect(interceptor).toContain('return isRejected(details) ? UNHANDLED : OTHER_ROUTE;');
+      expect(interceptor).toContain('details.getRestOperationType() != null && resourceType != null');
+      const test = tree.read(`${javaTestRoot}/telemetry/FhirRouteInterceptorTest.java`, 'utf-8');
+      expect(test).toContain('void rejectionBeforeHandlerCountsAsUnhandled()');
+      expect(test).toContain('void answeredBeforeHandlerCountsAsOther()');
       expect(tree.read(docPath, 'utf-8')).toContain('| `/fhir/{type}/{id}` | Read, update, patch, and delete |');
     });
 
@@ -422,9 +437,9 @@ describe('otel feature', () => {
         ['panel-23', 'Average requests per minute, selected range', '$__range', true, []],
         ['panel-4', 'Top requests (requests in range)', '$__range', true, []],
         // The missing-label case passes a negative regex, so the Summary interaction count keeps
-        // the fhir_interaction!="" matcher in front of the one that drops operations and
-        // unhandled requests.
-        ['panel-24', 'Resource interactions, selected range', '$__range', true, ['fhir_interaction!~"operation|unhandled"']],
+        // the fhir_interaction!="" matcher in front of the one that drops operations, rejected
+        // requests, and requests an interceptor answered without a resource type.
+        ['panel-24', 'Resource interactions, selected range', '$__range', true, ['fhir_interaction!~"operation|unhandled|other"']],
         ['panel-25', 'Operation invocations, selected range', '$__range', true, ['fhir_operation!=""']],
       ] as const) {
         const panel = dashboard.spec.elements[id].spec;
@@ -511,8 +526,8 @@ describe('otel feature', () => {
         'count(min_over_time(fhir_server_start_time_seconds{service_name=~"$service"}[$__range]) >= time() - $__range_s) or vector(0)',
       );
       expect(dashboard.spec.elements['panel-27'].spec.title).toBe('Server starts, selected range');
-      // The counter records an unknown path only as the unhandled interaction. The breakdown comes
-      // from the url.path of spans with the /fhir/unhandled route. Tempo quotes label values and
+      // The counter records a path HAPI rejected only as the unhandled interaction. The breakdown
+      // comes from the url.path of spans with the /fhir/unhandled route. Tempo quotes label values and
       // has no sort stage, so the panel renames, reduces series to rows, sorts, and turns the rows
       // back into fields for the bar gauge.
       const tracePaths = dashboard.spec.elements['panel-6'].spec;
