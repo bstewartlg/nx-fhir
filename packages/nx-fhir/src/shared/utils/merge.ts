@@ -406,8 +406,23 @@ export async function migrateWithThreeWayMerge(
 
     // File is new in the new version
     if (!existsInOld && existsInNew) {
-      logger.info(`✨ Adding new file: ${relativePath}`);
       const newContent = readFileSync(newFilePath);
+
+      // With no base version there is nothing to merge against, so a file the
+      // project already has at this path stays as the project wrote it.
+      if (existsInCurrent) {
+        if (!tree.read(currentFilePath)?.equals(newContent)) {
+          logger.warn(
+            `⚠️  File added in ${newVersion} but you already have one: ${relativePath}`
+          );
+          logger.warn('    Keeping your version.');
+        }
+        results.push({ path: relativePath, status: 'unchanged' });
+        unchangedCount++;
+        continue;
+      }
+
+      logger.info(`✨ Adding new file: ${relativePath}`);
       tree.write(currentFilePath, newContent);
       results.push({ path: relativePath, status: 'added' });
       addedCount++;
@@ -418,9 +433,22 @@ export async function migrateWithThreeWayMerge(
     if (existsInOld && existsInNew) {
       const oldBuffer = readFileSync(oldFilePath);
       const newBuffer = readFileSync(newFilePath);
-      const currentBuffer = existsInCurrent
-        ? tree.read(currentFilePath) ?? oldBuffer
-        : oldBuffer;
+
+      // A file the project deleted stays deleted. The merge reports the
+      // upstream edit and writes nothing.
+      if (!existsInCurrent) {
+        if (!oldBuffer.equals(newBuffer)) {
+          logger.warn(
+            `⚠️  File changed in ${newVersion} but you deleted it: ${relativePath}`
+          );
+          logger.warn('    Keeping it deleted. Copy the upstream file manually if you want it back.');
+        }
+        results.push({ path: relativePath, status: 'unchanged' });
+        unchangedCount++;
+        continue;
+      }
+
+      const currentBuffer = tree.read(currentFilePath) ?? oldBuffer;
 
       // Byte-identical sides need no merge and no write, so an unchanged
       // file, text or binary, is never re-encoded or rewritten.

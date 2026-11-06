@@ -3,29 +3,38 @@ import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
 import {
   Tree,
   addProjectConfiguration,
+  joinPathFragments,
   logger,
   readJson,
   readProjectConfiguration,
   writeJson,
 } from '@nx/devkit';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
-import { PLUGIN_VERSION } from '../../shared/constants/versions';
+import { PLUGIN_VERSION, starterImageZipUrl } from '../../shared/constants/versions';
+import { ServerProjectConfiguration } from '../../shared/models';
+import {
+  DockerFragments,
+  insertFrontendLines,
+  legacyDockerWarning,
+} from '../../shared/utils/docker-splice';
 
 const callOrder: string[] = [];
-const updateServerGenerator = vi.hoisted(() => vi.fn());
+const runServerUpdate = vi.hoisted(() => vi.fn());
 const updateFrontendGenerator = vi.hoisted(() => vi.fn());
 const isInteractive = vi.hoisted(() => vi.fn(() => false));
 const select = vi.hoisted(() => vi.fn());
 const confirm = vi.hoisted(() => vi.fn());
 
-vi.mock('../update-server/update-server', () => ({ updateServerGenerator }));
+vi.mock('../update-server/update-server', () => ({ runServerUpdate }));
 vi.mock('../update-frontend/update-frontend', () => ({
   updateFrontendGenerator,
 }));
 vi.mock('../../shared/utils/interactive', () => ({ isInteractive }));
 vi.mock('@inquirer/prompts', () => ({ select, confirm }));
 
-import { updateGenerator } from './update';
+import { runUpdate, updateGenerator } from './update';
 
 const NO_SERVERS = 'No FHIR server projects found in the workspace';
 const NO_FRONTENDS = 'No FHIR frontend projects found in the workspace';
@@ -48,7 +57,7 @@ describe('update generator', () => {
     vi.clearAllMocks();
     callOrder.length = 0;
     isInteractive.mockReturnValue(false);
-    updateServerGenerator.mockImplementation(async () => {
+    runServerUpdate.mockImplementation(async () => {
       callOrder.push('server');
     });
     updateFrontendGenerator.mockImplementation(async () => {
@@ -66,7 +75,7 @@ describe('update generator', () => {
 
   describe('empty workspace', () => {
     beforeEach(() => {
-      updateServerGenerator.mockRejectedValue(new Error(NO_SERVERS));
+      runServerUpdate.mockRejectedValue(new Error(NO_SERVERS));
       updateFrontendGenerator.mockRejectedValue(new Error(NO_FRONTENDS));
     });
 
@@ -95,21 +104,33 @@ describe('update generator', () => {
       await updateGenerator(tree, {});
 
       expect(callOrder).toEqual(['server', 'frontend']);
-      expect(updateServerGenerator).toHaveBeenCalledTimes(1);
+      expect(runServerUpdate).toHaveBeenCalledTimes(1);
       expect(updateFrontendGenerator).toHaveBeenCalledTimes(1);
     });
 
-    it('returns the server outcome callback', async () => {
-      const outcome = vi.fn();
-      updateServerGenerator.mockResolvedValue(outcome);
+    it('returns a callback that logs the server outcome at each line level', async () => {
+      runServerUpdate.mockResolvedValue([
+        { level: 'warn', text: 'paused with conflicts' },
+        { level: 'info', text: 'updated' },
+      ]);
 
-      await expect(updateGenerator(tree, {})).resolves.toBe(outcome);
+      const callback = await updateGenerator(tree, {});
+      vi.mocked(logger.info).mockClear();
+      vi.mocked(logger.warn).mockClear();
+      await callback?.();
+
+      expect(logger.warn).toHaveBeenCalledWith('paused with conflicts');
+      expect(logger.info).toHaveBeenCalledWith('updated');
+    });
+
+    it('returns no callback when the server update has no outcome', async () => {
+      await expect(updateGenerator(tree, {})).resolves.toBeUndefined();
     });
 
     it('passes the tree and the force option to both generators', async () => {
       await updateGenerator(tree, { force: true });
 
-      expect(updateServerGenerator).toHaveBeenCalledWith(tree, {
+      expect(runServerUpdate).toHaveBeenCalledWith(tree, {
         force: true,
         fromNxMigrate: undefined,
       });
@@ -122,7 +143,7 @@ describe('update generator', () => {
     it('passes an undefined force option when none is given', async () => {
       await updateGenerator(tree, {});
 
-      expect(updateServerGenerator).toHaveBeenCalledWith(tree, {
+      expect(runServerUpdate).toHaveBeenCalledWith(tree, {
         force: undefined,
         fromNxMigrate: undefined,
       });
@@ -135,7 +156,7 @@ describe('update generator', () => {
     it('forwards the fromNxMigrate flag to both generators', async () => {
       await updateGenerator(tree, { fromNxMigrate: true });
 
-      expect(updateServerGenerator).toHaveBeenCalledWith(tree, {
+      expect(runServerUpdate).toHaveBeenCalledWith(tree, {
         force: undefined,
         fromNxMigrate: true,
       });
@@ -209,9 +230,70 @@ describe('update generator', () => {
     });
   });
 
+  describe('legacy combined Dockerfile', () => {
+    const release = '8.12.0-2';
+    const combinedDockerfile = 'FROM node AS build-frontend\nFROM maven AS build-server\n';
+    const fragments: DockerFragments = {
+      frontendStage: 'FROM oven/bun:1-slim AS build-frontend\nWORKDIR /app\nRUN bun run build\n',
+      copyFrontend:
+        'COPY --from=build-frontend /app/frontend/dist/ /tmp/hapi-fhir-jpaserver-starter/src/main/resources/static/\n',
+      dockerignoreLines: 'node_modules\nfrontend/node_modules\nfrontend/dist\n',
+    };
+    const [headline] = legacyDockerWarning(release, fragments);
+
+    function addIntegratedWorkspace(serverRoot: string, frontendRoot: string, dockerfile: string) {
+      addProjectConfiguration(tree, 'server', {
+        root: serverRoot,
+        projectType: 'application',
+        hapiReleaseVersion: release,
+      } as ServerProjectConfiguration);
+      addProjectConfiguration(tree, 'frontend', {
+        root: frontendRoot,
+        projectType: 'application',
+        targets: {
+          'copy-to-server': {
+            executor: 'nx:run-commands',
+            options: {
+              commands: [`cpy "dist/**" "../${serverRoot}/src/main/resources/static" --cwd=.`],
+            },
+          },
+        },
+      });
+      tree.write(joinPathFragments(serverRoot, 'Dockerfile'), dockerfile);
+    }
+
+    it('reports a legacy combined Dockerfile once, after the updates', async () => {
+      addIntegratedWorkspace('.', 'frontend', combinedDockerfile);
+      runServerUpdate.mockResolvedValue([{ level: 'info', text: 'server updated' }]);
+
+      const lines = (await runUpdate(tree, {})) ?? [];
+      const texts = lines.map(({ text }) => text);
+
+      expect(texts.slice(0, 2)).toEqual(['server updated', headline]);
+      expect(lines.slice(1).every(({ level }) => level === 'warn')).toBe(true);
+      expect(texts.join('\n')).toContain(starterImageZipUrl(release));
+      expect(texts.filter((text) => text === headline)).toHaveLength(1);
+    });
+
+    it('reports nothing for a starter Dockerfile with the frontend lines', async () => {
+      const fixtureDir = join(__dirname, '../../shared/utils/__fixtures__/starter-docker');
+      const releases = JSON.parse(readFileSync(join(fixtureDir, 'releases.json'), 'utf-8'));
+      const starter = readFileSync(join(fixtureDir, releases[release].dockerfile), 'utf-8');
+      addIntegratedWorkspace('.', 'frontend', insertFrontendLines(starter, fragments) as string);
+
+      await expect(runUpdate(tree, {})).resolves.toBeUndefined();
+    });
+
+    it('reports nothing for a nested server', async () => {
+      addIntegratedWorkspace('server', 'server/frontend', combinedDockerfile);
+
+      await expect(runUpdate(tree, {})).resolves.toBeUndefined();
+    });
+  });
+
   describe('error posture', () => {
     it('continues to the frontend check when no server projects exist', async () => {
-      updateServerGenerator.mockRejectedValue(new Error(NO_SERVERS));
+      runServerUpdate.mockRejectedValue(new Error(NO_SERVERS));
 
       await updateGenerator(tree, {});
 
@@ -219,7 +301,7 @@ describe('update generator', () => {
     });
 
     it('continues to the frontend check when the server is up to date', async () => {
-      updateServerGenerator.mockRejectedValue(
+      runServerUpdate.mockRejectedValue(
         new Error('No migration path available from HAPI FHIR version 8.10.0-3'),
       );
 
@@ -243,7 +325,7 @@ describe('update generator', () => {
     });
 
     it('continues to the frontend check when the server has no recorded release', async () => {
-      updateServerGenerator.mockRejectedValue(
+      runServerUpdate.mockRejectedValue(
         new Error('Project server does not have a hapiReleaseVersion configured.'),
       );
 
@@ -261,7 +343,7 @@ describe('update generator', () => {
     });
 
     it('rethrows an unexpected server error and skips the frontend check', async () => {
-      updateServerGenerator.mockRejectedValue(new Error('download failed'));
+      runServerUpdate.mockRejectedValue(new Error('download failed'));
 
       await expect(updateGenerator(tree, {})).rejects.toThrow('download failed');
       expect(updateFrontendGenerator).not.toHaveBeenCalled();
@@ -274,7 +356,7 @@ describe('update generator', () => {
     });
 
     it('rethrows a thrown value that is not an Error', async () => {
-      updateServerGenerator.mockRejectedValue('boom');
+      runServerUpdate.mockRejectedValue('boom');
 
       await expect(updateGenerator(tree, {})).rejects.toBe('boom');
     });
@@ -290,7 +372,7 @@ describe('update generator', () => {
       >('../update-frontend/update-frontend');
 
       await expect(
-        server.updateServerGenerator(tree, { fromNxMigrate: true }),
+        server.runServerUpdate(tree, { fromNxMigrate: true }),
       ).rejects.toThrow(/No FHIR server projects found/);
       await expect(
         frontend.updateFrontendGenerator(tree, { fromNxMigrate: true }),

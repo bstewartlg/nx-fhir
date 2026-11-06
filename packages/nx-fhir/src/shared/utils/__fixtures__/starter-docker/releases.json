@@ -1,0 +1,18 @@
+{
+  "8.0.0": { "dockerfile": "Dockerfile-8.0.0", "dockerignore": "dockerignore-8.0.0" },
+  "8.0.0-1": { "dockerfile": "Dockerfile-8.0.0", "dockerignore": "dockerignore-8.0.0" },
+  "8.0.0-2": { "dockerfile": "Dockerfile-8.0.0", "dockerignore": "dockerignore-8.0.0" },
+  "8.2.0-1": { "dockerfile": "Dockerfile-8.0.0", "dockerignore": "dockerignore-8.0.0" },
+  "8.2.0-2": { "dockerfile": "Dockerfile-8.0.0", "dockerignore": "dockerignore-8.0.0" },
+  "8.4.0-1": { "dockerfile": "Dockerfile-8.0.0", "dockerignore": "dockerignore-8.0.0" },
+  "8.4.0-2": { "dockerfile": "Dockerfile-8.4.0-2", "dockerignore": "dockerignore-8.0.0" },
+  "8.4.0-3": { "dockerfile": "Dockerfile-8.4.0-3", "dockerignore": "dockerignore-8.4.0-3" },
+  "8.6.0-1": { "dockerfile": "Dockerfile-8.4.0-3", "dockerignore": "dockerignore-8.4.0-3" },
+  "8.6.5-1": { "dockerfile": "Dockerfile-8.6.5-1", "dockerignore": "dockerignore-8.4.0-3" },
+  "8.8.0-1": { "dockerfile": "Dockerfile-8.6.5-1", "dockerignore": "dockerignore-8.4.0-3" },
+  "8.10.0-1": { "dockerfile": "Dockerfile-8.10.0-1", "dockerignore": "dockerignore-8.4.0-3" },
+  "8.10.0-2": { "dockerfile": "Dockerfile-8.10.0-1", "dockerignore": "dockerignore-8.4.0-3" },
+  "8.10.0-3": { "dockerfile": "Dockerfile-8.10.0-1", "dockerignore": "dockerignore-8.4.0-3" },
+  "8.12.0-1": { "dockerfile": "Dockerfile-8.10.0-1", "dockerignore": "dockerignore-8.4.0-3" },
+  "8.12.0-2": { "dockerfile": "Dockerfile-8.10.0-1", "dockerignore": "dockerignore-8.4.0-3" }
+}

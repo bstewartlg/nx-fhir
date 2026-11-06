@@ -1,0 +1,32 @@
+FROM <%= dockerBaseImage %> AS build-frontend
+
+WORKDIR /app
+
+<% if (workspaceMember) { -%>
+# Copy workspace package files and lockfile
+COPY package.json <%= lockfileName %> ./
+COPY <%= frontendRoot %>/package.json ./<%= frontendRoot %>/
+
+# Install dependencies
+RUN <%= ciInstallCommand %>
+<% } else { -%>
+# Copy package files and lockfile
+COPY <%= frontendRoot %>/package.json ./<%= frontendRoot %>/
+COPY <%= frontendRoot %>/<%= lockfileName %> ./<%= frontendRoot %>/
+
+# Install dependencies
+WORKDIR /app/<%= frontendRoot %>
+RUN <%= ciInstallCommand %>
+<% } -%>
+
+# Copy frontend source files for build
+WORKDIR /app
+COPY <%= frontendRoot %>/index.html ./<%= frontendRoot %>/
+COPY <%= frontendRoot %>/tsconfig.json ./<%= frontendRoot %>/
+COPY <%= frontendRoot %>/vite.config.ts ./<%= frontendRoot %>/
+COPY <%= frontendRoot %>/public/ ./<%= frontendRoot %>/public/
+COPY <%= frontendRoot %>/src/ ./<%= frontendRoot %>/src/
+
+# Build the frontend for production
+WORKDIR /app/<%= frontendRoot %>
+RUN <%= buildCommand %>

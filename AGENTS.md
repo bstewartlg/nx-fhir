@@ -50,11 +50,11 @@ The e2e suite covers the same path against real published artifacts.
 # Start local npm registry (Verdaccio)
 bun nx run @nx-fhir/source:local-registry
 
-# Publish to local registry (in another terminal)
-bun nx run-many --nx-bail=false -t unpublish,nx-release-publish -- --registry http://localhost:4873
+# Build, then publish to local registry (in another terminal). Publish sends dist as it is.
+bun nx run-many -t build && bun nx run-many --nx-bail=false -t unpublish,nx-release-publish -- --registry http://localhost:4873
 
-# Watch and republish on changes
-bun nx watch --initialRun --all -- npx nx run-many --nx-bail=false -t unpublish,nx-release-publish -- --registry http://localhost:4873
+# Watch, rebuild, and republish on changes
+bun nx watch --initialRun --all -- "bun nx run-many -t build && bun nx run-many --nx-bail=false -t unpublish,nx-release-publish -- --registry http://localhost:4873"
 
 # Alternative: Link for development
 bun run build && cd dist/packages/nx-fhir && bun link && bun install --production
@@ -73,7 +73,7 @@ PACKAGE_MANAGER=npm bun run e2e    # Generated test workspaces use npm instead o
 ### Packages
 
 - **`packages/nx-fhir`**: Main Nx plugin with generators, executors, and migrations
-- **`packages/create-nx-fhir`**: CLI tool (`npx create-nx-fhir`) to scaffold new workspaces
+- **`packages/create-nx-fhir`**: CLI tool (`bunx create-nx-fhir`) to scaffold new workspaces
 
 ### Generators (`packages/nx-fhir/src/generators/`)
 
@@ -126,9 +126,9 @@ HAPI migration resolver uses BFS graph traversal to find migration paths between
 - Downloads old template from the previously installed npm version and new template from the target version
 - Performs three-way merge preserving user customizations while applying template updates
 - Managed by `frontend-migration.ts` and `frontend-migration-resolver.ts` in shared code
-- Also merges the server-integration files the generator wrote outside the frontend root: the combined frontend + server Dockerfile and `.dockerignore` in the frontend project's parent directory, and the SPA/CORS Java classes in the server source tree. Integration is detected from the frontend project's `copy-to-server` target (`shared/utils/frontend-integration.ts`).
+- Also merges the server-integration files the generator wrote outside the frontend root: the docker files in the frontend project's parent directory, and the SPA/CORS Java classes in the server source tree. Integration is detected from the frontend project's `copy-to-server` target (`shared/utils/frontend-integration.ts`).
 
-**Docker file ownership**: When a frontend is generated directly under the server root (typical for a server imported at the workspace root), the integration Dockerfile replaces the starter's. The frontend generator preserves the replaced files as `<name>.orig`, and `runHapiMigration` strips the integration-owned docker files from both release sides before the server merge, leaving their updates to the frontend template migration.
+**Docker file ownership**: For a server at the workspace root with the frontend directly beneath it, the frontend generator inserts the frontend build stage, one `COPY --from=build-frontend` line, and the frontend ignore lines into the starter's own `Dockerfile` and `.dockerignore` (`shared/utils/docker-splice.ts`). The server migration merges those files with the HAPI releases, and the frontend template migration updates only the inserted lines. Every other layout gets the combined frontend + server Dockerfile in the frontend project's parent directory, and the generator keeps each file it replaces as `<name>.orig`. A combined Dockerfile at the workspace root with a frontend directly beneath it is a legacy file: `runHapiMigration` strips it from both release sides, and the `update` generator reports it once per run with the steps to switch.
 
 `create-nx-fhir .` converts a workspace that runs Nx through the Nx wrapper into a `package.json` install and carries the plugins from the `installation` block. The update generator leaves an `installation` block unchanged and points to that conversion.
 

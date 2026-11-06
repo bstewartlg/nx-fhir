@@ -3,6 +3,7 @@ import {
   logger,
   Tree,
   getProjects,
+  joinPathFragments,
   readJson,
   updateProjectConfiguration,
   writeJson,
@@ -19,15 +20,22 @@ import { migrateWithThreeWayMerge, logMigrationSummary, getAllFiles, MigrationSu
 import { FrontendProjectConfiguration, ServerProjectConfiguration } from '../models';
 import { PLUGIN_VERSION } from '../constants/versions';
 import { FRONTEND_TEMPLATE_CONFIG, getFrontendDependencies } from '../../generators/frontend/frontend';
-import {
-  getCiInstallCommand,
-  getDockerBaseImage,
-  getInstallCommand,
-  getLockfileName,
-  getRunCommand,
-} from '../utils/package-manager';
+import { getInstallCommand } from '../utils/package-manager';
 import { ProjectMigrationResult } from './hapi-migration';
-import { getIntegratedServerRoot } from '../utils/frontend-integration';
+import {
+  frontendDockerVars,
+  getIntegratedServerRoot,
+  isRootWorkspaceMember,
+} from '../utils/frontend-integration';
+import {
+  appendDockerignoreLines,
+  dockerfileMergeSides,
+  frontendStageBuilds,
+  isCombinedDockerfile,
+  isServerRootLayout,
+  removeDockerignoreLines,
+  renderDockerFragments,
+} from '../utils/docker-splice';
 
 /**
  * Options for running a frontend template migration
@@ -112,7 +120,7 @@ export async function downloadOldFrontendTemplates(version: string): Promise<str
 function renderTemplates(
   srcDirs: string[],
   outputDir: string,
-  vars: Record<string, string>
+  vars: Record<string, string | boolean>
 ): void {
   mkdirSync(outputDir, { recursive: true });
 
@@ -140,9 +148,14 @@ function renderTemplates(
         const content = readFileSync(srcPath, 'utf-8');
         // ejs is the engine behind devkit's generateFiles, so the output is
         // byte identical to what the generator wrote. The ejs dependency must
-        // track the version @nx/devkit pins, not the newest release.
+        // track the version @nx/devkit pins, not the newest release. The
+        // filename option resolves an include next to the template that
+        // names it, as generateFiles does.
         try {
-          writeFileSync(destPath, renderEjsTemplate(content, vars));
+          writeFileSync(
+            destPath,
+            renderEjsTemplate(content, vars, { filename: srcPath })
+          );
         } catch (error) {
           throw new Error(`Failed to render template ${relPath}`, {
             cause: error,
@@ -227,11 +240,101 @@ function getTemplateSourceDirs(
 }
 
 /**
+ * Three-way merges the frontend lines that the generator added to the HAPI
+ * starter's own Dockerfile and .dockerignore. Both merge sides come from the
+ * project's own files, one with the old frontend lines and one with the new.
+ * The merge then changes only the frontend lines and keeps every user edit.
+ * Returns null when a plugin version has no docker fragments, because the
+ * merge then has no old frontend lines to use as its base. Also returns null
+ * when the Dockerfile has no frontend stage. The generator adds the ignore
+ * lines only together with the stage, so without the stage the merge would
+ * read missing ignore lines as a user deletion. Also returns null when the
+ * stage builds another frontend, because the merge would write this
+ * frontend's lines into that frontend's stage.
+ */
+async function migrateInsertedDockerLines(
+  tree: Tree,
+  serverRoot: string,
+  frontendRoot: string,
+  oldFilesDir: string,
+  newFilesDir: string,
+  dockerVars: Record<string, string | boolean>,
+  fromVersion: string,
+  toVersion: string,
+  tempDirs: string[]
+): Promise<MigrationSummary | null> {
+  const dockerfilePath = joinPathFragments(serverRoot, 'Dockerfile');
+  const dockerignorePath = joinPathFragments(serverRoot, '.dockerignore');
+  const oldFragments = renderDockerFragments(oldFilesDir, dockerVars);
+  const newFragments = renderDockerFragments(newFilesDir, dockerVars);
+  if (oldFragments === null || newFragments === null) {
+    logger.info(
+      "Template directory 'docker-fragments' is not present in both plugin versions. " +
+        `The migration does not change ${dockerfilePath} or ${dockerignorePath}.`
+    );
+    return null;
+  }
+
+  const dockerfile = tree.read(dockerfilePath, 'utf-8') ?? '';
+  const sides = dockerfileMergeSides(dockerfile, oldFragments, newFragments);
+  if (sides === null) {
+    logger.warn(
+      `${dockerfilePath} is missing, has no build-frontend stage, or has no FROM line or no COPY src/ line. ` +
+        `The migration leaves ${dockerfilePath} and ${dockerignorePath} unchanged.`
+    );
+    return null;
+  }
+  if (!frontendStageBuilds(dockerfile, frontendRoot)) {
+    logger.warn(
+      `${dockerfilePath} has a build-frontend stage for a frontend other than '${frontendRoot}'. ` +
+        `The migration leaves ${dockerfilePath} and ${dockerignorePath} unchanged.`
+    );
+    return null;
+  }
+
+  const tempOld = join(tmpdir(), `nx-fhir-old-${crypto.randomUUID()}`);
+  const tempNew = join(tmpdir(), `nx-fhir-new-${crypto.randomUUID()}`);
+  tempDirs.push(tempOld, tempNew);
+  mkdirSync(tempOld, { recursive: true });
+  mkdirSync(tempNew, { recursive: true });
+  writeFileSync(join(tempOld, 'Dockerfile'), sides.base);
+  writeFileSync(join(tempNew, 'Dockerfile'), sides.next);
+
+  const dockerignore = tree.read(dockerignorePath, 'utf-8');
+  if (dockerignore !== null) {
+    const withoutFrontend = removeDockerignoreLines(
+      dockerignore,
+      oldFragments.dockerignoreLines
+    );
+    writeFileSync(
+      join(tempOld, '.dockerignore'),
+      appendDockerignoreLines(withoutFrontend, oldFragments.dockerignoreLines)
+    );
+    writeFileSync(
+      join(tempNew, '.dockerignore'),
+      appendDockerignoreLines(withoutFrontend, newFragments.dockerignoreLines)
+    );
+  }
+
+  return migrateWithThreeWayMerge(
+    tree,
+    serverRoot,
+    tempOld,
+    tempNew,
+    fromVersion,
+    toVersion
+  );
+}
+
+/**
  * Three-way merges the server-integration files the frontend generator wrote
  * outside the frontend project root: the multi-stage Dockerfile and
  * .dockerignore next to the frontend project, and the SPA/CORS Java classes
- * inside the server source tree. Runs only for projects integrated with a
- * server. A template directory the old plugin version does not ship is
+ * inside the server source tree. For a frontend directly beneath a server at
+ * the workspace root, the merge covers only the frontend lines in the
+ * starter's own Dockerfile and .dockerignore, unless the Dockerfile there is
+ * a combined one. Runs only for projects integrated with a server. A
+ * template directory the old plugin version does not ship is
  * skipped: without an old side to merge against, every file would count as
  * newly added and overwrite the user's copy.
  */
@@ -249,31 +352,36 @@ async function migrateIntegrationTemplates(
     return [];
   }
 
-  const packageManager = detectPackageManager();
   // The same variables the frontend generator rendered with, re-derived from
   // the current workspace. An unchanged working copy then matches the old
   // render byte for byte and merges cleanly.
-  const dockerVars: Record<string, string> = {
-    dot: '.',
-    frontendRoot: projectConfig.root,
-    serverRoot,
-    dockerBaseImage: getDockerBaseImage(packageManager),
-    lockfileName: getLockfileName(packageManager),
-    ciInstallCommand: getCiInstallCommand(packageManager),
-    buildCommand: getRunCommand(packageManager, 'build'),
-  };
+  const dockerVars = await frontendDockerVars(
+    tree,
+    projectConfig.root,
+    serverRoot
+  );
+
+  const serverDockerfile = tree.read(
+    joinPathFragments(serverRoot, 'Dockerfile'),
+    'utf-8'
+  );
+  const insertsDockerLines =
+    isServerRootLayout(serverRoot, projectConfig.root) &&
+    !isCombinedDockerfile(serverDockerfile ?? '');
 
   const mergeTargets: Array<{
     templateDir: string;
-    vars: Record<string, string>;
+    vars: Record<string, string | boolean>;
     outputRoot: string;
-  }> = [
-    {
-      templateDir: 'docker',
-      vars: dockerVars,
-      outputRoot: join(projectConfig.root, '..'),
-    },
-  ];
+  }> = insertsDockerLines
+    ? []
+    : [
+        {
+          templateDir: 'docker',
+          vars: dockerVars,
+          outputRoot: join(projectConfig.root, '..'),
+        },
+      ];
 
   const serverProject = Array.from(getProjects(tree).values()).find(
     (project) => project.root === serverRoot
@@ -296,6 +404,22 @@ async function migrateIntegrationTemplates(
   }
 
   const summaries: MigrationSummary[] = [];
+  if (insertsDockerLines) {
+    const summary = await migrateInsertedDockerLines(
+      tree,
+      serverRoot,
+      projectConfig.root,
+      oldFilesDir,
+      newFilesDir,
+      dockerVars,
+      fromVersion,
+      toVersion,
+      tempDirs
+    );
+    if (summary !== null) {
+      summaries.push(summary);
+    }
+  }
   for (const { templateDir, vars, outputRoot } of mergeTargets) {
     const oldDir = join(oldFilesDir, templateDir);
     const newDir = join(newFilesDir, templateDir);
@@ -328,31 +452,6 @@ async function migrateIntegrationTemplates(
     summaries.push(summary);
   }
   return summaries;
-}
-
-/**
- * Matches a project root against one npm workspaces entry. Entries are either
- * literal paths or globs where * spans one path segment and ** spans any
- * number of segments; that subset covers the patterns npm documents.
- */
-function matchesWorkspacePattern(pattern: string, projectRoot: string): boolean {
-  // A globstar segment spans zero or more whole segments, so apps/**/frontend
-  // also matches apps/frontend.
-  const segments = pattern.split('/');
-  let regex = '';
-  for (let i = 0; i < segments.length; i++) {
-    const segment = segments[i];
-    const isLast = i === segments.length - 1;
-    if (segment === '**') {
-      regex += isLast ? '.*' : '(?:[^/]+/)*';
-    } else {
-      const segmentRegex = segment
-        .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*/g, '[^/]*');
-      regex += segmentRegex + (isLast ? '' : '/');
-    }
-  }
-  return new RegExp(`^${regex}$`).test(projectRoot);
 }
 
 /**
@@ -452,6 +551,7 @@ export async function runFrontendMigration(
       // placeholder for it.
       const oldVars: Record<string, string> = {
         name: projectName,
+        dot: '.',
         ...(FRONTEND_TEMPLATE_CONFIG[template] ?? {}),
       };
       renderTemplates(oldSrcDirs, tempOld, oldVars);
@@ -467,6 +567,7 @@ export async function runFrontendMigration(
       const newSrcDirs = getTemplateSourceDirs(newFilesDir, template);
       const newVars: Record<string, string> = {
         name: projectName,
+        dot: '.',
         ...(FRONTEND_TEMPLATE_CONFIG[template] ?? {}),
       };
       renderTemplates(newSrcDirs, tempNew, newVars);
@@ -520,7 +621,7 @@ export async function runFrontendMigration(
         // preview run stops after the tree changes.
         if (!isDryRun()) {
           const absolutePackageJsonPath = join(tree.root, projectPackageJsonPath);
-          const packageManager = detectPackageManager();
+          const packageManager = detectPackageManager(tree.root);
           const projectAbsPath = join(tree.root, projectConfig.root);
           // The lockfile and the project module tree are moved aside so the
           // install resolves fresh against the migrated package.json; an incremental
@@ -534,15 +635,7 @@ export async function runFrontendMigration(
           // and the lockfile-free install reconciles it. The lockfiles are
           // moved aside rather than deleted, so a failed install puts them
           // back and the workspace still resolves from its previous state.
-          const rootWorkspaces = tree.exists('package.json')
-            ? (readJson(tree, 'package.json').workspaces ?? [])
-            : [];
-          const isWorkspaceMember =
-            Array.isArray(rootWorkspaces) &&
-            rootWorkspaces.some((pattern) =>
-              matchesWorkspacePattern(pattern, projectConfig.root)
-            );
-          const lockfileDirs = isWorkspaceMember
+          const lockfileDirs = (await isRootWorkspaceMember(tree, projectConfig.root))
             ? [tree.root, projectAbsPath]
             : [projectAbsPath];
           const lockfileCandidates: Array<{ original: string; backup: string }> =

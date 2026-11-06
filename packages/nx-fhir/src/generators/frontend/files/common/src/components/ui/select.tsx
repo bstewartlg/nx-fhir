@@ -171,11 +171,11 @@ function SelectScrollDownButton({
 }
 
 export {
-  SelectRoot as Select,
   SelectContent,
   SelectGroup,
   SelectItem,
   SelectLabel,
+  SelectRoot as Select,
   SelectScrollDownButton,
   SelectScrollUpButton,
   SelectSeparator,

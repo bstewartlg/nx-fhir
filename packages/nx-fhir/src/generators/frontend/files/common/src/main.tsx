@@ -4,6 +4,7 @@ import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { retryOnceUnlessClientError } from "@/hooks/use-fhir-api";
 
 // Import the generated route tree
 import { routeTree } from "./routeTree.gen";
@@ -19,7 +20,7 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5, // 5 minutes
-      retry: 1,
+      retry: retryOnceUnlessClientError,
     },
   },
 });

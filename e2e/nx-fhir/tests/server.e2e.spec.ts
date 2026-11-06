@@ -11,6 +11,7 @@ import {
   getExecuteCommand,
   getInstallCommand,
   getPackageManager,
+  getRunCommand,
 } from '@nx-fhir/shared/utils/package-manager';
 import { buildCleanEnv } from './utils';
 
@@ -362,6 +363,15 @@ describe('server generator e2e test', () => {
       expect(
         existsSync(join(projectDirectory, frontendDir, 'dist/index.html')),
       ).toBe(true);
+
+      // check is a package script with no Nx target, so it runs from the
+      // frontend directory
+      logger.info(`Running biome check on ${template} frontend...`);
+      execSync(getRunCommand(packageManager, 'check'), {
+        cwd: join(projectDirectory, frontendDir),
+        stdio: 'inherit',
+        env: cleanEnv,
+      });
     }
 
     // Exercise the target the frontend generator added when it integrated with
@@ -391,6 +401,23 @@ describe('server generator e2e test', () => {
           env: cleanEnv,
         },
       );
+    }
+
+    // The Dockerfile copies src/, tsconfig.json, vite.config.ts, index.html and
+    // public/. Test files under src/ reach tsc with no vitest.setup.ts in that
+    // copy set, so they resolve the jest-dom matchers through the tsconfig
+    // types entry. This runs last because the build and test steps need the
+    // removed files.
+    for (const template of templates) {
+      const frontendPath = join(projectDirectory, `frontend-${template}`);
+      rmSync(join(frontendPath, 'vitest.setup.ts'));
+      rmSync(join(frontendPath, 'vitest.config.ts'));
+      logger.info(`Typechecking ${template} frontend Docker copy set...`);
+      execSync(getExecuteCommand(packageManager, 'tsc'), {
+        cwd: frontendPath,
+        stdio: 'inherit',
+        env: cleanEnv,
+      });
     }
   }, 900000);
 });

@@ -1,4 +1,4 @@
-import { getProjects, joinPathFragments, logger, readJson, readNxJson, Tree, updateNxJson } from "@nx/devkit";
+import { GeneratorCallback, getProjects, joinPathFragments, logger, readJson, readNxJson, Tree, updateNxJson } from "@nx/devkit";
 import { select } from '@inquirer/prompts';
 import * as path from 'path';
 import { parseDocument } from "yaml";
@@ -214,6 +214,10 @@ export function removeServerYamlProperty(projectRoot: string, tree: Tree, proper
  * three-way merge runs, so the section is removed by line instead.
  *
  * Content without a tester section is returned unchanged.
+ *
+ * The section is found at the starter's indentation, four spaces under
+ * `hapi.fhir`. A file with other indentation or flat dotted keys is
+ * returned unchanged. Parse with the yaml library if such files appear.
  */
 export function removeTesterSection(content: string): string {
 
@@ -239,4 +243,28 @@ export function removeTesterSection(content: string): string {
   lines.splice(start, end - start);
   return lines.join('\n');
 
+}
+
+/** One line of a generator outcome and the log level it prints at. */
+export interface OutcomeLine {
+  level: 'info' | 'warn';
+  text: string;
+}
+
+/**
+ * Wraps outcome lines in a generator callback that logs each line at its
+ * level. Nx runs the callback after it lists the changed files, so the
+ * outcome is the last output on screen. No lines give no callback.
+ */
+export function logOutcome(
+  lines: OutcomeLine[] | undefined
+): GeneratorCallback | undefined {
+  if (!lines) {
+    return undefined;
+  }
+  return () => {
+    for (const { level, text } of lines) {
+      logger[level](text);
+    }
+  };
 }

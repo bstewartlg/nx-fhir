@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { PackageManager } from '@nx/devkit';
+import { workspaceRoot, type PackageManager } from '@nx/devkit';
 
 const detectPackageManager = vi.hoisted(() => vi.fn());
 
@@ -67,7 +67,8 @@ describe('package-manager utils', () => {
       detectPackageManager.mockReturnValue('npm');
 
       expect(getPackageManager()).toBe('npm');
-      expect(detectPackageManager).toHaveBeenCalled();
+      // The workspace root holds the lockfile, whatever the current directory is.
+      expect(detectPackageManager).toHaveBeenCalledWith(workspaceRoot);
     });
 
     it('should fall back to detection when the environment variable is empty', () => {

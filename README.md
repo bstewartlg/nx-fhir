@@ -19,10 +19,10 @@ Start up Verdaccio to host a local npm repository:
 bun nx run @nx-fhir/source:local-registry
 ```
 
-In another terminal window:
+In another terminal window, build and publish. The publish step sends the current `dist` output and does not build it:
 
 ```sh
-bun nx run-many --nx-bail=false -t unpublish,nx-release-publish -- --registry http://localhost:4873
+bun nx run-many -t build && bun nx run-many --nx-bail=false -t unpublish,nx-release-publish -- --registry http://localhost:4873
 ```
 
 This should publish all packages to the local registry and allow you to run the `create-nx-fhir` package from the local registry:
@@ -34,7 +34,7 @@ NPM_CONFIG_REGISTRY=http://localhost:4873/ bunx create-nx-fhir@0.0.0-dev
 To continuously build and locally republish all packages as changes are made:
 
 ```sh
-bun nx watch --initialRun --all -- npx nx run-many --nx-bail=false -t unpublish,nx-release-publish -- --registry http://localhost:4873
+bun nx watch --initialRun --all -- "bun nx run-many -t build && bun nx run-many --nx-bail=false -t unpublish,nx-release-publish -- --registry http://localhost:4873"
 ```
 
 ### Development

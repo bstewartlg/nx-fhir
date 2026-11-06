@@ -4,7 +4,9 @@ import {
   Outlet,
   useParams,
 } from "@tanstack/react-router";
+import { Home } from "lucide-react";
 import { PatientHeader } from "@/components/patient-header";
+import { Button } from "@/components/ui/button";
 import {
   useConditionCount,
   useMedicationRequestCount,
@@ -36,6 +38,28 @@ function PatientLayout() {
           <div className="skeleton h-4 w-24" />
           <div className="skeleton h-4 w-20" />
           <div className="skeleton h-4 w-16" />
+        </div>
+      </div>
+    );
+  }
+
+  // FHIR servers answer 404 for an unknown id and 410 for a deleted one
+  if (error?.status === 404 || error?.status === 410) {
+    return (
+      <div className="max-w-lg pt-16 px-6">
+        <h1 className="text-xl font-semibold">Patient not found</h1>
+        <p className="mt-2 text-muted-foreground">
+          No patient with ID{" "}
+          <span className="font-mono text-foreground">{patientId}</span> exists
+          on this FHIR server.
+        </p>
+        <div className="mt-6">
+          <Button asChild className="active:scale-[0.98] transition-transform">
+            <Link to="/">
+              <Home className="h-4 w-4 mr-2" />
+              Back to Patient Search
+            </Link>
+          </Button>
         </div>
       </div>
     );

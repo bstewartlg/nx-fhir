@@ -3,17 +3,41 @@ import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
 import {
   Tree,
   addProjectConfiguration,
+  detectPackageManager,
   logger,
   readProjectConfiguration,
   readJson,
+  removeProjectConfiguration,
 } from '@nx/devkit';
+import { FsTree } from 'nx/src/generators/tree';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { basename, join } from 'path';
 import { parse } from 'yaml';
 
 const select = vi.hoisted(() => vi.fn());
 vi.mock('@inquirer/prompts', () => ({ select }));
 
-import { frontendGenerator } from './frontend';
+const execSync = vi.hoisted(() => vi.fn());
+vi.mock('child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('child_process')>()),
+  execSync,
+}));
+
+import { DEV_DEPENDENCIES, frontendGenerator } from './frontend';
+import {
+  getDockerBaseImage,
+  getInstallCommand,
+  getLockfileName,
+} from '../../shared/utils/package-manager';
 import { FrontendGeneratorSchema } from './schema';
+import {
+  appendDockerignoreLines,
+  DockerFragments,
+  insertFrontendLines,
+  renderDockerFragments,
+} from '../../shared/utils/docker-splice';
+import { frontendDockerVars } from '../../shared/utils/frontend-integration';
 import {
   FhirVersion,
   FrontendProjectConfiguration,
@@ -23,10 +47,21 @@ import {
 describe('frontend generator', () => {
   let tree: Tree;
   const options: FrontendGeneratorSchema = { name: 'test-frontend' };
+  const originalIsTTY = process.stdin.isTTY;
 
   beforeEach(() => {
     tree = createTreeWithEmptyWorkspace();
     vi.clearAllMocks();
+    // Tests run as an interactive terminal session unless they say otherwise,
+    // so the prompt tests do not depend on how the test runner was started.
+    process.stdin.isTTY = true;
+    vi.stubEnv('CI', undefined);
+    vi.stubEnv('NX_INTERACTIVE', undefined);
+  });
+
+  afterEach(() => {
+    process.stdin.isTTY = originalIsTTY;
+    vi.unstubAllEnvs();
   });
 
   it('should abort when the target directory already exists', async () => {
@@ -70,6 +105,21 @@ describe('frontend generator', () => {
 
     expect(readJson(tree, 'package.json').workspaces).toEqual([
       'packages/*',
+      'test-frontend',
+    ]);
+  });
+
+  it('should add the project to the packages list of the object form of workspaces', async () => {
+    const rootPackageJson = readJson(tree, 'package.json');
+    tree.write(
+      'package.json',
+      JSON.stringify({ ...rootPackageJson, workspaces: { packages: ['libs/*'] } }),
+    );
+
+    await frontendGenerator(tree, options);
+
+    expect(readJson(tree, 'package.json').workspaces.packages).toEqual([
+      'libs/*',
       'test-frontend',
     ]);
   });
@@ -127,9 +177,45 @@ describe('frontend generator', () => {
     expect(tree.exists('test-frontend/vitest.setup.ts')).toBe(true);
   });
 
+  it('should load the jest-dom matcher types without the vitest setup file', async () => {
+    await frontendGenerator(tree, options);
+    expect(tree.read('test-frontend/tsconfig.json', 'utf-8')).toContain(
+      '"types": ["vite/client", "@testing-library/jest-dom"]',
+    );
+  });
+
   it('should include biome configuration', async () => {
     await frontendGenerator(tree, options);
     expect(tree.exists('test-frontend/biome.json')).toBe(true);
+  });
+
+  it('should keep the biome.json schema on the pinned biome version', async () => {
+    await frontendGenerator(tree, options);
+    expect(readJson(tree, 'test-frontend/biome.json').$schema).toBe(
+      `https://biomejs.dev/schemas/${DEV_DEPENDENCIES['@biomejs/biome']}/schema.json`,
+    );
+  });
+
+  it('should write .gitignore into the frontend', async () => {
+    await frontendGenerator(tree, options);
+    expect(tree.read('test-frontend/.gitignore', 'utf-8')).toContain('.tanstack');
+    expect(tree.exists('test-frontend/gitignore')).toBe(false);
+  });
+
+  it('should ship no template file that packing drops', () => {
+    const templateFiles = readdirSync(join(__dirname, 'files'), { recursive: true }) as string[];
+    const alwaysDropped = [
+      '.gitignore',
+      '.npmignore',
+      '.npmrc',
+      '.DS_Store',
+      'package-lock.json',
+      'node_modules',
+    ];
+    const droppedByPacking = templateFiles.filter(
+      (entry) => alwaysDropped.includes(basename(entry)) || entry.endsWith('.orig'),
+    );
+    expect(droppedByPacking).toEqual([]);
   });
 
   it('should create UI components', async () => {
@@ -211,6 +297,19 @@ ${testerBlock}
       tree.write(yamlPath, serverYaml);
     });
 
+    it('should forward deep links of any shape, dotted FHIR ids included, to the SPA', async () => {
+      await frontendGenerator(tree, { ...options, server: serverRoot });
+
+      const configDir = `${serverRoot}/src/main/java/com/example/config`;
+      const resolver = tree.read(`${configDir}/SpaErrorViewResolverConfiguration.java`, 'utf-8');
+      expect(resolver).toMatch(/^package com\.example\.config;\n/);
+      // The whole forward condition is the status and the method, so no path check can join it.
+      expect(resolver).toMatch(
+        /->\s*status == HttpStatus\.NOT_FOUND && HttpMethod\.GET\.matches\(request\.getMethod\(\)\)\s*\?\s*new ModelAndView\("forward:\/index\.html", model, HttpStatus\.OK\)\s*:\s*null;/,
+      );
+      expect(tree.exists(`${configDir}/SpaController.java`)).toBe(false);
+    });
+
     it('should remove only the tester section from the server configuration', async () => {
       await frontendGenerator(tree, { ...options, server: serverRoot });
 
@@ -225,6 +324,45 @@ ${testerBlock}
       expect(result).not.toContain('Local Tester');
       expect(parse(result).hapi.fhir.tester).toBeUndefined();
       expect(parse(result).hapi.fhir.fhir_version).toBe('R4');
+    });
+
+    it('should remove the tester section from profile configuration files', async () => {
+      // The profile overrides the base entry without a name and adds a second
+      // entry. Either one left behind enables the tester.
+      const resourcesRoot = `${serverRoot}/src/main/resources`;
+      const profileYaml = `hapi:
+  fhir:
+    custom-bean-packages: com.example
+    tester:
+      home:
+        server_address: 'https://example.org/fhir'
+      global:
+        name: Global Tester
+        server_address: "http://hapi.fhir.org/baseR4"
+        refuse_to_fetch_third_party_urls: false
+        fhir_version: R4
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:test
+`;
+      const cdsYaml = 'hapi:\n  fhir:\n    cds_hooks:\n      enabled: true\n';
+      tree.write(`${resourcesRoot}/application-default.yaml`, profileYaml);
+      tree.write(`${resourcesRoot}/application-cds.yaml`, cdsYaml);
+
+      await frontendGenerator(tree, { ...options, server: serverRoot });
+
+      const result = tree.read(`${resourcesRoot}/application-default.yaml`, 'utf-8') as string;
+      expect(parse(result).hapi.fhir.tester).toBeUndefined();
+      expect(result).toBe(`hapi:
+  fhir:
+    custom-bean-packages: com.example
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:test
+`);
+      expect(tree.read(`${resourcesRoot}/application-cds.yaml`, 'utf-8')).toBe(cdsYaml);
     });
 
     it('should leave a configuration without a tester section unchanged', async () => {
@@ -254,6 +392,77 @@ ${testerBlock}
       expect(tree.read('Dockerfile.orig', 'utf-8')).toBe('FROM original\n');
     });
 
+    it('should install from the workspace root in the Dockerfile', async () => {
+      await frontendGenerator(tree, { ...options, server: serverRoot });
+
+      const dockerfile = tree.read('Dockerfile', 'utf-8') as string;
+      expect(dockerfile).toMatch(
+        /^COPY package\.json (bun\.lock|package-lock\.json) \.\/$/m
+      );
+      expect(dockerfile).toContain(
+        'COPY test-frontend/package.json ./test-frontend/'
+      );
+      expect(dockerfile).not.toContain('COPY test-frontend/bun.lock');
+      expect(dockerfile).not.toContain('COPY test-frontend/package-lock.json');
+      expect(dockerfile).not.toMatch(
+        /WORKDIR \/app\/test-frontend\nRUN (bun install|npm ci)/
+      );
+    });
+
+    it('should build the server like the latest HAPI starter in the Dockerfile', async () => {
+      await frontendGenerator(tree, { ...options, server: serverRoot });
+
+      const dockerfile = tree.read('Dockerfile', 'utf-8') as string;
+      expect(dockerfile).toContain(
+        'FROM docker.io/library/maven:3.9.12-eclipse-temurin-17 AS build-server'
+      );
+      expect(dockerfile).toContain('ARG OPENTELEMETRY_JAVA_AGENT_VERSION=2.24.0');
+      expect(dockerfile).toContain('COPY test-server/server.xml .');
+      expect(dockerfile).toContain(
+        'FROM docker.io/library/tomcat:10-jre21-temurin-noble AS tomcat'
+      );
+      expect(dockerfile).toContain(
+        'COPY --chown=65532:65532 test-server/catalina.properties /usr/local/tomcat/conf/catalina.properties'
+      );
+      expect(dockerfile).toContain(
+        'COPY --from=build-server --chown=65532:65532 /tmp/hapi-fhir-jpaserver-starter/target/ROOT.war /usr/local/tomcat/webapps/ROOT.war'
+      );
+      expect(dockerfile).toContain(
+        'FROM gcr.io/distroless/java21-debian13:nonroot AS default'
+      );
+      // The default target is the last stage.
+      expect(dockerfile.lastIndexOf('FROM ')).toBe(
+        dockerfile.indexOf('FROM gcr.io/distroless/java21-debian13:nonroot AS default')
+      );
+      expect(dockerfile).not.toContain('HealthCheck');
+    });
+
+    it('should compile the server health check in the Dockerfile when the server has one', async () => {
+      tree.write(
+        `${serverRoot}/src/main/java/HealthCheck.java`,
+        'public final class HealthCheck {}\n'
+      );
+
+      await frontendGenerator(tree, { ...options, server: serverRoot });
+
+      expect(tree.read('Dockerfile', 'utf-8')).toContain(
+        'COPY test-server/src/main/java/HealthCheck.java /app/HealthCheck.java\nRUN javac /app/HealthCheck.java\n'
+      );
+    });
+
+    it('should render the same frontend stage in the combined Dockerfile', async () => {
+      await frontendGenerator(tree, { ...options, server: serverRoot });
+
+      const fragments = renderDockerFragments(
+        join(__dirname, 'files'),
+        await frontendDockerVars(tree, 'test-frontend', serverRoot)
+      );
+      expect(fragments).not.toBeNull();
+      expect(tree.read('Dockerfile', 'utf-8')).toContain(
+        fragments?.frontendStage
+      );
+    });
+
     it('should integrate with the server the user picks when none is named', async () => {
       select.mockResolvedValue(serverRoot);
       const passedOptions = { ...options };
@@ -266,6 +475,34 @@ ${testerBlock}
       const config = readProjectConfiguration(tree, 'test-frontend');
       expect(config.targets?.['copy-to-server']).toBeDefined();
       expect(tree.read(yamlPath, 'utf-8')).toBe(serverYaml.replace(testerBlock, ''));
+    });
+
+    it('should integrate a picked server whose name differs from its root', async () => {
+      // The workspace has no starter Dockerfile, so the integration warns.
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+      // An imported server keeps its own name and lives at the workspace root.
+      removeProjectConfiguration(tree, serverRoot);
+      addProjectConfiguration(tree, 'imported-server', {
+        root: '.',
+        projectType: 'application',
+        sourceRoot: 'src',
+        tags: ['fhir', 'server'],
+        packageBase: 'com.example',
+        fhirVersion: FhirVersion.R4,
+      } as ServerProjectConfiguration);
+      tree.write('src/main/resources/application.yaml', serverYaml);
+      select.mockImplementationOnce(async ({ choices }) =>
+        choices.find((choice: { value: string }) => choice.value !== 'none').value
+      );
+
+      await frontendGenerator(tree, { ...options });
+
+      const config = readProjectConfiguration(tree, 'test-frontend');
+      expect(config.targets?.['copy-to-server']).toBeDefined();
+      expect(tree.read('src/main/resources/application.yaml', 'utf-8')).toBe(
+        serverYaml.replace(testerBlock, '')
+      );
+      warnSpy.mockRestore();
     });
 
     it('should skip integration when the user picks no server', async () => {
@@ -288,6 +525,57 @@ ${testerBlock}
       infoSpy.mockRestore();
     });
 
+    it('should detect the package manager from the lockfile at the workspace root', async () => {
+      // Detection without a directory reads the current directory. A root
+      // lockfile of a different package manager makes that detection visible.
+      const managerAtRoot = detectPackageManager() === 'npm' ? 'bun' : 'npm';
+      const workspaceDir = mkdtempSync(join(tmpdir(), 'nx-fhir-pm-root-'));
+      try {
+        writeFileSync(join(workspaceDir, 'nx.json'), '{}');
+        writeFileSync(join(workspaceDir, 'package.json'), JSON.stringify({ name: 'ws' }));
+        writeFileSync(join(workspaceDir, getLockfileName(managerAtRoot)), '');
+        const workspaceTree = new FsTree(workspaceDir, false);
+        addProjectConfiguration(
+          workspaceTree,
+          serverRoot,
+          readProjectConfiguration(tree, serverRoot),
+        );
+        workspaceTree.write(yamlPath, serverYaml);
+
+        const install = await frontendGenerator(workspaceTree, {
+          ...options,
+          server: serverRoot,
+        });
+        install?.();
+
+        expect(workspaceTree.read('Dockerfile', 'utf-8')).toContain(
+          `FROM ${getDockerBaseImage(managerAtRoot)} AS build-frontend`,
+        );
+        expect(execSync).toHaveBeenCalledWith(
+          getInstallCommand(managerAtRoot),
+          expect.anything(),
+        );
+      } finally {
+        rmSync(workspaceDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should skip integration without prompting in a non-interactive run', async () => {
+      vi.stubEnv('NX_INTERACTIVE', 'false');
+      const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+
+      await frontendGenerator(tree, { ...options });
+
+      expect(select).not.toHaveBeenCalled();
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/test-server.*--server=<name>/),
+      );
+      const config = readProjectConfiguration(tree, 'test-frontend');
+      expect(config.targets?.['copy-to-server']).toBeUndefined();
+      expect(tree.read(yamlPath, 'utf-8')).toBe(serverYaml);
+      infoSpy.mockRestore();
+    });
+
     it('should report a named server project that is not in the workspace', async () => {
       const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
 
@@ -301,6 +589,140 @@ ${testerBlock}
       expect(config.targets?.['copy-to-server']).toBeUndefined();
       expect(tree.read(yamlPath, 'utf-8')).toBe(serverYaml);
       errorSpy.mockRestore();
+    });
+
+    describe('server-root layout', () => {
+      const serverName = 'imported-server';
+      const fixtureDir = join(__dirname, '../../shared/utils/__fixtures__/starter-docker');
+      const readFixture = (file: string) => readFileSync(join(fixtureDir, file), 'utf-8');
+      const starterFiles = JSON.parse(readFixture('releases.json'))['8.12.0-2'];
+      const starterDockerfile = readFixture(starterFiles.dockerfile);
+      const starterIgnore = readFixture(starterFiles.dockerignore);
+
+      const generate = (name = 'test-frontend') =>
+        frontendGenerator(tree, { ...options, name, server: serverName });
+
+      // The variables read the root package.json workspaces, which the
+      // generator changes, so the fragments render after the generator runs.
+      const renderedFragments = async () =>
+        renderDockerFragments(
+          join(__dirname, 'files'),
+          await frontendDockerVars(tree, 'test-frontend', '.')
+        ) as DockerFragments;
+
+      beforeEach(() => {
+        removeProjectConfiguration(tree, serverRoot);
+        addProjectConfiguration(tree, serverName, {
+          root: '.',
+          projectType: 'application',
+          sourceRoot: 'src',
+          tags: ['fhir', 'server'],
+          packageBase: 'com.example',
+          fhirVersion: FhirVersion.R4,
+        } as ServerProjectConfiguration);
+        tree.write('src/main/resources/application.yaml', serverYaml);
+        tree.write('Dockerfile', starterDockerfile);
+        tree.write('.dockerignore', starterIgnore);
+      });
+
+      it('should add the frontend lines to the starter Dockerfile', async () => {
+        await generate();
+
+        const fragments = await renderedFragments();
+        expect(tree.read('Dockerfile', 'utf-8')).toBe(
+          insertFrontendLines(starterDockerfile, fragments)
+        );
+        expect(tree.read('.dockerignore', 'utf-8')).toBe(
+          appendDockerignoreLines(starterIgnore, fragments.dockerignoreLines)
+        );
+      });
+
+      it('should keep no .orig files', async () => {
+        await generate();
+
+        expect(tree.exists('Dockerfile.orig')).toBe(false);
+        expect(tree.exists('.dockerignore.orig')).toBe(false);
+      });
+
+      it('should warn and change nothing for a second frontend', async () => {
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+        await generate();
+        const firstRun = [tree.read('Dockerfile', 'utf-8'), tree.read('.dockerignore', 'utf-8')];
+
+        // A run with the same name stops at the existing frontend directory
+        // before the integration, so the second run adds another frontend.
+        await generate('second-frontend');
+
+        expect([tree.read('Dockerfile', 'utf-8'), tree.read('.dockerignore', 'utf-8')]).toEqual(
+          firstRun
+        );
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringMatching(
+            /^Dockerfile has a build-frontend stage for a frontend other than 'second-frontend'\. The server image builds only the frontend that is already in the stage\. The generator does not change Dockerfile or \.dockerignore\.$/
+          )
+        );
+        warnSpy.mockRestore();
+      });
+
+      it('should change nothing when the same frontend is generated again', async () => {
+        const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+        await generate();
+        const firstRun = [tree.read('Dockerfile', 'utf-8'), tree.read('.dockerignore', 'utf-8')];
+
+        tree.delete('test-frontend');
+        await generate();
+
+        expect([tree.read('Dockerfile', 'utf-8'), tree.read('.dockerignore', 'utf-8')]).toEqual(
+          firstRun
+        );
+        expect(infoSpy).toHaveBeenCalledWith(
+          expect.stringMatching(/^Dockerfile already has a build-frontend stage\./)
+        );
+        expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('build-frontend stage'));
+        infoSpy.mockRestore();
+        warnSpy.mockRestore();
+      });
+
+      it('should leave both files unchanged and warn when the COPY src/ line is missing', async () => {
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+        const withoutCopySource = starterDockerfile.replace(/^COPY src\/ .*\n/m, '');
+        expect(withoutCopySource).not.toBe(starterDockerfile);
+        tree.write('Dockerfile', withoutCopySource);
+
+        await generate();
+
+        const fragments = await renderedFragments();
+        expect(tree.read('Dockerfile', 'utf-8')).toBe(withoutCopySource);
+        expect(tree.read('.dockerignore', 'utf-8')).toBe(starterIgnore);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining(fragments.copyFrontend.trim())
+        );
+        warnSpy.mockRestore();
+      });
+
+      it('should warn when the Dockerfile is missing', async () => {
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+        tree.delete('Dockerfile');
+
+        await generate();
+
+        expect(tree.exists('Dockerfile')).toBe(false);
+        expect(tree.read('.dockerignore', 'utf-8')).toBe(starterIgnore);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Dockerfile does not exist'));
+        warnSpy.mockRestore();
+      });
+
+      it('should create a missing .dockerignore with the frontend lines', async () => {
+        tree.delete('.dockerignore');
+
+        await generate();
+
+        const fragments = await renderedFragments();
+        expect(tree.read('.dockerignore', 'utf-8')).toBe(fragments.dockerignoreLines);
+      });
     });
   });
 
@@ -449,6 +871,26 @@ ${testerBlock}
         );
         const root = tree.read('test-prompted/src/routes/__root.tsx', 'utf-8');
         expect(root).not.toContain('SidebarProvider');
+      });
+
+      it('should use the sidebar layout without prompting in a non-interactive run', async () => {
+        vi.stubEnv('NX_INTERACTIVE', 'false');
+        const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+
+        await frontendGenerator(tree, {
+          name: 'test-unprompted',
+          template: 'clinical',
+        });
+
+        expect(select).not.toHaveBeenCalled();
+        expect(infoSpy).toHaveBeenCalledWith(
+          expect.stringContaining('--navigationLayout'),
+        );
+        const config = readProjectConfiguration(tree, 'test-unprompted');
+        expect((config as FrontendProjectConfiguration).navigationLayout).toBe(
+          'sidebar',
+        );
+        infoSpy.mockRestore();
       });
 
       it('should still include clinical-specific components', async () => {

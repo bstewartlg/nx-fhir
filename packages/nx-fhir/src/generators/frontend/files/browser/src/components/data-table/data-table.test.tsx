@@ -1,7 +1,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { dataTableFeatures } from "@/lib/table-features";
+import type { dataTableFeatures } from "@/lib/table-features";
 import { DataTable } from "./data-table";
 
 interface TestData {

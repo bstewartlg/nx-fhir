@@ -124,7 +124,6 @@ function DialogDescription({
 }
 
 export {
-  DialogRoot as Dialog,
   DialogClose,
   DialogContent,
   DialogDescription,
@@ -132,6 +131,7 @@ export {
   DialogHeader,
   DialogOverlay,
   DialogPortal,
+  DialogRoot as Dialog,
   DialogTitle,
   DialogTrigger,
 };

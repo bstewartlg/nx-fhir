@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
-import { Tree } from '@nx/devkit';
+import { logger, Tree } from '@nx/devkit';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
@@ -267,6 +267,7 @@ describe('migrateWithThreeWayMerge', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     rmSync(oldDir, { recursive: true, force: true });
     rmSync(newDir, { recursive: true, force: true });
   });
@@ -682,6 +683,41 @@ describe('migrateWithThreeWayMerge', () => {
     expect(merged).toContain('<dependencies><mine/></dependencies>');
   });
 
+  it('keeps a locally deleted file deleted when upstream changed it', async () => {
+    writeVersionFile(oldDir, 'src/test/ExampleIT.java', 'class ExampleIT {}\n');
+    writeVersionFile(newDir, 'src/test/ExampleIT.java', 'class ExampleIT { int v = 2; }\n');
+
+    const summary = await migrateWithThreeWayMerge(
+      tree,
+      projectRoot,
+      oldDir,
+      newDir,
+      '1.0.0',
+      '2.0.0',
+    );
+
+    expect(tree.exists(`${projectRoot}/src/test/ExampleIT.java`)).toBe(false);
+    expect(summary.added).toBe(0);
+    expect(summary.merged).toBe(0);
+    expect(summary.unchanged).toBe(1);
+  });
+
+  it('keeps a locally deleted file deleted when upstream left it alone', async () => {
+    writeVersionFile(oldDir, 'src/test/ExampleIT.java', 'class ExampleIT {}\n');
+    writeVersionFile(newDir, 'src/test/ExampleIT.java', 'class ExampleIT {}\n');
+
+    await migrateWithThreeWayMerge(
+      tree,
+      projectRoot,
+      oldDir,
+      newDir,
+      '1.0.0',
+      '2.0.0',
+    );
+
+    expect(tree.exists(`${projectRoot}/src/test/ExampleIT.java`)).toBe(false);
+  });
+
   it('keeps a user-modified file that upstream deleted', async () => {
     writeVersionFile(oldDir, 'src/custom.properties', 'key=upstream\n');
     tree.write(`${projectRoot}/src/custom.properties`, 'key=mine\n');
@@ -700,6 +736,99 @@ describe('migrateWithThreeWayMerge', () => {
     );
     expect(summary.removed).toBe(0);
     expect(summary.unchanged).toBeGreaterThan(0);
+  });
+
+  it('adds a file upstream added when the project has none', async () => {
+    writeVersionFile(newDir, 'added.txt', 'new\n');
+
+    const summary = await migrateWithThreeWayMerge(
+      tree,
+      projectRoot,
+      oldDir,
+      newDir,
+      '1.0.0',
+      '2.0.0',
+    );
+
+    expect(tree.read(`${projectRoot}/added.txt`, 'utf-8')).toBe('new\n');
+    expect(summary.added).toBe(1);
+  });
+
+  it('leaves a project file identical to the file upstream added', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    writeVersionFile(newDir, 'added.txt', 'same\n');
+    tree.write(`${projectRoot}/added.txt`, 'same\n');
+
+    const summary = await migrateWithThreeWayMerge(
+      tree,
+      projectRoot,
+      oldDir,
+      newDir,
+      '1.0.0',
+      '2.0.0',
+    );
+
+    expect(tree.read(`${projectRoot}/added.txt`, 'utf-8')).toBe('same\n');
+    expect(summary.added).toBe(0);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('keeps a project file that differs from the file upstream added', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    writeVersionFile(newDir, 'added.txt', 'new\n');
+    tree.write(`${projectRoot}/added.txt`, 'site\n');
+
+    const summary = await migrateWithThreeWayMerge(
+      tree,
+      projectRoot,
+      oldDir,
+      newDir,
+      '1.0.0',
+      '2.0.0',
+    );
+
+    expect(tree.read(`${projectRoot}/added.txt`, 'utf-8')).toBe('site\n');
+    expect(summary.added).toBe(0);
+    expect(summary.unchanged).toBeGreaterThan(0);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('added.txt'));
+  });
+
+  it('keeps a project file that differs from the added file only by line endings', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    writeVersionFile(newDir, 'added.txt', 'a\nb\n');
+    tree.write(`${projectRoot}/added.txt`, 'a\r\nb\r\n');
+
+    await migrateWithThreeWayMerge(
+      tree,
+      projectRoot,
+      oldDir,
+      newDir,
+      '1.0.0',
+      '2.0.0',
+    );
+
+    expect(tree.read(`${projectRoot}/added.txt`)).toEqual(
+      Buffer.from('a\r\nb\r\n'),
+    );
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('keeps a binary project file at a path upstream added', async () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const binary = Buffer.from([0, 1, 2, 255]);
+    writeVersionFile(newDir, 'added.bin', 'text\n');
+    tree.write(`${projectRoot}/added.bin`, binary);
+
+    await migrateWithThreeWayMerge(
+      tree,
+      projectRoot,
+      oldDir,
+      newDir,
+      '1.0.0',
+      '2.0.0',
+    );
+
+    expect(tree.read(`${projectRoot}/added.bin`)).toEqual(binary);
   });
 });
 

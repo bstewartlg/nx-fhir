@@ -10,9 +10,30 @@ import type {
 import { useMemo } from "react";
 import { isOperationOutcome } from "@/lib/fhir-types";
 
-interface FhirError extends Error {
+export interface FhirError extends Error {
   status?: number;
   operationOutcome?: OperationOutcome;
+}
+
+declare module "@tanstack/react-query" {
+  interface Register {
+    defaultError: FhirError;
+  }
+}
+
+/**
+ * Retries a failed query once. A 4xx answer does not change on retry, so it
+ * fails at once, except 408 (timeout) and 429 (rate limit).
+ */
+export function retryOnceUnlessClientError(
+  failureCount: number,
+  error: FhirError,
+): boolean {
+  const status = error.status ?? 0;
+  if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+    return false;
+  }
+  return failureCount < 1;
 }
 
 export async function fhirFetch<T>(url: string): Promise<T> {
@@ -50,7 +71,6 @@ export function useCapabilityStatement(serverUrl: string) {
     queryKey: ["fhir", "metadata", serverUrl],
     queryFn: () => fhirFetch<CapabilityStatement>(`${serverUrl}/metadata`),
     staleTime: 5 * 60 * 1000, // 5 minutes
-    retry: 1,
     enabled: !!serverUrl,
   });
 }
@@ -178,7 +198,6 @@ export function useResourceSearchWithParams(
     queryKey: ["fhir", "search", serverUrl, resourceType, searchParamsKey, url],
     queryFn: () => fhirFetch<Bundle<FhirResource>>(url),
     staleTime: 30 * 1000, // 30 seconds
-    retry: 1,
     enabled: !!serverUrl && !!resourceType,
   });
 }

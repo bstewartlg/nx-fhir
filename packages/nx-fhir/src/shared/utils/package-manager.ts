@@ -1,4 +1,4 @@
-import { detectPackageManager, PackageManager } from '@nx/devkit';
+import { detectPackageManager, PackageManager, workspaceRoot } from '@nx/devkit';
 
 
 export function getPackageManager(): PackageManager {
@@ -10,8 +10,8 @@ export function getPackageManager(): PackageManager {
     }
   }
 
-  // Fallback to auto-detection or bun if detection fails
-  return detectPackageManager() || 'bun';
+  // Fallback to auto-detection from the workspace root lockfile, or bun if detection fails
+  return detectPackageManager(workspaceRoot) || 'bun';
 }
 
 

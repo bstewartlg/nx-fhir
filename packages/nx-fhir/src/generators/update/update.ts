@@ -6,9 +6,11 @@ import {
   getProjects,
   updateProjectConfiguration,
 } from '@nx/devkit';
-import { updateServerGenerator } from '../update-server/update-server';
+import { runServerUpdate } from '../update-server/update-server';
 import { updateFrontendGenerator } from '../update-frontend/update-frontend';
 import { PLUGIN_VERSION } from '../../shared/constants/versions';
+import { logOutcome, OutcomeLine } from '../../shared/utils';
+import { legacyDockerfileWarnings } from '../../shared/utils/frontend-integration';
 import { UpdateGeneratorSchema } from './schema';
 
 /**
@@ -53,12 +55,8 @@ function updateProjectPluginVersions(tree: Tree): boolean {
 }
 
 /**
- * Update generator for nx-fhir plugin.
- *
- * This generator:
- * 1. Warns when the workspace runs Nx through the Nx wrapper
- * 2. Updates pluginVersion in project.json for nx-fhir managed projects
- * 3. Checks for available HAPI server updates
+ * Update generator for nx-fhir plugin. The returned callback logs the
+ * outcome of the server update and the legacy Dockerfile warnings.
  *
  * Run with: nx g nx-fhir:update
  */
@@ -66,6 +64,25 @@ export async function updateGenerator(
   tree: Tree,
   options: UpdateGeneratorSchema,
 ): Promise<GeneratorCallback | undefined> {
+  return logOutcome(await runUpdate(tree, options));
+}
+
+/**
+ * Runs the nx-fhir update and returns the outcome lines of the server update
+ * followed by the legacy Dockerfile warnings, or undefined when there are no
+ * lines.
+ *
+ * The update:
+ * 1. Warns when the workspace runs Nx through the Nx wrapper
+ * 2. Updates pluginVersion in project.json for nx-fhir managed projects
+ * 3. Checks for available HAPI server updates
+ * 4. Checks for available frontend template updates
+ * 5. Reports each combined Dockerfile at a server root
+ */
+export async function runUpdate(
+  tree: Tree,
+  options: UpdateGeneratorSchema,
+): Promise<OutcomeLine[] | undefined> {
   logger.info('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   logger.info(`Updating to nx-fhir ${PLUGIN_VERSION}`);
   logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
@@ -87,11 +104,11 @@ export async function updateGenerator(
 
   // Forwarded to the caller so the server outcome is printed after Nx lists
   // the changed files.
-  let serverOutcome: GeneratorCallback | undefined;
+  let serverOutcome: OutcomeLine[] | undefined;
 
   try {
-    // Run the update-server generator, passing force option
-    serverOutcome = await updateServerGenerator(tree, {
+    // Run the server update, passing force option
+    serverOutcome = await runServerUpdate(tree, {
       force: options.force,
       fromNxMigrate: options.fromNxMigrate,
     });
@@ -151,7 +168,11 @@ export async function updateGenerator(
 
   logger.info('\n✅ Update complete!');
 
-  return serverOutcome;
+  const outcome = [
+    ...(serverOutcome ?? []),
+    ...(await legacyDockerfileWarnings(tree)),
+  ];
+  return outcome.length > 0 ? outcome : undefined;
 }
 
 export default updateGenerator;

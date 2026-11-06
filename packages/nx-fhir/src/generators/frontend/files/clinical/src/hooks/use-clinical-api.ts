@@ -36,7 +36,6 @@ export function usePatientSearch(params: PatientSearchParams) {
         `${serverUrl}/Patient?${searchParams.toString()}`,
       ),
     staleTime: 30 * 1000,
-    retry: 1,
     enabled: !!serverUrl && hasSearchParams,
   });
 }
@@ -48,7 +47,6 @@ export function usePatient(patientId: string) {
     queryKey: ["fhir", "Patient", patientId, serverUrl],
     queryFn: () => fhirFetch<Patient>(`${serverUrl}/Patient/${patientId}`),
     staleTime: 60 * 1000,
-    retry: 1,
     enabled: !!serverUrl && !!patientId,
   });
 }
@@ -63,7 +61,6 @@ export function useConditions(patientId: string) {
         `${serverUrl}/Condition?patient=${patientId}&_sort=-recorded-date&_count=50`,
       ),
     staleTime: 30 * 1000,
-    retry: 1,
     enabled: !!serverUrl && !!patientId,
   });
 }
@@ -78,7 +75,6 @@ export function useMedicationRequests(patientId: string) {
         `${serverUrl}/MedicationRequest?patient=${patientId}&_sort=-authoredon&_count=50`,
       ),
     staleTime: 30 * 1000,
-    retry: 1,
     enabled: !!serverUrl && !!patientId,
   });
 }
@@ -93,7 +89,6 @@ export function useConditionCount(patientId: string) {
         `${serverUrl}/Condition?patient=${patientId}&clinical-status=active&_summary=count`,
       ),
     staleTime: 60 * 1000,
-    retry: 1,
     enabled: !!serverUrl && !!patientId,
   });
 }
@@ -108,7 +103,6 @@ export function useMedicationRequestCount(patientId: string) {
         `${serverUrl}/MedicationRequest?patient=${patientId}&status=active&_summary=count`,
       ),
     staleTime: 60 * 1000,
-    retry: 1,
     enabled: !!serverUrl && !!patientId,
   });
 }

@@ -3,50 +3,29 @@
 ##########################################################################
 # Stage 1: Build the TanStack SPA frontend
 ##########################################################################
-FROM <%= dockerBaseImage %> AS build-frontend
-
-WORKDIR /app
-
-# Copy package files and lockfile
-COPY <%= frontendRoot %>/package.json ./<%= frontendRoot %>/
-COPY <%= frontendRoot %>/<%= lockfileName %> ./<%= frontendRoot %>/
-
-# Install dependencies
-WORKDIR /app/<%= frontendRoot %>
-RUN <%= ciInstallCommand %>
-
-# Copy frontend source files for build
-WORKDIR /app
-COPY <%= frontendRoot %>/index.html ./<%= frontendRoot %>/
-COPY <%= frontendRoot %>/tsconfig.json ./<%= frontendRoot %>/
-COPY <%= frontendRoot %>/vite.config.ts ./<%= frontendRoot %>/
-COPY <%= frontendRoot %>/public/ ./<%= frontendRoot %>/public/
-COPY <%= frontendRoot %>/src/ ./<%= frontendRoot %>/src/
-
-# Build the frontend for production
-WORKDIR /app/<%= frontendRoot %>
-RUN <%= buildCommand %>
+<%- include('../docker-fragments/build-frontend-stage.template') -%>
 
 ##########################################################################
 # Stage 2: Build the HAPI FHIR Server
 ##########################################################################
-FROM docker.io/library/maven:3.9.11-eclipse-temurin-17 AS build-server
+FROM docker.io/library/maven:3.9.12-eclipse-temurin-17 AS build-server
 
 WORKDIR /tmp/hapi-fhir-jpaserver-starter
 
 # Download OpenTelemetry agent
-ARG OPENTELEMETRY_JAVA_AGENT_VERSION=2.20.1
+ARG OPENTELEMETRY_JAVA_AGENT_VERSION=2.24.0
 RUN curl -LSsO https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OPENTELEMETRY_JAVA_AGENT_VERSION}/opentelemetry-javaagent.jar
 
 # Copy Maven configuration and download dependencies
 COPY <%= serverRoot %>/pom.xml .
+COPY <%= serverRoot %>/server.xml .
 RUN mvn -ntp dependency:go-offline
 
 # Copy server source code
 COPY <%= serverRoot %>/src/ /tmp/hapi-fhir-jpaserver-starter/src/
 
 # Copy frontend build artifacts to server's static resources directory
-COPY --from=build-frontend /app/<%= frontendRoot %>/dist/ /tmp/hapi-fhir-jpaserver-starter/src/main/resources/static/
+<%- include('../docker-fragments/copy-frontend.template') -%>
 
 # Build the server
 RUN mvn clean install -DskipTests -Djdk.lang.Process.launchMechanism=vfork
@@ -57,11 +36,35 @@ RUN mvn clean install -DskipTests -Djdk.lang.Process.launchMechanism=vfork
 FROM build-server AS build-distroless
 RUN mvn package -DskipTests spring-boot:repackage -Pboot
 RUN mkdir /app && cp /tmp/hapi-fhir-jpaserver-starter/target/ROOT.war /app/main.war
+<% if (healthCheck) { -%>
+
+COPY <%= serverRoot %>/src/main/java/HealthCheck.java /app/HealthCheck.java
+RUN javac /app/HealthCheck.java
+<% } -%>
 
 ##########################################################################
-# Stage 4: Final Production Image (Distroless)
+# Stage 4: Tomcat Image, built with `docker build --target tomcat .`
 ##########################################################################
-FROM gcr.io/distroless/java17-debian12:nonroot AS default
+FROM docker.io/library/tomcat:10-jre21-temurin-noble AS tomcat
+
+USER root
+RUN rm -rf /usr/local/tomcat/webapps/ROOT && \
+    mkdir -p /usr/local/tomcat/data/hapi/lucenefiles && \
+    chown -R 65532:65532 /usr/local/tomcat/data/hapi/lucenefiles && \
+    chmod 775 /usr/local/tomcat/data/hapi/lucenefiles
+
+RUN mkdir -p /target && chown -R 65532:65532 /target
+USER 65532
+
+COPY --chown=65532:65532 <%= serverRoot %>/catalina.properties /usr/local/tomcat/conf/catalina.properties
+COPY --chown=65532:65532 <%= serverRoot %>/server.xml /usr/local/tomcat/conf/server.xml
+COPY --from=build-server --chown=65532:65532 /tmp/hapi-fhir-jpaserver-starter/target/ROOT.war /usr/local/tomcat/webapps/ROOT.war
+COPY --from=build-server --chown=65532:65532 /tmp/hapi-fhir-jpaserver-starter/opentelemetry-javaagent.jar /app
+
+##########################################################################
+# Stage 5: Final Production Image (Distroless)
+##########################################################################
+FROM gcr.io/distroless/java21-debian13:nonroot AS default
 
 USER 65532:65532
 WORKDIR /app

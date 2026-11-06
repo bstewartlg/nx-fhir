@@ -2,6 +2,7 @@ import {
   logger,
   Tree,
   getProjects,
+  joinPathFragments,
   updateProjectConfiguration,
 } from '@nx/devkit';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'fs';
@@ -14,6 +15,7 @@ import {
   integrationDockerFileNames,
   integrationOwnsServerDockerFiles,
 } from '../utils/frontend-integration';
+import { isCombinedDockerfile } from '../utils/docker-splice';
 import { ServerProjectConfiguration } from '../models';
 import { PLUGIN_VERSION } from '../constants/versions';
 
@@ -136,15 +138,16 @@ function stripTesterFromReleases(releaseDirs: string[]): () => void {
 
 /**
  * Removes the docker files a frontend integration owns from each downloaded
- * release and returns a callback that puts them back.
+ * release and returns a callback that puts them back. This applies only when
+ * the server root holds the combined frontend + server Dockerfile.
  *
- * A frontend generated directly under the server root replaces the starter's
- * Dockerfile and .dockerignore with the combined frontend + server versions,
- * which the frontend template migration keeps up to date. With the files
+ * The combined Dockerfile and its .dockerignore replace the starter's files,
+ * and the frontend template migration keeps them up to date. With the files
  * absent from both release sides the server merge never visits them, so it
- * cannot conflict with files it no longer owns. The release directories are
- * shared by every project of a run, so the files are only removed while the
- * project that needs it is merging.
+ * cannot conflict with files it does not own. A starter Dockerfile with the
+ * frontend lines added is a server file, so it merges with the releases.
+ * The release directories are shared by every project of a run, so the
+ * files are only removed while the project that needs it is merging.
  */
 function stripIntegrationDockerFilesFromReleases(
   tree: Tree,
@@ -156,9 +159,17 @@ function stripIntegrationDockerFilesFromReleases(
     return undefined;
   }
 
+  const dockerfile = tree.read(
+    joinPathFragments(serverRoot, 'Dockerfile'),
+    'utf-8'
+  );
+  if (dockerfile === null || !isCombinedDockerfile(dockerfile)) {
+    return undefined;
+  }
+
   logger.info(
-    'A frontend integration owns the docker files at the server root; ' +
-      'they are left to the frontend template migration.'
+    'The server root holds the combined frontend + server Dockerfile. ' +
+      'The frontend template migration updates it and its .dockerignore.'
   );
 
   const originals: Array<[string, Buffer]> = [];

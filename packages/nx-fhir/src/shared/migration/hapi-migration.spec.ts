@@ -32,6 +32,7 @@ import {
   runHapiMigration,
 } from './hapi-migration';
 import { MigrationSummary } from '../utils/merge';
+import { DockerFragments, insertFrontendLines } from '../utils/docker-splice';
 import { FhirVersion, ServerProjectConfiguration } from '../../shared/models';
 import { PLUGIN_VERSION } from '../constants/versions';
 
@@ -41,6 +42,31 @@ const { rmSync: actualRmSync, existsSync: actualExistsSync } =
   await vi.importActual<typeof import('fs')>('fs');
 
 const APPLICATION_YAML = 'src/main/resources/application.yaml';
+
+const COMBINED_DOCKERFILE =
+  'FROM node AS build-frontend\nFROM maven AS build-server\n';
+
+const starterFixtureDir = join(
+  __dirname,
+  '../utils/__fixtures__/starter-docker',
+);
+const readStarterFixture = (file: string) =>
+  readFileSync(join(starterFixtureDir, file), 'utf-8');
+const starterReleases: Record<string, { dockerfile: string }> = JSON.parse(
+  readStarterFixture('releases.json'),
+);
+const starterDockerfile = (release: string) =>
+  readStarterFixture(starterReleases[release].dockerfile);
+
+const fragments: DockerFragments = {
+  frontendStage:
+    'FROM oven/bun:1-slim AS build-frontend\nWORKDIR /app\nRUN bun run build\n',
+  copyFrontend:
+    'COPY --from=build-frontend /app/frontend/dist/ /tmp/hapi-fhir-jpaserver-starter/src/main/resources/static/\n',
+  dockerignoreLines: 'node_modules\nfrontend/node_modules\nfrontend/dist\n',
+};
+const withFrontendLines = (dockerfile: string) =>
+  insertFrontendLines(dockerfile, fragments) as string;
 
 const TESTER_BLOCK = `    tester:
       home:
@@ -108,6 +134,31 @@ function addServer(tree: Tree, name: string, hapiReleaseVersion: string) {
     pluginVersion: '0.0.1',
   };
   addProjectConfiguration(tree, name, config);
+}
+
+function addRootServerWithFrontend(tree: Tree) {
+  const serverConfig: ServerProjectConfiguration = {
+    root: '.',
+    projectType: 'application',
+    tags: ['nx-fhir-server'],
+    packageBase: 'org.acme.fhir',
+    fhirVersion: FhirVersion.R4,
+    hapiReleaseVersion: '8.8.0-1',
+    pluginVersion: '0.0.1',
+  };
+  addProjectConfiguration(tree, 'server', serverConfig);
+  addProjectConfiguration(tree, 'frontend', {
+    root: 'frontend',
+    projectType: 'application',
+    targets: {
+      'copy-to-server': {
+        executor: 'nx:run-commands',
+        options: {
+          commands: ['cpy "dist/**" ".././src/main/resources/static" --cwd=.'],
+        },
+      },
+    },
+  });
 }
 
 describe('findProjectsToMigrate', () => {
@@ -353,30 +404,9 @@ describe('runHapiMigration', () => {
   it('leaves docker files owned by a frontend integration out of the merge', async () => {
     // A server imported at the workspace root with the frontend generated
     // directly beneath it: the integration Dockerfile replaced the starter's.
-    const serverConfig: ServerProjectConfiguration = {
-      root: '.',
-      projectType: 'application',
-      tags: ['nx-fhir-server'],
-      packageBase: 'org.acme.fhir',
-      fhirVersion: FhirVersion.R4,
-      hapiReleaseVersion: '8.8.0-1',
-      pluginVersion: '0.0.1',
-    };
-    addProjectConfiguration(tree, 'server', serverConfig);
-    addProjectConfiguration(tree, 'frontend', {
-      root: 'frontend',
-      projectType: 'application',
-      targets: {
-        'copy-to-server': {
-          executor: 'nx:run-commands',
-          options: {
-            commands: ['cpy "dist/**" ".././src/main/resources/static" --cwd=.'],
-          },
-        },
-      },
-    });
+    addRootServerWithFrontend(tree);
     tree.write(APPLICATION_YAML, RELEASE_YAML);
-    tree.write('Dockerfile', 'FROM combined-frontend-server\n');
+    tree.write('Dockerfile', COMBINED_DOCKERFILE);
 
     const releaseDirs = createReleaseDirs({ newContent: NEXT_RELEASE_YAML });
     writeFileSync(join(releaseDirs.old, 'Dockerfile'), 'FROM starter:17\n');
@@ -402,9 +432,7 @@ describe('runHapiMigration', () => {
     });
 
     expect(result.hasConflicts).toBe(false);
-    expect(tree.read('Dockerfile', 'utf-8')).toBe(
-      'FROM combined-frontend-server\n',
-    );
+    expect(tree.read('Dockerfile', 'utf-8')).toBe(COMBINED_DOCKERFILE);
     // The release copies are restored for the next project of the run.
     expect(readFileSync(join(releaseDirs.old, 'Dockerfile'), 'utf-8')).toBe(
       'FROM starter:17\n',
@@ -412,6 +440,78 @@ describe('runHapiMigration', () => {
     expect(readFileSync(join(releaseDirs.new, 'Dockerfile'), 'utf-8')).toBe(
       'FROM starter:21\n',
     );
+  });
+
+  it('merges an upstream change into a starter Dockerfile with the frontend lines', async () => {
+    addRootServerWithFrontend(tree);
+    tree.write(APPLICATION_YAML, RELEASE_YAML);
+    tree.write('Dockerfile', withFrontendLines(starterDockerfile('8.8.0-1')));
+
+    const releaseDirs = createReleaseDirs();
+    writeFileSync(
+      join(releaseDirs.old, 'Dockerfile'),
+      starterDockerfile('8.8.0-1'),
+    );
+    writeFileSync(
+      join(releaseDirs.new, 'Dockerfile'),
+      starterDockerfile('8.10.0-1'),
+    );
+    downloadAndExtract
+      .mockReset()
+      .mockResolvedValueOnce(releaseDirs.old)
+      .mockResolvedValueOnce(releaseDirs.new);
+    existsSync.mockImplementation(actualExistsSync);
+    rmSync.mockImplementation(actualRmSync);
+    migrateWithThreeWayMerge.mockImplementation(actualMigrateWithThreeWayMerge);
+
+    const result = await runHapiMigration(tree, {
+      fromVersion: '8.8.0-1',
+      toVersion: '8.10.0-1',
+    });
+
+    expect(result.hasConflicts).toBe(false);
+    expect(tree.read('Dockerfile', 'utf-8')).toBe(
+      withFrontendLines(starterDockerfile('8.10.0-1')),
+    );
+  });
+
+  it('strips a nested server combined file', async () => {
+    addServer(tree, 'server', '8.8.0-1');
+    addProjectConfiguration(tree, 'frontend', {
+      root: 'server/frontend',
+      projectType: 'application',
+      targets: {
+        'copy-to-server': {
+          executor: 'nx:run-commands',
+          options: {
+            commands: [
+              'cpy "dist/**" "../server/src/main/resources/static" --cwd=.',
+            ],
+          },
+        },
+      },
+    });
+    tree.write(`server/${APPLICATION_YAML}`, RELEASE_YAML);
+    tree.write('server/Dockerfile', COMBINED_DOCKERFILE);
+
+    const releaseDirs = createReleaseDirs();
+    writeFileSync(join(releaseDirs.old, 'Dockerfile'), 'FROM starter:17\n');
+    writeFileSync(join(releaseDirs.new, 'Dockerfile'), 'FROM starter:21\n');
+    downloadAndExtract
+      .mockReset()
+      .mockResolvedValueOnce(releaseDirs.old)
+      .mockResolvedValueOnce(releaseDirs.new);
+    existsSync.mockImplementation(actualExistsSync);
+    rmSync.mockImplementation(actualRmSync);
+    migrateWithThreeWayMerge.mockImplementation(actualMigrateWithThreeWayMerge);
+
+    const result = await runHapiMigration(tree, {
+      fromVersion: '8.8.0-1',
+      toVersion: '8.10.0-1',
+    });
+
+    expect(result.hasConflicts).toBe(false);
+    expect(tree.read('server/Dockerfile', 'utf-8')).toBe(COMBINED_DOCKERFILE);
   });
 
   it('still merges the starter docker files for a sibling-level integration', async () => {

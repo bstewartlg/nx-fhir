@@ -10,7 +10,11 @@ export function getColumnsForResourceType(
   resourceType: string,
   onViewJson: (resource: FhirResource) => void,
 ): ColumnDef<typeof dataTableFeatures, FhirResource, unknown>[] {
-  const baseColumns: ColumnDef<typeof dataTableFeatures, FhirResource, unknown>[] = [
+  const baseColumns: ColumnDef<
+    typeof dataTableFeatures,
+    FhirResource,
+    unknown
+  >[] = [
     textColumn<FhirResource>("id", "ID", (row) => row.id, {
       size: 100,
       enableSorting: true,
@@ -20,7 +24,11 @@ export function getColumnsForResourceType(
 
   const template = getTemplate(resourceType);
 
-  const metaColumns: ColumnDef<typeof dataTableFeatures, FhirResource, unknown>[] = [
+  const metaColumns: ColumnDef<
+    typeof dataTableFeatures,
+    FhirResource,
+    unknown
+  >[] = [
     dateColumn<FhirResource>(
       "lastUpdated",
       "Last Updated",

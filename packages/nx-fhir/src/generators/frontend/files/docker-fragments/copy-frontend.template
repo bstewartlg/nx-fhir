@@ -1,0 +1,1 @@
+COPY --from=build-frontend /app/<%= frontendRoot %>/dist/ /tmp/hapi-fhir-jpaserver-starter/src/main/resources/static/

@@ -19,7 +19,7 @@ import {
 } from '../../shared/migration/hapi-migration';
 import { HapiMigration } from '../../shared/migration/hapi-migration-resolver';
 import { isInteractive } from '../../shared/utils/interactive';
-import { getServerProjects } from '../../shared/utils';
+import { getServerProjects, logOutcome, OutcomeLine } from '../../shared/utils';
 import {
   isHapiVersionSupported,
   SUPPORTED_HAPI_VERSIONS,
@@ -34,13 +34,24 @@ import {
  *
  * The returned callback repeats the outcome of the run. Nx prints the tree
  * change listing before it invokes the callback, so on a long migration the
- * outcome is the last thing on screen instead of scrolling away above the
- * listing. A run that migrates nothing returns nothing.
+ * outcome is the last thing on screen. A run that migrates nothing returns
+ * nothing.
  */
 export async function updateServerGenerator(
   tree: Tree,
   options: UpdateServerGeneratorSchema,
 ): Promise<GeneratorCallback | undefined> {
+  return logOutcome(await runServerUpdate(tree, options));
+}
+
+/**
+ * Runs the server update and returns its outcome lines, which repeat the
+ * result of the run. A run that migrates nothing returns undefined.
+ */
+export async function runServerUpdate(
+  tree: Tree,
+  options: UpdateServerGeneratorSchema,
+): Promise<OutcomeLine[] | undefined> {
 
   // Skip git check when called from nx migrate -- the workspace will always have
   // uncommitted changes (package.json, lockfiles, migrations.json, nx.json, project.json)
@@ -253,15 +264,17 @@ export async function updateServerGenerator(
         tree,
         projectConfig.root,
       );
-      return () => {
-        logger.warn(
-          `\n⚠️  Migration chain paused: ${options.project} is at HAPI FHIR ${migration.to} with unresolved conflicts.`,
-        );
-        warnConflictedFiles(conflictedFilesAtPause);
-        logger.warn(
-          `    Resolve the conflicts, then run the update-server generator again to continue (${remainingMigrations} step(s) remaining).`,
-        );
-      };
+      return [
+        {
+          level: 'warn',
+          text: `\n⚠️  Migration chain paused: ${options.project} is at HAPI FHIR ${migration.to} with unresolved conflicts.`,
+        },
+        ...conflictedFileLines(conflictedFilesAtPause),
+        {
+          level: 'warn',
+          text: `    Resolve the conflicts, then run the update-server generator again to continue (${remainingMigrations} step(s) remaining).`,
+        },
+      ];
     }
   }
 
@@ -281,33 +294,40 @@ export async function updateServerGenerator(
     );
     logger.warn(`    Look for <<<<<<< markers in your files.`);
 
-    return () => {
-      logger.warn(
-        `\n⚠️  ${options.project} is at HAPI FHIR ${options.targetVersion} with unresolved conflicts.`,
-      );
-      warnConflictedFiles(conflictedFilesAtEnd);
-      logger.warn(
-        '    Resolve the conflict markers before building the project.',
-      );
-    };
+    return [
+      {
+        level: 'warn',
+        text: `\n⚠️  ${options.project} is at HAPI FHIR ${options.targetVersion} with unresolved conflicts.`,
+      },
+      ...conflictedFileLines(conflictedFilesAtEnd),
+      {
+        level: 'warn',
+        text: '    Resolve the conflict markers before building the project.',
+      },
+    ];
   }
 
   logger.info(
     `\n✅ Successfully updated ${options.project} to HAPI FHIR ${options.targetVersion}`,
   );
 
-  return () =>
-    logger.info(
-      `\n✅ ${options.project} updated to HAPI FHIR ${options.targetVersion}.`,
-    );
+  return [
+    {
+      level: 'info',
+      text: `\n✅ ${options.project} updated to HAPI FHIR ${options.targetVersion}.`,
+    },
+  ];
 }
 
-/** Lists conflicted files the way the pre-run guard does, as warnings. */
-function warnConflictedFiles(files: string[]): void {
-  files.slice(0, 10).forEach((file) => logger.warn(`  - ${file}`));
+/** Lists conflicted files the way the pre-run guard does, as warning lines. */
+function conflictedFileLines(files: string[]): OutcomeLine[] {
+  const lines: OutcomeLine[] = files
+    .slice(0, 10)
+    .map((file) => ({ level: 'warn', text: `  - ${file}` }));
   if (files.length > 10) {
-    logger.warn(`  ... and ${files.length - 10} more`);
+    lines.push({ level: 'warn', text: `  ... and ${files.length - 10} more` });
   }
+  return lines;
 }
 
 export default updateServerGenerator;

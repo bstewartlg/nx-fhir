@@ -3,6 +3,7 @@ import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
 import {
   Tree,
   addProjectConfiguration,
+  logger,
   readJson,
   readProjectConfiguration,
   updateProjectConfiguration,
@@ -92,6 +93,13 @@ import {
   getLockfileName,
   getRunCommand,
 } from '../utils/package-manager';
+import { isRootWorkspaceMember } from '../utils/frontend-integration';
+import {
+  appendDockerignoreLines,
+  DockerFragments,
+  insertFrontendLines,
+  renderDockerFragments,
+} from '../utils/docker-splice';
 
 const templatesRoot = join(__dirname, '../../generators/frontend/files');
 const projectName = 'frontend';
@@ -137,7 +145,7 @@ function stageOldTemplates(files: Record<string, string>): void {
 interface WorkspaceOptions {
   template?: 'browser' | 'clinical';
   navigationLayout?: 'sidebar' | 'topnav';
-  workspaces?: string[];
+  workspaces?: string[] | { packages: string[] };
   currentFiles?: Record<string, string>;
   projectRoot?: string;
 }
@@ -220,6 +228,64 @@ describe('frontend-migration', () => {
         rmSync(join(tmpdir(), entry), { recursive: true, force: true });
       }
     }
+  });
+
+  describe('isRootWorkspaceMember', () => {
+    /** A workspace whose project at memberRoot has a package.json. */
+    function treeWithWorkspaces(workspaces: unknown, memberRoot: string): Tree {
+      const tree = createTreeWithEmptyWorkspace();
+      writeJson(tree, 'package.json', {
+        ...readJson(tree, 'package.json'),
+        workspaces,
+      });
+      writeJson(tree, `${memberRoot}/package.json`, { name: 'member' });
+      return tree;
+    }
+
+    it('is true for a literal entry', async () => {
+      const tree = treeWithWorkspaces(['frontend'], 'frontend');
+
+      expect(await isRootWorkspaceMember(tree, 'frontend')).toBe(true);
+    });
+
+    it('is true for a glob entry', async () => {
+      const tree = treeWithWorkspaces(['apps/*'], 'apps/frontend');
+
+      expect(await isRootWorkspaceMember(tree, 'apps/frontend')).toBe(true);
+    });
+
+    it('is true for a globstar entry that spans zero segments', async () => {
+      const tree = treeWithWorkspaces(['apps/**/frontend'], 'apps/frontend');
+
+      expect(await isRootWorkspaceMember(tree, 'apps/frontend')).toBe(true);
+    });
+
+    it('is true for an entry in the packages object form', async () => {
+      const tree = treeWithWorkspaces({ packages: ['frontend'] }, 'frontend');
+
+      expect(await isRootWorkspaceMember(tree, 'frontend')).toBe(true);
+    });
+
+    it('is false for a matched directory without a package.json', async () => {
+      const tree = treeWithWorkspaces(['apps/*'], 'apps/other');
+
+      expect(await isRootWorkspaceMember(tree, 'apps/frontend')).toBe(false);
+    });
+
+    it('is false when the root package.json has no workspaces', async () => {
+      const tree = createTreeWithEmptyWorkspace();
+      writeJson(tree, 'frontend/package.json', { name: 'member' });
+
+      expect(await isRootWorkspaceMember(tree, 'frontend')).toBe(false);
+    });
+
+    it('is false when the root package.json is absent', async () => {
+      const tree = createTreeWithEmptyWorkspace();
+      tree.delete('package.json');
+      writeJson(tree, 'frontend/package.json', { name: 'member' });
+
+      expect(await isRootWorkspaceMember(tree, 'frontend')).toBe(false);
+    });
   });
 
   describe('findFrontendProjectsToMigrate', () => {
@@ -388,6 +454,36 @@ describe('frontend-migration', () => {
       );
     });
 
+    describe('.gitignore template', () => {
+      beforeEach(() => {
+        stageOldTemplates({
+          'browser/vite.config.ts': readTemplate('browser/vite.config.ts'),
+          'common/src/lib/utils.ts': readTemplate('common/src/lib/utils.ts'),
+        });
+      });
+
+      it('adds .gitignore to a project without one', async () => {
+        const tree = createWorkspace();
+
+        await runFrontendMigration(tree, { fromVersion, toVersion });
+
+        expect(readProjectFile(tree, '.gitignore')).toBe(
+          readTemplate('common/__dot__gitignore.template')
+        );
+        expect(tree.exists(`${projectName}/gitignore`)).toBe(false);
+      });
+
+      it('keeps a project .gitignore that differs from the template', async () => {
+        const tree = createWorkspace({
+          currentFiles: { '.gitignore': 'custom\n' },
+        });
+
+        await runFrontendMigration(tree, { fromVersion, toVersion });
+
+        expect(readProjectFile(tree, '.gitignore')).toBe('custom\n');
+      });
+    });
+
     describe('three-way merge', () => {
       const upstreamOnly = 'common/src/lib/utils.ts';
       const userOnly = 'common/src/hooks/use-theme.ts';
@@ -494,29 +590,47 @@ describe('frontend-migration', () => {
         lockfileName: getLockfileName('bun'),
         ciInstallCommand: getCiInstallCommand('bun'),
         buildCommand: getRunCommand('bun', 'build'),
+        workspaceMember: false,
+        healthCheck: false,
       };
       const baseTemplates = {
         'browser/vite.config.ts': readTemplate('browser/vite.config.ts'),
         'common/src/lib/utils.ts': readTemplate('common/src/lib/utils.ts'),
       };
+      /** The fragments that the current docker templates include */
+      const fragmentTemplates = Object.fromEntries(
+        readdirSync(join(templatesRoot, 'docker-fragments')).map((name) => [
+          `docker-fragments/${name}`,
+          readTemplate(`docker-fragments/${name}`),
+        ])
+      );
 
       /** The docker templates rendered as the current plugin renders them */
-      function renderedDocker(relativePath: string): string {
-        return renderEjs(readTemplate(relativePath), dockerVars);
+      function renderedDocker(
+        relativePath: string,
+        overrides: Partial<typeof dockerVars> = {}
+      ): string {
+        return renderEjs(
+          readTemplate(relativePath),
+          { ...dockerVars, ...overrides },
+          { filename: join(templatesRoot, relativePath) }
+        );
       }
 
       function createIntegratedWorkspace(
-        currentFiles: Record<string, string> = {}
+        currentFiles: Record<string, string> = {},
+        serverRoot = 'server'
       ): Tree {
         const tree = createWorkspace();
 
         const serverConfiguration: ServerProjectConfiguration = {
-          root: 'server',
+          root: serverRoot,
           projectType: 'application',
           tags: ['fhir', 'server'],
           packageBase,
           fhirVersion: FhirVersion.R4,
           pluginVersion: fromVersion,
+          hapiReleaseVersion: '8.12.0-2',
         };
         addProjectConfiguration(tree, 'server', serverConfiguration);
 
@@ -529,8 +643,8 @@ describe('frontend-migration', () => {
             executor: 'nx:run-commands',
             options: {
               commands: [
-                'rimraf --glob "../server/src/main/resources/static/*"',
-                'cpy "dist/**" "../server/src/main/resources/static" --cwd=.',
+                `rimraf --glob "../${serverRoot}/src/main/resources/static/*"`,
+                `cpy "dist/**" "../${serverRoot}/src/main/resources/static" --cwd=.`,
               ],
             },
           },
@@ -566,9 +680,37 @@ describe('frontend-migration', () => {
         );
       });
 
+      it('compiles the server health check when the server has one', async () => {
+        const oldDocker = 'FROM old-base AS build-frontend\nCMD ["old"]\n';
+        stageOldTemplates({
+          ...baseTemplates,
+          ...fragmentTemplates,
+          'docker/Dockerfile.template': oldDocker,
+          'docker/__dot__dockerignore.template': readTemplate(
+            'docker/__dot__dockerignore.template'
+          ),
+        });
+        const tree = createIntegratedWorkspace({
+          Dockerfile: oldDocker,
+          '.dockerignore': renderedDocker('docker/__dot__dockerignore.template'),
+          'server/src/main/java/HealthCheck.java': 'public final class HealthCheck {}\n',
+        });
+
+        await runFrontendMigration(tree, { fromVersion, toVersion });
+
+        const dockerfile = tree.read('Dockerfile', 'utf-8');
+        expect(dockerfile).toBe(
+          renderedDocker('docker/Dockerfile.template', { healthCheck: true })
+        );
+        expect(dockerfile).toContain(
+          'COPY server/src/main/java/HealthCheck.java /app/HealthCheck.java'
+        );
+      });
+
       it('keeps user edits when the docker templates did not change', async () => {
         stageOldTemplates({
           ...baseTemplates,
+          ...fragmentTemplates,
           'docker/Dockerfile.template': readTemplate(
             'docker/Dockerfile.template'
           ),
@@ -593,6 +735,7 @@ describe('frontend-migration', () => {
       it('reports a conflict when both sides changed the same lines', async () => {
         stageOldTemplates({
           ...baseTemplates,
+          ...fragmentTemplates,
           'docker/Dockerfile.template': withFirstLine(
             readTemplate('docker/Dockerfile.template'),
             '# old template line'
@@ -625,11 +768,12 @@ describe('frontend-migration', () => {
       });
 
       it('migrates the integration Java classes into the server source tree', async () => {
-        const javaTemplate = 'server/config/SpaController.java.template';
+        const javaTemplate =
+          'server/config/SpaErrorViewResolverConfiguration.java.template';
         const javaPath = `server/src/main/java/${packageBase.replace(
           /\./g,
           '/'
-        )}/config/SpaController.java`;
+        )}/config/SpaErrorViewResolverConfiguration.java`;
         stageOldTemplates({
           ...baseTemplates,
           [javaTemplate]: withFirstLine(
@@ -651,9 +795,52 @@ describe('frontend-migration', () => {
         );
       });
 
+      it.each([false, true])(
+        'replaces the SPA controller with the error view resolver, controller edited: %s',
+        async (edited) => {
+          const configDir = `server/src/main/java/${packageBase.replace(
+            /\./g,
+            '/'
+          )}/config`;
+          const oldController =
+            'package <%= packageBase %>.config;\n\npublic class SpaController {\n}\n';
+          const renderedController = renderEjs(oldController, { packageBase });
+          const currentController = edited
+            ? `// user edit\n${renderedController}`
+            : renderedController;
+          stageOldTemplates({
+            ...baseTemplates,
+            'server/config/SpaController.java.template': oldController,
+          });
+          const tree = createIntegratedWorkspace({
+            [`${configDir}/SpaController.java`]: currentController,
+          });
+
+          await runFrontendMigration(tree, { fromVersion, toVersion });
+
+          expect(
+            tree.read(`${configDir}/SpaController.java`, 'utf-8') ?? null
+          ).toBe(edited ? currentController : null);
+          expect(
+            tree.read(
+              `${configDir}/SpaErrorViewResolverConfiguration.java`,
+              'utf-8'
+            )
+          ).toBe(
+            renderEjs(
+              readTemplate(
+                'server/config/SpaErrorViewResolverConfiguration.java.template'
+              ),
+              { packageBase }
+            )
+          );
+        }
+      );
+
       it('leaves integration files alone for a project without server integration', async () => {
         stageOldTemplates({
           ...baseTemplates,
+          ...fragmentTemplates,
           'docker/Dockerfile.template': readTemplate(
             'docker/Dockerfile.template'
           ),
@@ -680,6 +867,360 @@ describe('frontend-migration', () => {
         expect(tree.read('Dockerfile', 'utf-8')).toBe(
           '# my custom dockerfile\n'
         );
+      });
+
+      it('renders the workspace install for a member', async () => {
+        const oldDocker = 'FROM old-base AS build-frontend\n';
+        stageOldTemplates({
+          ...baseTemplates,
+          'docker/Dockerfile.template': oldDocker,
+        });
+        const tree = createIntegratedWorkspace({ Dockerfile: oldDocker });
+        writeJson(tree, 'package.json', {
+          ...readJson(tree, 'package.json'),
+          workspaces: [projectName],
+        });
+
+        await runFrontendMigration(tree, { fromVersion, toVersion });
+
+        expect(tree.read('Dockerfile', 'utf-8')).toBe(
+          renderedDocker('docker/Dockerfile.template', {
+            workspaceMember: true,
+          })
+        );
+        // The Dockerfile variables and the install both read the lockfile at
+        // the workspace root, whatever the current directory is.
+        expect(detectPackageManager.mock.calls).toEqual([
+          [tree.root],
+          [tree.root],
+        ]);
+      });
+
+      it('renders a nested frontend', () => {
+        const rendered = renderedDocker('docker/Dockerfile.template', {
+          frontendRoot: 'apps/frontend',
+          workspaceMember: true,
+        });
+
+        expect(rendered).toContain('COPY package.json bun.lock ./');
+        expect(rendered).toContain(
+          'COPY apps/frontend/package.json ./apps/frontend/'
+        );
+      });
+
+      it('renders the npm lockfile', () => {
+        const rendered = renderedDocker('docker/Dockerfile.template', {
+          lockfileName: getLockfileName('npm'),
+          ciInstallCommand: getCiInstallCommand('npm'),
+          workspaceMember: true,
+        });
+
+        expect(rendered).toContain('COPY package.json package-lock.json ./');
+        expect(rendered).toContain('RUN npm ci');
+      });
+
+      it('keeps the standalone Dockerfile lines for a frontend outside the workspaces', () => {
+        const rendered = renderedDocker('docker/Dockerfile.template', {
+          workspaceMember: false,
+        });
+
+        expect(rendered).toContain(
+          [
+            '# Copy package files and lockfile',
+            'COPY frontend/package.json ./frontend/',
+            'COPY frontend/bun.lock ./frontend/',
+            '',
+            '# Install dependencies',
+            'WORKDIR /app/frontend',
+            'RUN bun install --frozen-lockfile',
+            '',
+            '# Copy frontend source files for build',
+          ].join('\n')
+        );
+      });
+
+      describe('server-root layout', () => {
+        const fixtureDir = join(__dirname, '../utils/__fixtures__/starter-docker');
+        const readFixture = (file: string) =>
+          readFileSync(join(fixtureDir, file), 'utf-8');
+        const starterFiles = JSON.parse(readFixture('releases.json'))['8.12.0-2'];
+        const starterDockerfile = readFixture(starterFiles.dockerfile);
+        const starterIgnore = readFixture(starterFiles.dockerignore);
+
+        const rootVars = { ...dockerVars, serverRoot: '.' };
+        const stageTemplate = 'docker-fragments/build-frontend-stage.template';
+        const newStageLine = '# Copy frontend source files for build';
+        const oldStageLine = '# Copy the frontend sources';
+        const oldStageTemplate = readTemplate(stageTemplate).replace(
+          newStageLine,
+          oldStageLine
+        );
+        const newFragments = renderDockerFragments(
+          templatesRoot,
+          rootVars
+        ) as DockerFragments;
+        const oldFragments: DockerFragments = {
+          ...newFragments,
+          frontendStage: renderEjs(oldStageTemplate, rootVars),
+        };
+        const splicedStarter = (fragments: DockerFragments) =>
+          insertFrontendLines(starterDockerfile, fragments) as string;
+        const splicedIgnore = appendDockerignoreLines(
+          starterIgnore,
+          oldFragments.dockerignoreLines
+        );
+
+        /** The old plugin version: the current templates with one changed stage line */
+        function stageRootTemplates(
+          overrides: Record<string, string> = {}
+        ): void {
+          stageOldTemplates({
+            ...baseTemplates,
+            ...fragmentTemplates,
+            [stageTemplate]: oldStageTemplate,
+            'docker/Dockerfile.template': readTemplate(
+              'docker/Dockerfile.template'
+            ),
+            'docker/__dot__dockerignore.template': readTemplate(
+              'docker/__dot__dockerignore.template'
+            ),
+            ...overrides,
+          });
+        }
+
+        const createRootWorkspace = (files: Record<string, string> = {}) =>
+          createIntegratedWorkspace(
+            {
+              Dockerfile: splicedStarter(oldFragments),
+              '.dockerignore': splicedIgnore,
+              ...files,
+            },
+            '.'
+          );
+
+        function statusesFor(result: FrontendMigrationResult, path: string) {
+          return result.projectResults[0].summary.results
+            .filter((entry) => entry.path === path)
+            .map((entry) => entry.status);
+        }
+
+        const conflictMarker = /^(<<<<<<<|=======|>>>>>>>)/m;
+
+        it('updates an unchanged frontend stage', async () => {
+          expect(oldFragments.frontendStage).not.toBe(newFragments.frontendStage);
+          stageRootTemplates();
+          const tree = createRootWorkspace();
+
+          const result = await runFrontendMigration(tree, {
+            fromVersion,
+            toVersion,
+          });
+
+          expect(tree.read('Dockerfile', 'utf-8')).toBe(
+            splicedStarter(newFragments)
+          );
+          expect(tree.read('.dockerignore', 'utf-8')).toBe(splicedIgnore);
+          expect(statusesFor(result, 'Dockerfile')).toEqual(['merged']);
+        });
+
+        it('keeps a user edit in the starter lines', async () => {
+          const starterFrom = starterDockerfile.split('\n')[0];
+          const userStarter = starterDockerfile.replace(
+            `${starterFrom}\n`,
+            `${starterFrom}\n# user\n`
+          );
+          stageRootTemplates();
+          const tree = createRootWorkspace({
+            Dockerfile: insertFrontendLines(userStarter, oldFragments) as string,
+          });
+
+          await runFrontendMigration(tree, { fromVersion, toVersion });
+
+          expect(tree.read('Dockerfile', 'utf-8')).toBe(
+            insertFrontendLines(userStarter, newFragments)
+          );
+        });
+
+        it('reports a conflict inside the stage only', async () => {
+          stageRootTemplates();
+          const tree = createRootWorkspace({
+            Dockerfile: splicedStarter(oldFragments).replace(
+              oldStageLine,
+              '# Copy the sources (user)'
+            ),
+          });
+
+          const result = await runFrontendMigration(tree, {
+            fromVersion,
+            toVersion,
+          });
+
+          const merged = tree.read('Dockerfile', 'utf-8') ?? '';
+          const stageLines = newFragments.frontendStage.trimEnd().split('\n');
+          const stageStart = merged.indexOf(stageLines[0]);
+          const lastStageLine = stageLines[stageLines.length - 1];
+          const stageEnd =
+            merged.indexOf(lastStageLine, stageStart) + lastStageLine.length;
+          expect(stageStart).toBeGreaterThanOrEqual(0);
+          expect(merged.slice(stageStart, stageEnd)).toMatch(conflictMarker);
+          expect(merged.slice(0, stageStart)).not.toMatch(conflictMarker);
+          expect(merged.slice(stageEnd)).not.toMatch(conflictMarker);
+          expect(statusesFor(result, 'Dockerfile')).toEqual(['conflict']);
+        });
+
+        it('keeps a deleted COPY line', async () => {
+          stageRootTemplates();
+          const tree = createRootWorkspace({
+            Dockerfile: splicedStarter(oldFragments).replace(
+              oldFragments.copyFrontend,
+              ''
+            ),
+          });
+
+          await runFrontendMigration(tree, { fromVersion, toVersion });
+
+          const merged = tree.read('Dockerfile', 'utf-8') ?? '';
+          expect(merged).not.toContain('COPY --from=build-frontend');
+          expect(merged).toContain(newStageLine);
+        });
+
+        it('skips the docker files when the old version ships no fragments', async () => {
+          stageOldTemplates(baseTemplates);
+          const tree = createRootWorkspace();
+
+          await runFrontendMigration(tree, { fromVersion, toVersion });
+
+          expect(tree.read('Dockerfile', 'utf-8')).toBe(
+            splicedStarter(oldFragments)
+          );
+          expect(tree.read('.dockerignore', 'utf-8')).toBe(splicedIgnore);
+          expect(logger.info).toHaveBeenCalledWith(
+            expect.stringContaining("'docker-fragments'")
+          );
+        });
+
+        it('skips a Dockerfile with no frontend stage', async () => {
+          const ignoreTemplate = 'docker-fragments/dockerignore-lines.template';
+          const oldIgnoreTemplate = readTemplate(ignoreTemplate).replace(
+            '<%= frontendRoot %>/.tanstack\n',
+            ''
+          );
+          expect(oldIgnoreTemplate).not.toBe(readTemplate(ignoreTemplate));
+          stageRootTemplates({ [ignoreTemplate]: oldIgnoreTemplate });
+          const dockerignore = appendDockerignoreLines(
+            starterIgnore,
+            renderEjs(oldIgnoreTemplate, rootVars)
+          );
+          const tree = createRootWorkspace({
+            Dockerfile: starterDockerfile,
+            '.dockerignore': dockerignore,
+          });
+
+          await runFrontendMigration(tree, { fromVersion, toVersion });
+
+          expect(tree.read('Dockerfile', 'utf-8')).toBe(starterDockerfile);
+          expect(tree.read('.dockerignore', 'utf-8')).toBe(dockerignore);
+          expect(logger.warn).toHaveBeenCalledWith(
+            expect.stringMatching(
+              /^Dockerfile .*no build-frontend stage.* leaves Dockerfile and \.dockerignore unchanged\.$/
+            )
+          );
+        });
+
+        it('leaves the docker files unchanged for a second frontend', async () => {
+          const ignoreTemplate = 'docker-fragments/dockerignore-lines.template';
+          const oldIgnoreTemplate = readTemplate(ignoreTemplate).replace(
+            '<%= frontendRoot %>/.tanstack\n',
+            '<%= frontendRoot %>/.cache\n'
+          );
+          expect(oldIgnoreTemplate).not.toBe(readTemplate(ignoreTemplate));
+          stageRootTemplates({ [ignoreTemplate]: oldIgnoreTemplate });
+          const dockerignore = appendDockerignoreLines(
+            starterIgnore,
+            renderEjs(oldIgnoreTemplate, rootVars)
+          );
+          const tree = createRootWorkspace({ '.dockerignore': dockerignore });
+          const secondRoot = 'admin';
+          addProjectConfiguration(tree, secondRoot, {
+            ...readProjectConfiguration(tree, projectName),
+            name: secondRoot,
+            root: secondRoot,
+            sourceRoot: `${secondRoot}/src`,
+          });
+          writeJson(tree, `${secondRoot}/package.json`, {
+            name: secondRoot,
+            dependencies: {},
+            devDependencies: {},
+          });
+
+          await runFrontendMigration(tree, {
+            fromVersion,
+            toVersion,
+            project: secondRoot,
+          });
+
+          expect([
+            tree.read('Dockerfile', 'utf-8'),
+            tree.read('.dockerignore', 'utf-8'),
+          ]).toEqual([splicedStarter(oldFragments), dockerignore]);
+          expect(logger.warn).toHaveBeenCalledWith(
+            expect.stringMatching(
+              /^Dockerfile has a build-frontend stage for a frontend other than 'admin'\. .* leaves Dockerfile and \.dockerignore unchanged\.$/
+            )
+          );
+        });
+
+        it('keeps an ignore line the user edited', async () => {
+          const ignoreTemplate = 'docker-fragments/dockerignore-lines.template';
+          const oldIgnoreTemplate = readTemplate(ignoreTemplate).replace(
+            '<%= frontendRoot %>/.tanstack\n',
+            '<%= frontendRoot %>/.cache\n'
+          );
+          expect(oldIgnoreTemplate).not.toBe(readTemplate(ignoreTemplate));
+          stageRootTemplates({ [ignoreTemplate]: oldIgnoreTemplate });
+          const oldIgnore = appendDockerignoreLines(
+            starterIgnore,
+            renderEjs(oldIgnoreTemplate, rootVars)
+          );
+          const editedIgnore = oldIgnore.replace(
+            `\n${projectName}/node_modules\n`,
+            `\n${projectName}/node_modules/\n`
+          );
+          expect(editedIgnore).not.toBe(oldIgnore);
+          const tree = createRootWorkspace({ '.dockerignore': editedIgnore });
+
+          await runFrontendMigration(tree, { fromVersion, toVersion });
+
+          const ignoreLines = (tree.read('.dockerignore', 'utf-8') ?? '').split('\n');
+          expect(ignoreLines).toContain(`${projectName}/.tanstack`);
+          expect(ignoreLines).not.toContain(`${projectName}/.cache`);
+          expect(ignoreLines).toContain(`${projectName}/node_modules/`);
+          expect(ignoreLines).not.toContain(`${projectName}/node_modules`);
+        });
+
+        it('merges a legacy combined file against the combined template', async () => {
+          stageRootTemplates({
+            [stageTemplate]: readTemplate(stageTemplate),
+            'docker/Dockerfile.template': withFirstLine(
+              readTemplate('docker/Dockerfile.template'),
+              '# old template line'
+            ),
+          });
+          const combined = renderedDocker('docker/Dockerfile.template', {
+            serverRoot: '.',
+          });
+          const tree = createRootWorkspace({
+            Dockerfile: withFirstLine(combined, '# old template line'),
+            '.dockerignore': renderedDocker(
+              'docker/__dot__dockerignore.template',
+              { serverRoot: '.' }
+            ),
+          });
+
+          await runFrontendMigration(tree, { fromVersion, toVersion });
+
+          expect(tree.read('Dockerfile', 'utf-8')).toBe(combined);
+        });
       });
     });
 
@@ -805,6 +1346,7 @@ describe('frontend-migration', () => {
             runFrontendMigration(tree, { fromVersion, toVersion })
           ).rejects.toThrow('install failed');
 
+          expect(removedLockfiles()).toContain(join(workspaceDir, 'bun.lock'));
           expect(readFileSync(join(workspaceDir, 'bun.lock'), 'utf-8')).toBe(
             rootLock
           );
@@ -1041,6 +1583,16 @@ describe('frontend-migration', () => {
         const tree = createWorkspace({
           projectRoot: `apps/${projectName}`,
           workspaces: [`apps/**/${projectName}`],
+        });
+
+        await runFrontendMigration(tree, { fromVersion, toVersion });
+
+        expect(removedLockfiles()).toContain(join(tree.root, 'bun.lock'));
+      });
+
+      it('removes the root lockfile for a project listed in the object form of workspaces', async () => {
+        const tree = createWorkspace({
+          workspaces: { packages: [projectName] },
         });
 
         await runFrontendMigration(tree, { fromVersion, toVersion });

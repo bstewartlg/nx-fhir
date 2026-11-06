@@ -3,10 +3,12 @@ import {
   detectPackageManager,
   generateFiles,
   getProjects,
+  joinPathFragments,
   logger,
   ProjectConfiguration,
   readJson,
   Tree,
+  updateJson,
   updateProjectConfiguration,
   writeJson,
 } from '@nx/devkit';
@@ -16,15 +18,22 @@ import { select } from '@inquirer/prompts';
 import path = require('path');
 import { FrontendProjectConfiguration, ServerProjectConfiguration } from '../../shared/models';
 import { registerNxPlugin, removeTesterSection } from '../../shared/utils';
-import {
-  getCiInstallCommand,
-  getDockerBaseImage,
-  getInstallCommand,
-  getLockfileName,
-  getRunCommand,
-} from '../../shared/utils/package-manager';
+import { isInteractive } from '../../shared/utils/interactive';
+import { getInstallCommand } from '../../shared/utils/package-manager';
 import { CURRENT_FRONTEND_VERSION } from '../../shared/migration/frontend-migration-resolver';
-import { integrationDockerFileNames } from '../../shared/utils/frontend-integration';
+import {
+  frontendDockerVars,
+  integrationDockerFileNames,
+} from '../../shared/utils/frontend-integration';
+import {
+  appendDockerignoreLines,
+  DockerFragments,
+  frontendStageBuilds,
+  insertFrontendLines,
+  isServerRootLayout,
+  removeFrontendLines,
+  renderDockerFragments,
+} from '../../shared/utils/docker-splice';
 
 /**
  * Template-specific configuration for frontend projects.
@@ -37,51 +46,51 @@ export const FRONTEND_TEMPLATE_CONFIG: Record<string, { appTitle: string; bgLigh
 
 /** Dependencies shared by all frontend templates */
 export const BASE_DEPENDENCIES: Record<string, string> = {
-  '@radix-ui/react-collapsible': '^1.1.20',
-  '@radix-ui/react-scroll-area': '^1.2.18',
-  '@radix-ui/react-tabs': '^1.1.21',
+  '@radix-ui/react-collapsible': '^1.2.1',
+  '@radix-ui/react-scroll-area': '^1.4.0',
+  '@radix-ui/react-tabs': '^1.2.1',
   '@tailwindcss/vite': '^4.3.3',
-  '@tanstack/react-devtools': '^0.10.9',
-  '@tanstack/react-query': '^5.101.4',
-  '@tanstack/react-router': '^1.170.25',
-  '@tanstack/react-router-devtools': '^1.167.1',
-  '@tanstack/react-table': '^9.1.2',
-  '@tanstack/router-plugin': '^1.168.29',
+  '@tanstack/react-devtools': '^0.10.14',
+  '@tanstack/react-query': '^5.105.1',
+  '@tanstack/react-router': '^1.170.46',
+  '@tanstack/react-router-devtools': '^1.167.2',
+  '@tanstack/react-table': '^9.3.1',
+  '@tanstack/router-plugin': '^1.168.48',
   'class-variance-authority': '^0.7.1',
   'clsx': '^2.1.1',
-  'lucide-react': '^1.31.0',
+  'lucide-react': '^1.66.0',
   '@monaco-editor/react': '^4.7.0',
-  'radix-ui': '^1.6.7',
-  'react': '^19.2.8',
-  'react-dom': '^19.2.8',
+  'radix-ui': '^1.8.1',
+  'react': '^19.3.1',
+  'react-dom': '^19.3.1',
   'sonner': '^2.0.8',
-  'tailwind-merge': '^3.6.0',
+  'tailwind-merge': '^3.7.0',
   'tailwindcss': '^4.3.3',
   'tw-animate-css': '^1.4.0',
 };
 
 /** Dependencies only needed by the browser template */
 export const BROWSER_ONLY_DEPENDENCIES: Record<string, string> = {
-  '@tanstack/react-virtual': '^3.14.9',
+  '@tanstack/react-virtual': '^3.14.25',
   'cmdk': '^1.1.1',
 };
 
 /** Dev dependencies for all frontend templates */
 export const DEV_DEPENDENCIES: Record<string, string> = {
-  '@biomejs/biome': '2.5.7',
-  '@tanstack/devtools-vite': '^0.8.3',
-  '@testing-library/dom': '^10.4.1',
+  '@biomejs/biome': '2.6.4',
+  '@tanstack/devtools-vite': '^0.8.6',
+  '@testing-library/dom': '^10.4.2',
   '@testing-library/jest-dom': '~6.9.1',
-  '@testing-library/react': '^16.3.2',
+  '@testing-library/react': '^16.3.3',
   '@types/fhir': '^0.0.44',
-  '@types/node': '^26.2.0',
-  '@types/react': '^19.2.18',
-  '@types/react-dom': '^19.2.4',
-  '@vitejs/plugin-react': '^6.0.5',
+  '@types/node': '^26.6.6',
+  '@types/react': '^19.3.0',
+  '@types/react-dom': '^19.3.0',
+  '@vitejs/plugin-react': '^6.1.2',
   'jsdom': '^29.1.1',
   'typescript': '~6.0.3',
-  'vite': '^8.2.0',
-  'vitest': '^4.1.10',
+  'vite': '^8.3.5',
+  'vitest': '^4.1.12',
 };
 
 /**
@@ -107,14 +116,20 @@ export async function frontendGenerator(
 
   let navigationLayout = options.navigationLayout ?? 'sidebar';
   if (template === 'clinical' && !options.navigationLayout) {
-    navigationLayout = await select({
-      message: 'Which navigation layout would you like?',
-      choices: [
-        { name: 'Sidebar - Collapsible left navigation for many pages', value: 'sidebar' as const },
-        { name: 'Top Navigation - Horizontal nav bar for few entry pages', value: 'topnav' as const },
-      ],
-      default: 'sidebar',
-    });
+    if (isInteractive()) {
+      navigationLayout = await select({
+        message: 'Which navigation layout would you like?',
+        choices: [
+          { name: 'Sidebar - Collapsible left navigation for many pages', value: 'sidebar' as const },
+          { name: 'Top Navigation - Horizontal nav bar for few entry pages', value: 'topnav' as const },
+        ],
+        default: 'sidebar',
+      });
+    } else {
+      logger.info(
+        "No terminal available to choose a navigation layout. Using 'sidebar'. Pass --navigationLayout=topnav for the top navigation layout."
+      );
+    }
   }
 
   if (tree.exists(projectRoot)) {
@@ -122,7 +137,7 @@ export async function frontendGenerator(
     return;
   }
 
-  const packageManager = detectPackageManager();
+  const packageManager = detectPackageManager(tree.root);
   const { dependencies, devDependencies } = getFrontendDependencies(template);
 
   const packageJson = {
@@ -162,7 +177,7 @@ export async function frontendGenerator(
   };
   addProjectConfiguration(tree, options.name, projectConfig);
 
-  const templateVars = { ...options, ...FRONTEND_TEMPLATE_CONFIG[template] };
+  const templateVars = { ...options, ...FRONTEND_TEMPLATE_CONFIG[template], dot: '.' };
 
   // Shared foundation (config, UI components, hooks, lib)
   generateFiles(tree, path.join(__dirname, 'files/common'), projectRoot, templateVars);
@@ -218,14 +233,16 @@ export async function frontendGenerator(
 }
 
 function addToWorkspaces(tree: Tree, projectRoot: string) {
-  const packageJson = readJson(tree, 'package.json');
-  if (!packageJson.workspaces) {
-    packageJson.workspaces = [];
-  }
-  if (!packageJson.workspaces.includes(projectRoot)) {
-    packageJson.workspaces.push(projectRoot);
-    writeJson(tree, 'package.json', packageJson);
-  }
+  updateJson(tree, 'package.json', (packageJson) => {
+    packageJson.workspaces ??= [];
+    const ws = packageJson.workspaces;
+    // The workspaces field is either a pattern array or an object with a packages array.
+    const patterns: string[] = Array.isArray(ws) ? ws : (ws.packages ??= []);
+    if (!patterns.includes(projectRoot)) {
+      patterns.push(projectRoot);
+    }
+    return packageJson;
+  });
 }
 
 function getPluginVersion(): string {
@@ -252,17 +269,29 @@ async function integrateFrontendWithServer(
   if (!server) {
     try {
       getProjects(tree);
-      const serverProjects = Array.from(getProjects(tree).values()).filter(
-        (project) =>
+      const serverProjects = Array.from(getProjects(tree).entries()).filter(
+        ([, project]) =>
           project.projectType === 'application' &&
           project.tags?.includes('fhir') &&
           project.tags?.includes('server')
       );
 
+      if (serverProjects.length > 0 && !isInteractive()) {
+        // Integration edits the server's files, so a run without a terminal
+        // never picks a server on its own.
+        logger.info(
+          `No terminal available to select a server project (${serverProjects.map(([projectName]) => projectName).join(', ')}). ` +
+            'Skipping integration. Pass --server=<name> to integrate the frontend with one of them.'
+        );
+        return;
+      }
+
       if (serverProjects.length > 0) {
-        const choices = serverProjects.map((project) => ({
-          name: project.root,
-          value: project.root,
+        // The value is the project name because the lookup below is by name.
+        // An imported server's name differs from its root, which is often '.'.
+        const choices = serverProjects.map(([projectName, project]) => ({
+          name: `${projectName} (${project.root})`,
+          value: projectName,
         }));
         choices.push({ name: 'None', value: 'none' });
 
@@ -309,7 +338,7 @@ async function integrateFrontendWithServer(
   frontendPackageJson.devDependencies = {
     ...frontendPackageJson.devDependencies,
     'cpy-cli': '^6.0.0',
-    rimraf: '^6.0.0',
+    rimraf: '^6.1.3',
   };
   writeJson(tree, `${frontendProject.root}/package.json`, frontendPackageJson);
 
@@ -349,59 +378,115 @@ async function integrateFrontendWithServer(
     ),
     { packageBase: serverProject.packageBase }
   );
-  // The docker files land in the frontend project's parent directory. When
-  // the server was imported at the workspace root the frontend usually lives
-  // directly beneath it, so the combined frontend + server Dockerfile would
-  // silently overwrite the starter's own docker files. Preserve anything that
-  // is about to be replaced under an .orig name; a backup left by an earlier
-  // run is kept, since it holds the pre-integration original.
-  const dockerOutputDir = path.join(frontendProject.root, '../');
-  for (const fileName of integrationDockerFileNames()) {
-    const existingFile = path.join(dockerOutputDir, fileName);
-    const backupFile = `${existingFile}.orig`;
-    if (tree.exists(existingFile) && !tree.exists(backupFile)) {
-      tree.rename(existingFile, backupFile);
-      logger.warn(
-        `Existing ${fileName} in '${dockerOutputDir}' was preserved as ${fileName}.orig ` +
-          'and replaced by the combined frontend + server version.'
-      );
+  const dockerVars = await frontendDockerVars(tree, frontendProject.root, serverProject.root);
+  if (isServerRootLayout(serverProject.root, frontendProject.root)) {
+    const fragments = renderDockerFragments(path.join(__dirname, 'files'), dockerVars);
+    if (fragments === null) {
+      throw new Error('The docker fragments are missing from the nx-fhir package.');
     }
+    spliceStarterDockerFiles(tree, serverProject.root, frontendProject.root, fragments);
+  } else {
+    // The combined frontend + server Dockerfile lands in the frontend
+    // project's parent directory, which can already hold docker files.
+    // Preserve anything that is about to be replaced under an .orig name. A
+    // backup left by an earlier run is kept, since it holds the
+    // pre-integration original.
+    const dockerOutputDir = path.join(frontendProject.root, '../');
+    for (const fileName of integrationDockerFileNames()) {
+      const existingFile = path.join(dockerOutputDir, fileName);
+      const backupFile = `${existingFile}.orig`;
+      if (tree.exists(existingFile) && !tree.exists(backupFile)) {
+        tree.rename(existingFile, backupFile);
+        logger.warn(
+          `Existing ${fileName} in '${dockerOutputDir}' was preserved as ${fileName}.orig ` +
+            'and replaced by the combined frontend + server version.'
+        );
+      }
+    }
+
+    generateFiles(tree, path.join(__dirname, 'files/docker'), dockerOutputDir, dockerVars);
   }
 
-  const packageManager = detectPackageManager();
-  generateFiles(
-    tree,
-    path.join(__dirname, 'files/docker'),
-    path.join(frontendProject.root, '../'),
-    {
-      dot: '.',
-      frontendRoot: frontendProject.root,
-      serverRoot: serverProject.root,
-      dockerBaseImage: getDockerBaseImage(packageManager),
-      lockfileName: getLockfileName(packageManager),
-      ciInstallCommand: getCiInstallCommand(packageManager),
-      buildCommand: getRunCommand(packageManager, 'build'),
+  // Remove the hapi.fhir.tester section from application.yaml and from every
+  // profile file. This will prevent Thymeleaf from overriding serving from
+  // resources/static by default. Any tester entry left in a profile file keeps
+  // the tester enabled, and an entry whose name came from application.yaml
+  // stops HAPI at startup. The section is spliced out by line, so the rest of
+  // each file keeps the exact bytes that later server migrations merge against.
+  const resourcesRoot = path.join(serverProject.root, 'src/main/resources');
+  for (const fileName of tree.children(resourcesRoot)) {
+    if (!/^application(-[^.]+)?\.ya?ml$/.test(fileName)) {
+      continue;
     }
-  );
-
-  // Modify the existing application.yaml to remove the hapi.fhir.tester section.
-  // This will prevent Thymeleaf from overriding serving from resources/static by default.
-  // The section is spliced out by line, so the rest of the file keeps the exact
-  // upstream bytes that later server migrations merge against.
-  const serverYamlPath = path.join(
-    serverProject.root,
-    'src/main/resources/application.yaml'
-  );
-  const serverYaml = tree.read(serverYamlPath, 'utf-8');
-  if (serverYaml) {
-    const withoutTester = removeTesterSection(serverYaml);
-    if (withoutTester !== serverYaml) {
-      tree.write(serverYamlPath, withoutTester);
+    const yamlPath = path.join(resourcesRoot, fileName);
+    const yaml = tree.read(yamlPath, 'utf-8') ?? '';
+    const withoutTester = removeTesterSection(yaml);
+    if (withoutTester !== yaml) {
+      tree.write(yamlPath, withoutTester);
     }
   }
 
   logger.info(
     `Frontend project '${frontendProject.root}' integrated with server project '${serverProject.root}'.`
+  );
+}
+
+/**
+ * Adds the frontend lines to the HAPI starter's own Dockerfile and
+ * .dockerignore. The starter's lines keep their bytes, so a server migration
+ * merges starter updates into these files.
+ */
+function spliceStarterDockerFiles(
+  tree: Tree,
+  serverRoot: string,
+  frontendRoot: string,
+  fragments: DockerFragments
+): void {
+  const dockerfilePath = joinPathFragments(serverRoot, 'Dockerfile');
+  const dockerignorePath = joinPathFragments(serverRoot, '.dockerignore');
+  const dockerfile = tree.read(dockerfilePath, 'utf-8');
+
+  if (dockerfile !== null && removeFrontendLines(dockerfile) !== null) {
+    if (frontendStageBuilds(dockerfile, frontendRoot)) {
+      logger.info(
+        `${dockerfilePath} already has a build-frontend stage. ` +
+          `The generator does not change ${dockerfilePath} or ${dockerignorePath}.`
+      );
+    } else {
+      logger.warn(
+        `${dockerfilePath} has a build-frontend stage for a frontend other than '${frontendRoot}'. ` +
+          'The server image builds only the frontend that is already in the stage. ' +
+          `The generator does not change ${dockerfilePath} or ${dockerignorePath}.`
+      );
+    }
+    return;
+  }
+
+  const spliced = dockerfile === null ? null : insertFrontendLines(dockerfile, fragments);
+  if (spliced === null) {
+    const reason =
+      dockerfile === null
+        ? `${dockerfilePath} does not exist.`
+        : `${dockerfilePath} has no FROM line or no COPY src/ line.`;
+    logger.warn(
+      [
+        `${reason} The generator does not change ${dockerfilePath} or ${dockerignorePath}.`,
+        'To build the frontend into the server image, add these lines by hand.',
+        `Above the first FROM line of ${dockerfilePath}:`,
+        fragments.frontendStage.trimEnd(),
+        `After the COPY src/ line of ${dockerfilePath}:`,
+        fragments.copyFrontend.trimEnd(),
+        `At the end of ${dockerignorePath}:`,
+        fragments.dockerignoreLines.trimEnd(),
+      ].join('\n')
+    );
+    return;
+  }
+
+  tree.write(dockerfilePath, spliced);
+  tree.write(
+    dockerignorePath,
+    appendDockerignoreLines(tree.read(dockerignorePath, 'utf-8') ?? '', fragments.dockerignoreLines)
   );
 }
 export default frontendGenerator;

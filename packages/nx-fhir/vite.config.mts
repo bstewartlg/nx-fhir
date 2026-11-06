@@ -12,6 +12,7 @@ export default defineConfig(() => ({
     include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
     exclude: ['src/**/*.e2e.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}', 'src/**/files/**'],
     reporters: ['default'],
+    env: { NX_DAEMON: 'false' },
     coverage: {
       reportsDirectory: '../../coverage/packages/nx-fhir',
       provider: 'v8' as const,

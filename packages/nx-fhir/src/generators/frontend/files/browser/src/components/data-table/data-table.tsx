@@ -45,7 +45,8 @@ export function DataTable<TData extends RowData>({
 }: DataTableProps<TData>) {
   // Use internal state only when not using manual sorting
   const [internalSorting, setInternalSorting] = useState<SortingState>([]);
-  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
+  const [columnVisibility, setColumnVisibility] =
+    useState<ColumnVisibilityState>({});
 
   // Use controlled state when manualSorting is enabled
   const sorting = manualSorting ? (controlledSorting ?? []) : internalSorting;
