@@ -754,6 +754,26 @@ describe('migrateWithThreeWayMerge', () => {
     expect(summary.added).toBe(1);
   });
 
+  it('adds every new file when no skip hook is passed', async () => {
+    writeVersionFile(oldDir, 'src/a.ts', 'template\n');
+    writeVersionFile(newDir, 'src/a.ts', 'template\n');
+    writeVersionFile(newDir, 'src/a.test.ts', 'test\n');
+    tree.write(`${projectRoot}/src/a.ts`, 'user rewrite\n');
+
+    const summary = await migrateWithThreeWayMerge(
+      tree,
+      projectRoot,
+      oldDir,
+      newDir,
+      '1.0.0',
+      '2.0.0',
+    );
+
+    expect(tree.read(`${projectRoot}/src/a.test.ts`, 'utf-8')).toBe('test\n');
+    expect(summary.added).toBe(1);
+    expect(summary.skipped).toBe(0);
+  });
+
   it('leaves a project file identical to the file upstream added', async () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     writeVersionFile(newDir, 'added.txt', 'same\n');

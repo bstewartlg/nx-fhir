@@ -1,4 +1,9 @@
-import { detectPackageManager, PackageManager, workspaceRoot } from '@nx/devkit';
+import {
+  detectPackageManager,
+  getPackageManagerCommand,
+  PackageManager,
+  workspaceRoot,
+} from '@nx/devkit';
 
 
 export function getPackageManager(): PackageManager {
@@ -16,6 +21,17 @@ export function getPackageManager(): PackageManager {
 
 
 /**
+ * The plugin supports bun and npm only. Devkit builds commands for every package manager,
+ * so the check runs before the call.
+ */
+function getSupportedCommands(packageManager: PackageManager) {
+  if (packageManager !== 'bun' && packageManager !== 'npm') {
+    throw new Error(`Unsupported package manager: ${packageManager}`);
+  }
+  return getPackageManagerCommand(packageManager);
+}
+
+/**
  * Gets the install command for the specified package manager
  */
 export function getInstallCommand(
@@ -24,18 +40,7 @@ export function getInstallCommand(
   isDev?: boolean
 ): string {
   const devFlag = isDev ? '-D' : '';
-
-  let baseCommand: string;
-  switch (packageManager) {
-    case 'bun':
-      baseCommand = 'bun install';
-      break;
-    case 'npm':
-      baseCommand = 'npm install';
-      break;
-    default:
-      throw new Error(`Unsupported package manager: ${packageManager}`);
-  }
+  const baseCommand = getSupportedCommands(packageManager).install;
 
   if (!packageName) {
     return baseCommand;
@@ -44,26 +49,9 @@ export function getInstallCommand(
 }
 
 /**
- * Gets the list command for the specified package manager
- */
-export function getListCommand(
-  packageManager: PackageManager,
-  packageName: string
-): string {
-  switch (packageManager) {
-    case 'bun':
-      return process.platform === 'win32'
-        ? `bun pm ls | findstr ${packageName}`
-        : `bun pm ls | grep ${packageName}`;
-    case 'npm':
-      return `npm ls ${packageName}`;
-    default:
-      throw new Error(`Unsupported package manager: ${packageManager}`);
-  }
-}
-
-/**
- * Gets the run command for the specified package manager
+ * Gets the run command for the specified package manager.
+ * Devkit's bun form renders `bun run <script> -- ` with a trailing ` -- ` when there are
+ * no arguments, and generated Dockerfiles carry the returned command verbatim.
  */
 export function getRunCommand(
   packageManager: PackageManager,
@@ -86,18 +74,13 @@ export function getExecuteCommand(
   packageManager: PackageManager,
   command?: string
 ): string {
-  switch (packageManager) {
-    case 'bun':
-      return `bunx ${command ?? ''}`.trim();
-    case 'npm':
-      return `npx ${command ?? ''}`.trim();
-    default:
-      throw new Error(`Unsupported package manager: ${packageManager}`);
-  }
+  return `${getSupportedCommands(packageManager).dlx} ${command ?? ''}`.trim();
 }
 
 /**
- * Gets the CI install command for the specified package manager (frozen lockfile)
+ * Gets the CI install command for the specified package manager (frozen lockfile).
+ * Devkit's bun `ciInstall` is `bun install --no-cache`, and the Docker build runs
+ * `bun install --frozen-lockfile`.
  */
 export function getCiInstallCommand(packageManager: PackageManager): string {
   switch (packageManager) {
@@ -125,7 +108,8 @@ export function getDockerBaseImage(packageManager: PackageManager): string {
 }
 
 /**
- * Gets the lockfile name for the specified package manager
+ * Gets the lockfile name for the specified package manager.
+ * Devkit's lockfile name helper lives under `nx/src/plugins/js`, a deep import.
  */
 export function getLockfileName(packageManager: PackageManager): string {
   switch (packageManager) {

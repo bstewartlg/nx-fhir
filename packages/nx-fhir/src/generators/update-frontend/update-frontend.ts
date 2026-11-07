@@ -177,10 +177,18 @@ export async function updateFrontendGenerator(
       fromVersion: migration.from,
       toVersion: migration.to,
       project: options.project,
+      acceptBreaking: options.acceptBreaking,
     });
 
     if (!result.success) {
       throw new Error(`Migration ${migration.from} → ${migration.to} failed`);
+    }
+
+    // A skipped or undone step left the project at its old version, so the
+    // chain cannot continue from here
+    if (result.projectResults.some((projectResult) => projectResult.skipped)) {
+      logger.info(`\nThe update of ${options.project} was not applied.`);
+      return;
     }
 
     // If there were conflicts and more migrations remain, prompt user

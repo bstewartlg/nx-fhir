@@ -382,6 +382,47 @@ describe('update-frontend generator', () => {
       ).rejects.toThrow(`Migration 0.2.0 → ${CURRENT_FRONTEND_VERSION} failed`);
     });
 
+    it('passes acceptBreaking to the migration', async () => {
+      const workspace = createWorkspace();
+      const { updateFrontendGenerator } = await import('./update-frontend');
+
+      await updateFrontendGenerator(workspace, {
+        project: 'app-one',
+        targetVersion: CURRENT_FRONTEND_VERSION,
+        acceptBreaking: true,
+      });
+
+      expect(runFrontendMigration).toHaveBeenCalledWith(
+        workspace,
+        expect.objectContaining({ acceptBreaking: true }),
+      );
+    });
+
+    it('does not report success when the update was skipped', async () => {
+      const workspace = createWorkspace();
+      runFrontendMigration.mockResolvedValueOnce({
+        success: true,
+        hasConflicts: false,
+        projectResults: [
+          { projectName: 'app-one', success: true, hasConflicts: false, skipped: true },
+        ],
+        skippedProjects: [],
+      });
+      const { updateFrontendGenerator } = await import('./update-frontend');
+
+      await updateFrontendGenerator(workspace, {
+        project: 'app-one',
+        targetVersion: CURRENT_FRONTEND_VERSION,
+      });
+
+      expect(logger.info).not.toHaveBeenCalledWith(
+        expect.stringContaining('Successfully updated app-one'),
+      );
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('was not applied'),
+      );
+    });
+
     it('reports success when the last step has conflicts', async () => {
       const workspace = createWorkspace();
       runFrontendMigration.mockResolvedValueOnce({

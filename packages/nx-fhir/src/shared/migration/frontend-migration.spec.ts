@@ -26,6 +26,10 @@ vi.mock('child_process', async (importOriginal) => ({
   execSync,
 }));
 
+// Every test runs without a terminal, so a conflicted update needs the
+// accept flag to be kept
+vi.mock('../utils/interactive', () => ({ isInteractive: () => false }));
+
 vi.mock('tar', async (importOriginal) => ({
   ...(await importOriginal<typeof import('tar')>()),
   extract,
@@ -521,7 +525,11 @@ describe('frontend-migration', () => {
           },
         });
 
-        result = await runFrontendMigration(tree, { fromVersion, toVersion });
+        result = await runFrontendMigration(tree, {
+          fromVersion,
+          toVersion,
+          acceptBreaking: true,
+        });
       });
 
       it('takes the new template for a file the user did not change', () => {
@@ -576,6 +584,88 @@ describe('frontend-migration', () => {
         expect(execSync).toHaveBeenCalledWith('bun install', {
           stdio: 'inherit',
           cwd: join(tree.root, projectName),
+        });
+      });
+    });
+
+    describe('new template test files', () => {
+      const subject = 'src/components/patient-header.tsx';
+      const testFile = 'src/components/patient-header.test.tsx';
+      const subjectTemplate = `clinical/${subject}`;
+
+      async function migrateWithSubjects(
+        oldSubject: string | undefined,
+        projectSubject: string
+      ): Promise<{ tree: Tree; result: FrontendMigrationResult }> {
+        stageOldTemplates({
+          'common/src/lib/utils.ts': readTemplate('common/src/lib/utils.ts'),
+          'clinical/vite.config.ts': readTemplate('clinical/vite.config.ts'),
+          ...(oldSubject === undefined ? {} : { [subjectTemplate]: oldSubject }),
+        });
+        const tree = createWorkspace({
+          template: 'clinical',
+          currentFiles: { [subject]: projectSubject },
+        });
+        const result = await runFrontendMigration(tree, {
+          fromVersion,
+          toVersion,
+        });
+        return { tree, result };
+      }
+
+      it('does not add a new template test beside a file the user changed', async () => {
+        const reason =
+          'not added because you changed src/components/patient-header.tsx';
+
+        const { tree, result } = await migrateWithSubjects(
+          readTemplate(subjectTemplate),
+          withFirstLine(readTemplate(subjectTemplate), '// user edit')
+        );
+
+        expect(tree.exists(`${projectName}/${testFile}`)).toBe(false);
+        expect(result.projectResults[0].summary.results).toContainEqual({
+          path: testFile,
+          status: 'skipped',
+          reason,
+        });
+        expect(result.projectResults[0].summary.skipped).toBe(1);
+        expect(logger.info).toHaveBeenCalledWith(
+          `    - ${testFile}: ${reason}`
+        );
+      });
+
+      it('adds a new template test beside a file only the template changed', async () => {
+        const oldSubject = withFirstLine(
+          readTemplate(subjectTemplate),
+          '// old template line'
+        );
+
+        const { tree, result } = await migrateWithSubjects(
+          oldSubject,
+          oldSubject
+        );
+
+        expect(readProjectFile(tree, testFile)).toBe(
+          readTemplate(`clinical/${testFile}`)
+        );
+        expect(result.projectResults[0].summary.skipped).toBe(0);
+      });
+
+      it('does not add a new template test beside a different file the project already has', async () => {
+        const { tree, result } = await migrateWithSubjects(
+          undefined,
+          'export const projectWidget = 1;\n'
+        );
+
+        expect(readProjectFile(tree, subject)).toBe(
+          'export const projectWidget = 1;\n'
+        );
+        expect(tree.exists(`${projectName}/${testFile}`)).toBe(false);
+        expect(result.projectResults[0].summary.results).toContainEqual({
+          path: testFile,
+          status: 'skipped',
+          reason:
+            'not added because you already have a different src/components/patient-header.tsx',
         });
       });
     });
@@ -755,6 +845,7 @@ describe('frontend-migration', () => {
         const result = await runFrontendMigration(tree, {
           fromVersion,
           toVersion,
+          acceptBreaking: true,
         });
 
         expect(result.hasConflicts).toBe(true);
@@ -1053,6 +1144,7 @@ describe('frontend-migration', () => {
           const result = await runFrontendMigration(tree, {
             fromVersion,
             toVersion,
+            acceptBreaking: true,
           });
 
           const merged = tree.read('Dockerfile', 'utf-8') ?? '';
@@ -1258,6 +1350,56 @@ describe('frontend-migration', () => {
           String(target).includes('.nx-fhir-backup'),
         ),
       ).toEqual([]);
+    });
+
+    it('skips the update before merging when risky changes meet no terminal', async () => {
+      stageOldTemplates({
+        'browser/vite.config.ts': readTemplate('browser/vite.config.ts'),
+        'common/src/lib/utils.ts': readTemplate('common/src/lib/utils.ts'),
+      });
+      const tree = createWorkspace();
+      writeJson(tree, `${projectName}/package.json`, {
+        name: projectName,
+        dependencies: {},
+        devDependencies: { vite: '^7.1.0' },
+      });
+      const changesBefore = tree.listChanges();
+
+      const result = await runFrontendMigration(tree, { fromVersion, toVersion });
+
+      expect(tree.listChanges()).toEqual(changesBefore);
+      expect(result.projectResults[0].skipped).toBe(true);
+      expect(result.success).toBe(true);
+      expect(execSync).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('--acceptBreaking'),
+      );
+    });
+
+    it('takes an undo back out of the tree and returns normally', async () => {
+      const bothSides = 'common/src/hooks/use-fhir-api.ts';
+      stageOldTemplates({
+        'browser/vite.config.ts': readTemplate('browser/vite.config.ts'),
+        [bothSides]: withFirstLine(readTemplate(bothSides), '// old template line'),
+      });
+      const tree = createWorkspace({
+        currentFiles: {
+          'src/hooks/use-fhir-api.ts': withFirstLine(
+            readTemplate(bothSides),
+            '// user edit'
+          ),
+        },
+      });
+
+      const result = await runFrontendMigration(tree, { fromVersion, toVersion });
+
+      expect(result.success).toBe(true);
+      expect(result.projectResults[0].skipped).toBe(true);
+      expect(tree.listChanges()).toEqual([]);
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Decision: undo (no-terminal)'),
+      );
+      expect(logger.error).not.toHaveBeenCalled();
     });
 
     describe('install and lockfile cleanup', () => {

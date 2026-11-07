@@ -17,9 +17,10 @@ export interface Diff3Conflict {
 
 export interface MergeResult {
   path: string;
-  status: 'unchanged' | 'added' | 'removed' | 'merged' | 'conflict';
+  status: 'unchanged' | 'added' | 'removed' | 'merged' | 'conflict' | 'skipped';
   content?: string;
   conflicts?: Diff3Conflict[];
+  reason?: string;
 }
 
 export interface MigrationSummary {
@@ -28,7 +29,16 @@ export interface MigrationSummary {
   merged: number;
   conflicts: number;
   unchanged: number;
+  skipped: number;
   results: MergeResult[];
+}
+
+export interface ThreeWayMergeOptions {
+  /**
+   * A reason returned for a file that is new in the new version leaves the
+   * file unwritten and goes into the summary.
+   */
+  skipNewFile?: (relativePath: string) => string | undefined;
 }
 
 /**
@@ -330,6 +340,7 @@ export function threeWayMerge(
  * @param newVersionDir The temporary directory containing the new version files
  * @param oldVersion The old version name (for logging)
  * @param newVersion The new version name (for logging)
+ * @param options Optional hooks, such as one that leaves out new files
  * @returns Migration summary with counts and results
  */
 export async function migrateWithThreeWayMerge(
@@ -338,7 +349,8 @@ export async function migrateWithThreeWayMerge(
   oldVersionDir: string,
   newVersionDir: string,
   oldVersion: string,
-  newVersion: string
+  newVersion: string,
+  options?: ThreeWayMergeOptions
 ): Promise<MigrationSummary> {
   // Get all files from both versions
   const oldFiles = new Set(getAllFiles(oldVersionDir));
@@ -351,6 +363,7 @@ export async function migrateWithThreeWayMerge(
   let addedCount = 0;
   let removedCount = 0;
   let unchangedCount = 0;
+  let skippedCount = 0;
 
   // Process each file
   for (const relativePath of allFiles) {
@@ -419,6 +432,14 @@ export async function migrateWithThreeWayMerge(
         }
         results.push({ path: relativePath, status: 'unchanged' });
         unchangedCount++;
+        continue;
+      }
+
+      const skipReason = options?.skipNewFile?.(relativePath);
+      if (skipReason) {
+        logger.info(`⏭️  Not adding ${relativePath}: ${skipReason}`);
+        results.push({ path: relativePath, status: 'skipped', reason: skipReason });
+        skippedCount++;
         continue;
       }
 
@@ -587,6 +608,7 @@ export async function migrateWithThreeWayMerge(
     merged: mergedCount,
     conflicts: conflictCount,
     unchanged: unchangedCount,
+    skipped: skippedCount,
     results,
   };
 }
@@ -605,6 +627,12 @@ export function logMigrationSummary(
   logger.info(`  🔀 Merged: ${summary.merged} files`);
   logger.info(`  ⚠️ Conflicts: ${summary.conflicts} files`);
   logger.info(`  ☑️ Unchanged: ${summary.unchanged} files`);
+  if (summary.skipped > 0) {
+    logger.info(`  ⏭️ Skipped: ${summary.skipped} files`);
+    summary.results
+      .filter((r) => r.status === 'skipped')
+      .forEach((r) => logger.info(`    - ${r.path}: ${r.reason}`));
+  }
 
   if (summary.conflicts > 0) {
     logger.warn('\n⚠️  WARNING: Merge conflicts detected!');

@@ -40,7 +40,10 @@ export interface ProjectMigrationResult {
   projectName: string;
   success: boolean;
   hasConflicts: boolean;
-  summary: MigrationSummary;
+  /** Absent when the project was skipped before any merge */
+  summary?: MigrationSummary;
+  /** The update stopped before the merge and left the project untouched */
+  skipped?: boolean;
 }
 
 /**

@@ -117,6 +117,7 @@ function summary(overrides: Partial<MigrationSummary> = {}): MigrationSummary {
     merged: 2,
     conflicts: 0,
     unchanged: 3,
+    skipped: 0,
     results: [],
     ...overrides,
   };

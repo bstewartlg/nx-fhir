@@ -11,7 +11,6 @@ vi.mock('@nx/devkit', async (importOriginal) => ({
 import {
   getPackageManager,
   getInstallCommand,
-  getListCommand,
   getRunCommand,
   getExecuteCommand,
   getCiInstallCommand,
@@ -20,18 +19,6 @@ import {
 } from './package-manager';
 
 const unsupported = 'pnpm' as PackageManager;
-
-function withPlatform(platform: string, run: () => void) {
-  const original = Object.getOwnPropertyDescriptor(process, 'platform');
-  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
-  try {
-    run();
-  } finally {
-    if (original) {
-      Object.defineProperty(process, 'platform', original);
-    }
-  }
-}
 
 describe('package-manager utils', () => {
   const originalEnv = process.env;
@@ -107,34 +94,6 @@ describe('package-manager utils', () => {
 
     it('should throw for an unsupported package manager', () => {
       expect(() => getInstallCommand(unsupported)).toThrow('Unsupported package manager: pnpm');
-    });
-  });
-
-  describe('getListCommand', () => {
-    it('should return correct bun list command', () => {
-      expect(getListCommand('bun', 'some-package')).toMatch(/^bun pm ls \| (grep|findstr) some-package$/);
-    });
-
-    it('should pipe to grep on posix platforms', () => {
-      withPlatform('linux', () => {
-        expect(getListCommand('bun', 'some-package')).toBe('bun pm ls | grep some-package');
-      });
-    });
-
-    it('should pipe to findstr on windows', () => {
-      withPlatform('win32', () => {
-        expect(getListCommand('bun', 'some-package')).toBe('bun pm ls | findstr some-package');
-      });
-    });
-
-    it('should return correct npm list command', () => {
-      expect(getListCommand('npm', 'some-package')).toBe('npm ls some-package');
-    });
-
-    it('should throw for an unsupported package manager', () => {
-      expect(() => getListCommand(unsupported, 'some-package')).toThrow(
-        'Unsupported package manager: pnpm',
-      );
     });
   });
 

@@ -289,19 +289,57 @@ describe('migration e2e test', () => {
       env: cleanEnv,
     });
 
-    logger.info(`Updating frontend to ${pluginVersion}`);
-    await runUpdateGenerator([
+    const updateArgs = [
       'nx',
       'generate',
       'nx-fhir:update-frontend',
       '--project=frontend',
       `--targetVersion=${pluginVersion}`,
-    ]);
+    ];
+
+    // Almost every dependency change from the published template is risky
+    // (new majors of vite, TypeScript, and more), and there is no terminal to
+    // ask on, so the update skips before the merge and the run succeeds
+    logger.info(`Updating frontend to ${pluginVersion} without --acceptBreaking`);
+    await runUpdateGenerator(updateArgs);
+    expect(
+      JSON.parse(readFileSync(frontendProjectJsonPath, 'utf-8')).frontendVersion,
+    ).toBe(publishedFrontendVersion);
+    expect(
+      execSync('git status --porcelain', {
+        cwd: projectDirectory,
+        env: cleanEnv,
+      }).toString(),
+    ).toBe('');
+
+    // A verification copy from an earlier run or test can already sit in the
+    // temp directory, so only copies this run leaves behind count
+    const verifyDirsBefore = listVerificationCopies();
+
+    logger.info(`Updating frontend to ${pluginVersion} with --acceptBreaking`);
+    await runUpdateGenerator([...updateArgs, '--acceptBreaking']);
+
+    expect(
+      [...listVerificationCopies()].filter((dir) => !verifyDirsBefore.has(dir)),
+    ).toEqual([]);
 
     const migratedProjectJson = JSON.parse(
       readFileSync(frontendProjectJsonPath, 'utf-8'),
     );
     expect(migratedProjectJson.frontendVersion).toBe(pluginVersion);
+
+    // The biome bump crosses the 2.6.0 advisory boundary, so its arrival
+    // proves a risky change was applied under the flag
+    const frontendPackageJson = JSON.parse(
+      readFileSync(join(projectDirectory, 'frontend/package.json'), 'utf-8'),
+    );
+    expect(frontendPackageJson.devDependencies['@biomejs/biome']).toBe('2.6.4');
+
+    // The current template ships a test for the hook this test appended the
+    // marker to, and a new template test is not added beside a changed file
+    expect(
+      existsSync(join(projectDirectory, 'frontend/src/hooks/use-fhir-api.test.ts')),
+    ).toBe(false);
 
     // The 0.2.1 generator did not register the frontend as an npm workspace,
     // so the migration installs from the project directory and the workspace
@@ -395,12 +433,16 @@ async function runUpdateGenerator(args: string[]): Promise<void> {
     timedOut = true;
     killProcessTree(child.pid);
   }, updateGeneratorTimeout);
+  const startedAt = Date.now();
 
   try {
     const exitCode = await new Promise<number | null>((resolve, reject) => {
       child.on('error', reject);
       child.on('close', resolve);
     });
+    logger.info(
+      `${args.join(' ')} finished in ${Date.now() - startedAt} ms (limit ${updateGeneratorTimeout} ms)`,
+    );
 
     if (timedOut) {
       throw new Error(
@@ -429,6 +471,12 @@ function killProcessTree(pid: number | undefined) {
   } catch (err) {
     logger.warn(`Failed to kill the generator process tree: ${err}`);
   }
+}
+
+function listVerificationCopies(): Set<string> {
+  return new Set(
+    readdirSync(tmpdir()).filter((name) => name.startsWith('nx-fhir-verify-')),
+  );
 }
 
 function readServerProjectJson() {

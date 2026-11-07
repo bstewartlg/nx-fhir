@@ -1,31 +1,32 @@
 import {
-  detectPackageManager,
   logger,
   Tree,
   getProjects,
   joinPathFragments,
-  readJson,
   updateProjectConfiguration,
-  writeJson,
 } from '@nx/devkit';
-import { existsSync, rmSync, mkdirSync, readFileSync, renameSync, writeFileSync, copyFileSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
-import { execSync } from 'child_process';
-import { isDryRun } from '../utils/dry-run';
 import crypto from 'crypto';
 import { render as renderEjsTemplate } from 'ejs';
 import { extract as extractTar } from 'tar';
 import { migrateWithThreeWayMerge, logMigrationSummary, getAllFiles, MigrationSummary } from '../utils/merge';
 import { FrontendProjectConfiguration, ServerProjectConfiguration } from '../models';
 import { PLUGIN_VERSION } from '../constants/versions';
-import { FRONTEND_TEMPLATE_CONFIG, getFrontendDependencies } from '../../generators/frontend/frontend';
-import { getInstallCommand } from '../utils/package-manager';
+import { FRONTEND_TEMPLATE_CONFIG } from '../../generators/frontend/frontend';
 import { ProjectMigrationResult } from './hapi-migration';
+import { newTestFileSkipReason } from './new-test-files';
+import {
+  decideUpdate,
+  planDependencyChanges,
+  printDependencyChanges,
+  updateFrontendDependencies,
+} from './frontend-dependency-update';
+import { isInteractive } from '../utils/interactive';
 import {
   frontendDockerVars,
   getIntegratedServerRoot,
-  isRootWorkspaceMember,
 } from '../utils/frontend-integration';
 import {
   appendDockerignoreLines,
@@ -47,6 +48,8 @@ export interface FrontendMigrationOptions {
   toVersion: string;
   /** Optional specific project to migrate (if not provided, all matching projects are migrated) */
   project?: string;
+  /** Keep the update without asking, risky dependency changes and failing checks included */
+  acceptBreaking?: boolean;
 }
 
 /**
@@ -493,7 +496,7 @@ export async function runFrontendMigration(
   tree: Tree,
   options: FrontendMigrationOptions
 ): Promise<FrontendMigrationResult> {
-  const { fromVersion, toVersion, project } = options;
+  const { fromVersion, toVersion, project, acceptBreaking = false } = options;
 
   const result: FrontendMigrationResult = {
     success: true,
@@ -541,6 +544,37 @@ export async function runFrontendMigration(
       const template = projectConfig.frontendTemplate ?? 'browser';
       const navigationLayout = projectConfig.navigationLayout ?? 'sidebar';
 
+      // Classified before the merge, so an unattended run with a risky
+      // change can stop while the tree is still untouched
+      const hasPackageJson = tree.exists(`${projectConfig.root}/package.json`);
+      const dependencyChanges = hasPackageJson
+        ? planDependencyChanges(tree, projectConfig.root, template)
+        : [];
+      const riskyCount = dependencyChanges.filter(
+        (change) => change.kind === 'risky'
+      ).length;
+      const unattended = decideUpdate({
+        riskyCount,
+        newFailureCount: 0,
+        hasConflicts: false,
+        acceptBreaking,
+        interactive: isInteractive(),
+      });
+      if (unattended.decision === 'undo') {
+        printDependencyChanges(projectName, dependencyChanges);
+        logger.info(
+          `\nSkipping the frontend update for ${projectName}: ${riskyCount} risky dependency change(s) and no terminal to ask on. ` +
+            `Run "nx g nx-fhir:update-frontend --project=${projectName} --targetVersion=${toVersion} --acceptBreaking" to apply it.`
+        );
+        result.projectResults.push({
+          projectName,
+          success: true,
+          hasConflicts: false,
+          skipped: true,
+        });
+        continue;
+      }
+
       // Render old templates into a temp directory
       const tempOld = join(tmpdir(), `nx-fhir-old-${crypto.randomUUID()}`);
       tempDirs.push(tempOld);
@@ -576,6 +610,21 @@ export async function runFrontendMigration(
         resolveClinicalVariant(tempNew, navigationLayout);
       }
 
+      // The merge writes subjects before it reaches their new tests, so the
+      // test decisions are taken on the project as it is before the merge.
+      const testContext = {
+        tree,
+        projectRoot: projectConfig.root,
+        oldDir: tempOld,
+        newDir: tempNew,
+      };
+      const testSkipReasons = new Map(
+        getAllFiles(tempNew).map((p) => [
+          p,
+          newTestFileSkipReason(p, testContext),
+        ])
+      );
+
       // Perform three-way merge
       const summary = await migrateWithThreeWayMerge(
         tree,
@@ -583,7 +632,8 @@ export async function runFrontendMigration(
         tempOld,
         tempNew,
         fromVersion,
-        toVersion
+        toVersion,
+        { skipNewFile: (p) => testSkipReasons.get(p) }
       );
 
       // Merge the server-integration files (Dockerfile, .dockerignore, SPA
@@ -606,157 +656,6 @@ export async function runFrontendMigration(
         summary.results.push(...integrationSummary.results);
       }
 
-      // Sync package.json dependencies with current template
-      const projectPackageJsonPath = `${projectConfig.root}/package.json`;
-      if (tree.exists(projectPackageJsonPath)) {
-        const packageJson = readJson(tree, projectPackageJsonPath);
-        const templateDeps = getFrontendDependencies(template);
-
-        packageJson.dependencies = { ...packageJson.dependencies, ...templateDeps.dependencies };
-        packageJson.devDependencies = { ...packageJson.devDependencies, ...templateDeps.devDependencies };
-
-        writeJson(tree, projectPackageJsonPath, packageJson);
-
-        // Dependency installation touches the filesystem outside the tree, so a
-        // preview run stops after the tree changes.
-        if (!isDryRun()) {
-          const absolutePackageJsonPath = join(tree.root, projectPackageJsonPath);
-          const packageManager = detectPackageManager(tree.root);
-          const projectAbsPath = join(tree.root, projectConfig.root);
-          // The lockfile and the project module tree are moved aside so the
-          // install resolves fresh against the migrated package.json; an incremental
-          // install can keep transitive peers pinned to versions that conflict
-          // with it. The stale pins live wherever this frontend installs from:
-          // the workspace root when the project is a registered npm workspace,
-          // the project directory otherwise. A standalone frontend (generated
-          // before workspace registration existed) must not cost the root its
-          // lockfile, because the install from the project never recreates it.
-          // The root node_modules stays either way: this process runs from it,
-          // and the lockfile-free install reconciles it. The lockfiles are
-          // moved aside rather than deleted, so a failed install puts them
-          // back and the workspace still resolves from its previous state.
-          const lockfileDirs = (await isRootWorkspaceMember(tree, projectConfig.root))
-            ? [tree.root, projectAbsPath]
-            : [projectAbsPath];
-          const lockfileCandidates: Array<{ original: string; backup: string }> =
-            [];
-          for (const dir of lockfileDirs) {
-            for (const lockfile of [
-              'bun.lock',
-              'bun.lockb',
-              'package-lock.json',
-            ]) {
-              const original = join(dir, lockfile);
-              lockfileCandidates.push({
-                original,
-                backup: `${original}.nx-fhir-backup`,
-              });
-            }
-          }
-          const nodeModulesPath = join(projectAbsPath, 'node_modules');
-          const nodeModulesBackup = `${nodeModulesPath}.nx-fhir-backup`;
-
-          // A file next to its backup cannot be told apart from an install
-          // interrupted midway; neither side is safe to delete. Stop before
-          // touching anything.
-          for (const { original, backup } of [
-            ...lockfileCandidates,
-            { original: nodeModulesPath, backup: nodeModulesBackup },
-          ]) {
-            if (existsSync(original) && existsSync(backup)) {
-              throw new Error(
-                `Found both ${original} and its backup ${backup}, likely left by an interrupted migration. ` +
-                  'Verify which is current, remove the backup, and run the migration again.'
-              );
-            }
-          }
-
-          // Write package.json to disk immediately so we can run the install now.
-          // The tree flush will later write the same content (harmless). The
-          // previous bytes are kept in an on-disk backup so a failed install,
-          // or a rerun after a crash, can put them back alongside the
-          // lockfiles; a restored lockfile must match the manifest it was
-          // resolved from.
-          const packageJsonBackupPath = `${absolutePackageJsonPath}.nx-fhir-backup`;
-          // A surviving backup holds the pre-migration manifest; the manifest
-          // itself may already be migrated.
-          const previousPackageJson = existsSync(packageJsonBackupPath)
-            ? readFileSync(packageJsonBackupPath)
-            : existsSync(absolutePackageJsonPath)
-              ? readFileSync(absolutePackageJsonPath)
-              : undefined;
-          if (previousPackageJson !== undefined) {
-            writeFileSync(packageJsonBackupPath, previousPackageJson);
-          }
-          writeFileSync(absolutePackageJsonPath, JSON.stringify(packageJson, null, 2) + '\n');
-
-          const lockfileBackups: Array<{ original: string; backup: string }> =
-            [];
-          for (const { original, backup } of lockfileCandidates) {
-            // A backup without its original is the sole copy left by an
-            // interrupted run; it already sits in the backup slot.
-            if (existsSync(backup)) {
-              lockfileBackups.push({ original, backup });
-              continue;
-            }
-            try {
-              renameSync(original, backup);
-              lockfileBackups.push({ original, backup });
-            } catch (error) {
-              // ENOENT: no lockfile of this name in this directory.
-              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-                throw error;
-              }
-            }
-          }
-          // The module tree is moved aside so a failed install can put the
-          // previous dependencies back.
-          let nodeModulesMoved = false;
-          if (existsSync(nodeModulesBackup)) {
-            // The sole copy from an interrupted run already sits in the
-            // backup slot.
-            nodeModulesMoved = true;
-          } else {
-            try {
-              renameSync(nodeModulesPath, nodeModulesBackup);
-              nodeModulesMoved = true;
-            } catch (error) {
-              // ENOENT: no module tree to move.
-              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-                throw error;
-              }
-            }
-          }
-          logger.info(`Installing updated dependencies for '${projectName}'...`);
-          try {
-            execSync(getInstallCommand(packageManager), {
-              stdio: 'inherit',
-              cwd: projectAbsPath,
-            });
-          } catch (error) {
-            if (previousPackageJson !== undefined) {
-              writeFileSync(absolutePackageJsonPath, previousPackageJson);
-            }
-            rmSync(packageJsonBackupPath, { force: true });
-            for (const { original, backup } of lockfileBackups) {
-              renameSync(backup, original);
-            }
-            // A failed install can leave a partial module tree; remove it
-            // before the previous one goes back.
-            rmSync(nodeModulesPath, { recursive: true, force: true });
-            if (nodeModulesMoved) {
-              renameSync(nodeModulesBackup, nodeModulesPath);
-            }
-            throw error;
-          }
-          for (const { backup } of lockfileBackups) {
-            rmSync(backup, { force: true });
-          }
-          rmSync(nodeModulesBackup, { recursive: true, force: true });
-          rmSync(packageJsonBackupPath, { force: true });
-        }
-      }
-
       const hasConflicts = summary.conflicts > 0;
 
       // Update project configuration
@@ -764,7 +663,30 @@ export async function runFrontendMigration(
       projectConfig.pluginVersion = PLUGIN_VERSION;
       updateProjectConfiguration(tree, projectName, projectConfig);
 
+      // The conflict list and the skipped test files print before the
+      // dependency update asks whether to keep the update
       logMigrationSummary(summary, fromVersion, toVersion);
+
+      if (hasPackageJson) {
+        const outcome = await updateFrontendDependencies({
+          tree,
+          projectName,
+          projectRoot: projectConfig.root,
+          changes: dependencyChanges,
+          hasConflicts,
+          acceptBreaking,
+        });
+        // The undo emptied the whole tree, so no further project can build on it
+        if (outcome === 'undone') {
+          result.projectResults.push({
+            projectName,
+            success: true,
+            hasConflicts: false,
+            skipped: true,
+          });
+          break;
+        }
+      }
 
       result.projectResults.push({
         projectName,
