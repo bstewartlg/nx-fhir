@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import type {
   Bundle,
   CapabilityStatement,
@@ -8,6 +8,7 @@ import type {
   Parameters,
 } from "fhir/r4";
 import { useMemo } from "react";
+import { getStoredServerHeaders, getStoredServerUrl } from "@/lib/fhir-config";
 import { isOperationOutcome } from "@/lib/fhir-types";
 
 export interface FhirError extends Error {
@@ -36,12 +37,22 @@ export function retryOnceUnlessClientError(
   return failureCount < 1;
 }
 
+/** Request headers for `url`, with the active server's custom headers. */
+export function fhirRequestHeaders(url: string): Headers {
+  const headers = new Headers({ Accept: "application/fhir+json" });
+  // A page link can point at another host, which must not see the headers
+  const serverUrl = getStoredServerUrl();
+  const base = serverUrl.replace(/\/+$/, "");
+  if (url.startsWith(base) && "/?#".includes(url.charAt(base.length))) {
+    for (const header of getStoredServerHeaders(serverUrl)) {
+      headers.set(header.name, header.value);
+    }
+  }
+  return headers;
+}
+
 export async function fhirFetch<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/fhir+json",
-    },
-  });
+  const response = await fetch(url, { headers: fhirRequestHeaders(url) });
 
   if (!response.ok) {
     const error: FhirError = new Error(
@@ -66,12 +77,31 @@ export async function fhirFetch<T>(url: string): Promise<T> {
   return response.json();
 }
 
+interface MetadataResult {
+  capability: CapabilityStatement;
+  latency: number;
+}
+
+/** One metadata request serves the capability statement and the status check. */
+function metadataQueryOptions(serverUrl: string) {
+  return queryOptions({
+    queryKey: ["fhir", "metadata", serverUrl],
+    queryFn: async (): Promise<MetadataResult> => {
+      const start = Date.now();
+      const capability = await fhirFetch<CapabilityStatement>(
+        `${serverUrl}/metadata`,
+      );
+      return { capability, latency: Date.now() - start };
+    },
+    enabled: !!serverUrl,
+  });
+}
+
 export function useCapabilityStatement(serverUrl: string) {
   return useQuery({
-    queryKey: ["fhir", "metadata", serverUrl],
-    queryFn: () => fhirFetch<CapabilityStatement>(`${serverUrl}/metadata`),
+    ...metadataQueryOptions(serverUrl),
+    select: (result) => result.capability,
     staleTime: 5 * 60 * 1000, // 5 minutes
-    enabled: !!serverUrl,
   });
 }
 
@@ -95,22 +125,8 @@ export function getResourceTypes(
 
 export function useServerStatus(serverUrl: string) {
   const query = useQuery({
-    queryKey: ["fhir", "status", serverUrl],
-    queryFn: async () => {
-      const start = Date.now();
-      const capability = await fhirFetch<CapabilityStatement>(
-        `${serverUrl}/metadata`,
-      );
-      const latency = Date.now() - start;
-      return {
-        connected: true,
-        latency,
-        capability,
-      };
-    },
+    ...metadataQueryOptions(serverUrl),
     staleTime: 30 * 1000, // 30 seconds
-    retry: 0,
-    enabled: !!serverUrl,
   });
 
   return {

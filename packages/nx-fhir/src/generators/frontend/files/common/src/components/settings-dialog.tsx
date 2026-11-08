@@ -1,4 +1,11 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, Loader2, Server, XCircle } from "lucide-react";
+import { useRef, useState } from "react";
+import {
+  HeaderEditor,
+  headerEditorError,
+  validCustomHeaders,
+} from "@/components/header-editor";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,15 +26,52 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { useServerStatus } from "@/hooks/use-fhir-api";
 import { useFhirServer, useServerSelection } from "@/hooks/use-fhir-server";
+import {
+  type CustomHeader,
+  getStoredServerHeaders,
+  setStoredServerHeaders,
+} from "@/lib/fhir-config";
 
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
+interface ServerHeadersProps {
+  serverUrl: string;
+  onSaved: () => void;
+}
+
+/** Edits the active server's headers, every valid change is saved at once. */
+function ServerHeaders({ serverUrl, onSaved }: ServerHeadersProps) {
+  const [headers, setHeaders] = useState<CustomHeader[]>(() =>
+    getStoredServerHeaders(serverUrl),
+  );
+  const handleChange = (next: CustomHeader[]) => {
+    setHeaders(next);
+    if (
+      !headerEditorError(next) &&
+      setStoredServerHeaders(serverUrl, validCustomHeaders(next))
+    ) {
+      onSaved();
+    }
+  };
+  return <HeaderEditor headers={headers} onChange={handleChange} />;
+}
+
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { serverUrl, presetServers, setServerUrl, isCustomServer } =
     useFhirServer();
+  const queryClient = useQueryClient();
+  // Open queries refetch with the new headers once, when the dialog closes
+  const headersChanged = useRef(false);
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && headersChanged.current) {
+      headersChanged.current = false;
+      queryClient.invalidateQueries({ queryKey: ["fhir"] });
+    }
+    onOpenChange(nextOpen);
+  };
   const { isConnected, isLoading, latency, error, refetch } =
     useServerStatus(serverUrl);
   const {
@@ -40,7 +84,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   } = useServerSelection(setServerUrl, isCustomServer, serverUrl);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -97,6 +141,14 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               </div>
             </div>
           )}
+
+          <ServerHeaders
+            key={serverUrl}
+            serverUrl={serverUrl}
+            onSaved={() => {
+              headersChanged.current = true;
+            }}
+          />
 
           <Separator />
 
