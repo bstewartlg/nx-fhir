@@ -36,6 +36,10 @@
       "type": "string",
       "description": "Navigation layout for the clinical template. Sidebar provides collapsible left navigation for apps with many pages. Top navigation provides a horizontal nav bar for apps with few entry pages.",
       "enum": ["sidebar", "topnav"]
+    },
+    "proxy": {
+      "type": "boolean",
+      "description": "Route requests to other servers through the integrated server"
     }
   },
   "required": ["name"]

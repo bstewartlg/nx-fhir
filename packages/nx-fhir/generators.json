@@ -36,6 +36,11 @@
       "schema": "./src/generators/feature-otel/schema.json",
       "description": "Add OpenTelemetry route tagging and a baseline Grafana dashboard to an existing server project"
     },
+    "feature-frontend-proxy": {
+      "factory": "./src/generators/feature-frontend-proxy/feature-frontend-proxy",
+      "schema": "./src/generators/feature-frontend-proxy/schema.json",
+      "description": "Add a same-origin proxy for the integrated frontend to an existing server project"
+    },
     "preset": {
       "factory": "./src/generators/preset/generator",
       "schema": "./src/generators/preset/schema.json",

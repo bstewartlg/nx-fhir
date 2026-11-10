@@ -30,6 +30,10 @@ public class GlobalCorsConfiguration implements WebMvcConfigurer {
       return;
     }
 
+    // The proxy path permits no other origin. Spring uses the first mapping
+    // that matches, so this mapping stays before the mapping for all paths.
+    registry.addMapping("/proxy").allowedOrigins();
+
     // Apply CORS configuration to all paths
     var corsConfig = registry.addMapping("/**");
 

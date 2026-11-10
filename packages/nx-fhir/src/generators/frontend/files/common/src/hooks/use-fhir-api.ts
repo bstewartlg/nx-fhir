@@ -8,7 +8,11 @@ import type {
   Parameters,
 } from "fhir/r4";
 import { useMemo } from "react";
-import { getStoredServerHeaders, getStoredServerUrl } from "@/lib/fhir-config";
+import {
+  getStoredServerHeaders,
+  getStoredServerUrl,
+  toRequestUrl,
+} from "@/lib/fhir-config";
 import { isOperationOutcome } from "@/lib/fhir-types";
 
 export interface FhirError extends Error {
@@ -52,13 +56,26 @@ export function fhirRequestHeaders(url: string): Headers {
 }
 
 export async function fhirFetch<T>(url: string): Promise<T> {
-  const response = await fetch(url, { headers: fhirRequestHeaders(url) });
+  const requestUrl = toRequestUrl(url);
+  const response = await fetch(requestUrl, {
+    headers: fhirRequestHeaders(url),
+  });
 
   if (!response.ok) {
     const error: FhirError = new Error(
       `FHIR request failed: ${response.status} ${response.statusText}`,
     );
     error.status = response.status;
+    const contentType = response.headers.get("Content-Type") ?? "";
+    // The proxy gives the reason for its own errors as plain text
+    if (
+      requestUrl !== url &&
+      contentType.toLowerCase().startsWith("text/plain")
+    ) {
+      const reason = await response.text().catch(() => "");
+      error.message = reason.trim() || error.message;
+      throw error;
+    }
     try {
       const body = await response.json();
       if (isOperationOutcome(body)) {

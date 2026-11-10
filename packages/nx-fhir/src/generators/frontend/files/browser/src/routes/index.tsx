@@ -48,8 +48,13 @@ const categoryOrder = [
 ];
 
 function Dashboard() {
-  const { serverUrl, presetServers, setServerUrl, isCustomServer } =
-    useFhirServer();
+  const {
+    serverUrl,
+    presetServers,
+    setServerUrl,
+    isCustomServer,
+    customServerAllowed,
+  } = useFhirServer();
   const { isConnected, isDisconnected, isLoading, latency, error, refetch } =
     useServerStatus(serverUrl);
   const { data: capability } = useCapabilityStatement(serverUrl);
@@ -114,7 +119,9 @@ function Dashboard() {
                       {s.name}
                     </SelectItem>
                   ))}
-                  <SelectItem value="custom">Custom URL...</SelectItem>
+                  {customServerAllowed && (
+                    <SelectItem value="custom">Custom URL...</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>

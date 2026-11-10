@@ -16,6 +16,7 @@ export { frontendGenerator } from './generators/frontend/frontend';
 export { featureGenerator } from './generators/feature/feature';
 export { featureBulkPublishGenerator } from './generators/feature-bulk-publish/feature-bulk-publish';
 export { featureOtelGenerator } from './generators/feature-otel/feature-otel';
+export { featureFrontendProxyGenerator } from './generators/feature-frontend-proxy/feature-frontend-proxy';
 
 // Export schemas
 export type { ServerGeneratorSchema } from './generators/server/schema';
@@ -26,6 +27,7 @@ export type { FrontendGeneratorSchema } from './generators/frontend/schema';
 export type { FeatureGeneratorSchema } from './generators/feature/schema';
 export type { FeatureBulkPublishGeneratorSchema } from './generators/feature-bulk-publish/schema';
 export type { FeatureOtelGeneratorSchema } from './generators/feature-otel/schema';
+export type { FeatureFrontendProxyGeneratorSchema } from './generators/feature-frontend-proxy/schema';
 
 // Export shared models and utilities
 export * from './shared/models';

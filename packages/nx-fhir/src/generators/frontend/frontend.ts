@@ -7,6 +7,7 @@ import {
   logger,
   ProjectConfiguration,
   readJson,
+  readProjectConfiguration,
   Tree,
   updateJson,
   updateProjectConfiguration,
@@ -14,8 +15,10 @@ import {
 } from '@nx/devkit';
 import { FrontendGeneratorSchema } from './schema';
 import { execSync } from 'child_process';
-import { select } from '@inquirer/prompts';
+import { confirm, select } from '@inquirer/prompts';
 import path = require('path');
+import { runFeature } from '../feature/run-feature';
+import { FRONTEND_PROXY_FEATURE, writeDevServerEnv } from '../feature-frontend-proxy/frontend-proxy';
 import { FrontendProjectConfiguration, ServerProjectConfiguration } from '../../shared/models';
 import { registerNxPlugin, removeTesterSection } from '../../shared/utils';
 import { isInteractive } from '../../shared/utils/interactive';
@@ -212,7 +215,14 @@ export async function frontendGenerator(
   logger.info(`Frontend project '${options.name}' has been created.`);
 
   // Perform possible integration with a server project
-  await integrateFrontendWithServer(tree, projectConfig, options);
+  const integratedServer = await integrateFrontendWithServer(tree, projectConfig, options);
+  if (integratedServer) {
+    await addFrontendProxy(tree, integratedServer, projectRoot, options.proxy);
+  } else if (options.proxy) {
+    logger.warn(
+      'The proxy option needs a server project that the frontend is integrated with. The generator does not install the proxy.'
+    );
+  }
 
   // Ensure nx-fhir plugin is registered
   registerNxPlugin(tree);
@@ -255,13 +265,60 @@ function getPluginVersion(): string {
 }
 
 /**
- * Integrate frontend build output with the selected server project
+ * Installs the frontend-proxy feature on the integrated server. The feature
+ * reads the frontend files, the copy-to-server target, and the server
+ * integration files from the tree, so it runs after the integration.
+ */
+async function addFrontendProxy(
+  tree: Tree,
+  serverName: string,
+  frontendRoot: string,
+  proxyOption: boolean | undefined
+): Promise<void> {
+  // A server with the feature sends every frontend it serves through the proxy in production.
+  // Without the env line, the new frontend skips the proxy in development.
+  const serverProject = readProjectConfiguration(tree, serverName) as ServerProjectConfiguration;
+  if (serverProject.features?.[FRONTEND_PROXY_FEATURE]) {
+    writeDevServerEnv(tree, frontendRoot);
+    logger.info(
+      `Server project '${serverName}' already has the frontend proxy. Frontend '${frontendRoot}' is set up to use it.`
+    );
+    return;
+  }
+
+  const proxy =
+    proxyOption ??
+    (isInteractive()
+      ? await confirm({ message: 'Route requests to other servers through this server?', default: false })
+      : false);
+  if (!proxy) {
+    return;
+  }
+
+  try {
+    await runFeature(tree, { feature: FRONTEND_PROXY_FEATURE, project: serverName });
+  } catch (error) {
+    // Ctrl+C at a feature prompt stops the run. It is not a refusal of the install.
+    if ((error as Error).name === 'ExitPromptError') {
+      throw error;
+    }
+    logger.warn(
+      `Skipped the install of feature '${FRONTEND_PROXY_FEATURE}' on server project '${serverName}'. ` +
+        `The frontend is generated without the proxy. Reason: ${(error as Error).message}`
+    );
+  }
+}
+
+/**
+ * Integrate frontend build output with the selected server project.
+ * Returns the name of the integrated server project, or undefined when the
+ * frontend is not integrated.
  */
 async function integrateFrontendWithServer(
   tree: Tree,
   frontendProject: ProjectConfiguration,
   options: FrontendGeneratorSchema
-) {
+): Promise<string | undefined> {
   // The choice stays local so the caller's options object is left as it was passed.
   let server = options.server;
 
@@ -429,6 +486,7 @@ async function integrateFrontendWithServer(
   logger.info(
     `Frontend project '${frontendProject.root}' integrated with server project '${serverProject.root}'.`
   );
+  return server;
 }
 
 /**

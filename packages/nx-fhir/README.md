@@ -9,7 +9,7 @@ An Nx plugin for building FHIR servers and frontends.
 - Scaffold TanStack Router-based React frontend SPAs with browser or clinical templates
 - Generate custom FHIR operations from OperationDefinition resources
 - Add FHIR Implementation Guides to your server
-- Add packaged server features such as scheduled `$bulk-publish` bulk data publication and OpenTelemetry instrumentation
+- Add packaged server features such as scheduled `$bulk-publish` bulk data publication, OpenTelemetry instrumentation, and a same-origin proxy for frontend requests to other FHIR servers
 - Keep your HAPI FHIR server and frontend up to date with newer releases via `nx migrate`
 
 ## Installation
@@ -102,6 +102,7 @@ nx g nx-fhir:frontend
 - `--navigationLayout`: Navigation layout for the clinical template (options: `sidebar`, `topnav`)
   - `sidebar` -- Collapsible left navigation for apps with many pages
   - `topnav` -- Horizontal nav bar for apps with few entry pages
+- `--proxy`: Install the `frontend-proxy` feature on the integrated server. When the integrated server already has the `frontend-proxy` feature, the generator asks no question and adds the `DEV_SERVER_URL` line to the generated frontend, for any value of the option. Otherwise, without the option, the generator asks when it integrates a server in an interactive run, and in all other runs it does not install the proxy. If the feature cannot install, the generator prints a warning and continues without the proxy.
 
 **Example:**
 ```sh
@@ -216,6 +217,48 @@ nx g nx-fhir:feature-otel --project=my-fhir-server --compose=false
 `nx serve <project-name> --otel` downloads the agent with `mvn dependency:copy` and attaches it to the server. The agent sends OTLP over HTTP to `http://localhost:4318`, so run a collector there or set `OTEL_EXPORTER_OTLP_ENDPOINT`. The serve executor accepts `--otel` only on a server that has this feature installed with the `serve` option.
 
 Requires HAPI FHIR 8.0.0 or later.
+
+#### Frontend Proxy (frontend-proxy)
+
+Adds a same-origin proxy that the integrated frontend uses for requests to other FHIR servers:
+
+```sh
+nx g nx-fhir:feature-frontend-proxy
+```
+
+The server gets the endpoint `/proxy`. The frontend sends a request for the bundled server to `/fhir` and a request for any other server to `/proxy?url=<destination>`, so the browser needs no CORS permission from the other servers. The proxy forwards each destination under a listed server of `app.fhir.servers`, internal hosts included. With passthrough on, it also forwards any other destination through a guard that permits public addresses only. It refuses all other destinations with status 403. The install needs a frontend that is integrated with the server. Run `update-frontend` first if the frontend or the server integration files have no proxy support. The generator also writes `FRONTEND-PROXY.md` to the server root, which gives the configuration and the classification rules.
+
+**Options:**
+- `--project`: Name of the Nx server project to add the feature to
+- `--passthrough`: Permit requests to any public server that the user enters (default: `false`)
+
+**Example:**
+```yaml
+app:
+  fhir:
+    servers:
+      - name: Payer sandbox
+        url: https://payer.example.org/fhir
+      - name: EHR
+        url: http://ehr:8080/fhir
+  proxy:
+    enabled: true
+    passthrough: false
+    connect-timeout: 5s
+    read-timeout: 60s
+```
+
+WARNING: With `app.proxy.passthrough: true`, anyone who can reach the application can send requests through it to any public host. Use this only for a test deployment.
+
+Each entry in `app.fhir.servers` needs a `name` and a `url`. The `url` is an absolute `http` or `https` URL with a host and no user information, query, or fragment, or a root-relative path such as `/fhir`. A value that is not valid stops the server at startup. This check is in the integration files of the frontend generator, so it also applies to a server with no proxy feature after `update-frontend`. Set `app.fhir.servers` in one form only, either a YAML list as above or one string that holds a JSON array of `name` and `url` entries.
+
+A root-relative entry is the server itself. The frontend requests it directly on the origin of the page. The proxy does not use it as a listed server. In proxy mode the frontend does not list an entry that equals "This server" a second time.
+
+The proxy cannot forward a form-encoded `PUT`, `PATCH`, or `DELETE` body or a multipart body. Spring reads these bodies before the proxy runs, and the proxy answers 400. A form-encoded `POST` passes.
+
+If the `vite.config.ts` of a project already has a `server` block, `update-frontend` can leave two `server` keys in the file. Merge the `proxy` entry into the existing block by hand.
+
+Requires HAPI FHIR 8.8.0 or later.
 
 ### Update Server
 

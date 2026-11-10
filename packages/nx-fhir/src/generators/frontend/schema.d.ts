@@ -3,4 +3,5 @@ export interface FrontendGeneratorSchema {
   server?: string;
   template?: 'browser' | 'clinical';
   navigationLayout?: 'sidebar' | 'topnav';
+  proxy?: boolean;
 }

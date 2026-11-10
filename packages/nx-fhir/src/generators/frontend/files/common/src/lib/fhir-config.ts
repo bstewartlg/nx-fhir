@@ -8,9 +8,15 @@ export interface CdsServer {
   url: string;
 }
 
+/** Present when this server proxies requests for other servers. */
+export interface ProxyConfig {
+  passthrough: boolean;
+}
+
 interface AppConfig {
   fhirServers?: FhirServer[];
   cdsServers?: CdsServer[];
+  proxy?: ProxyConfig;
 }
 
 declare global {
@@ -35,7 +41,30 @@ function isValidFhirServer(server: unknown): server is FhirServer {
   );
 }
 
+/** The bundled server first, then each listed server once. */
+function parseProxyModeServers(fhirServers: unknown): FhirServer[] {
+  const servers: FhirServer[] = [
+    { name: "This server", url: `${window.location.origin}/fhir` },
+  ];
+  if (Array.isArray(fhirServers)) {
+    for (const server of fhirServers.filter(isValidFhirServer)) {
+      // Absolute URLs let stored headers match the absolute paging links of HAPI
+      const url = /^\/(?!\/)/.test(server.url)
+        ? `${window.location.origin}${server.url}`
+        : server.url;
+      if (!servers.some((listed) => listed.url === url)) {
+        servers.push({ ...server, url });
+      }
+    }
+  }
+  return servers;
+}
+
 function parseFhirServers(): FhirServer[] {
+  if (window?.APP_CONFIG?.proxy) {
+    return parseProxyModeServers(window.APP_CONFIG.fhirServers);
+  }
+
   if (
     window?.APP_CONFIG?.fhirServers &&
     Array.isArray(window.APP_CONFIG.fhirServers)
@@ -66,13 +95,20 @@ function parseFhirServers(): FhirServer[] {
 
 export const FHIR_SERVERS: FhirServer[] = parseFhirServers();
 
-const STORAGE_KEY = "fhir-server-url";
+// A server choice from thin mode has no meaning in proxy mode, so proxy mode keeps its own key
+const STORAGE_KEY = window?.APP_CONFIG?.proxy
+  ? "fhir-proxy-server-url"
+  : "fhir-server-url";
 
 export function getStoredServerUrl(): string {
   if (typeof window === "undefined") {
     return FHIR_SERVERS[0].url;
   }
-  return localStorage.getItem(STORAGE_KEY) || FHIR_SERVERS[0].url;
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (!stored || (!isCustomServerAllowed() && !getServerByUrl(stored))) {
+    return FHIR_SERVERS[0].url;
+  }
+  return stored;
 }
 
 export function setStoredServerUrl(url: string): void {
@@ -83,6 +119,29 @@ export function setStoredServerUrl(url: string): void {
 
 export function getServerByUrl(url: string): FhirServer | undefined {
   return FHIR_SERVERS.find((server) => server.url === url);
+}
+
+/** The proxy refuses a server that is not listed unless passthrough is on. */
+export function isCustomServerAllowed(): boolean {
+  return window.APP_CONFIG?.proxy?.passthrough !== false;
+}
+
+/**
+ * The URL to request for `url`. In proxy mode a URL of another origin goes
+ * through the proxy of this server, which decides if the destination is
+ * permitted.
+ */
+export function toRequestUrl(url: string): string {
+  if (!window.APP_CONFIG?.proxy) {
+    return url;
+  }
+  const resolved = new URL(url, window.location.origin);
+  if (resolved.origin === window.location.origin) {
+    return url;
+  }
+  // A URL with no scheme, such as "//host/fhir", takes the scheme of the page
+  const destination = /^[a-z][a-z\d+.-]*:/i.test(url) ? url : resolved.href;
+  return `/proxy?url=${encodeURIComponent(destination)}`;
 }
 
 export interface CustomHeader {

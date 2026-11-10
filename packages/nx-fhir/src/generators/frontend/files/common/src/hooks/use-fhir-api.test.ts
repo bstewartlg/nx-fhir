@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type FhirError,
   fhirRequestHeaders,
@@ -110,5 +110,99 @@ describe("metadata query", () => {
     expect(result.current.status.latency).toBeGreaterThanOrEqual(0);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
+  });
+});
+
+describe("fhirFetch in proxy mode", () => {
+  const payer = "https://payer.example.org/fhir";
+  const thisServer = `${window.location.origin}/fhir`;
+  const fetchMock = vi.fn();
+
+  // FHIR_SERVERS is computed when the module loads, so the config needs a fresh module
+  async function loadApi() {
+    window.APP_CONFIG = {
+      fhirServers: [{ name: "Payer", url: payer }],
+      proxy: { passthrough: false },
+    };
+    vi.resetModules();
+    return import("./use-fhir-api");
+  }
+
+  function storeActiveServer(url: string) {
+    localStorage.setItem("fhir-proxy-server-url", url);
+    localStorage.setItem(
+      "fhir-server-headers",
+      JSON.stringify({ [url]: [{ name: "X-Api-Key", value: "k" }] }),
+    );
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async () => new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    delete window.APP_CONFIG;
+    vi.unstubAllGlobals();
+  });
+
+  it("requests the proxy URL and attaches headers by destination", async () => {
+    storeActiveServer(payer);
+    const { fhirFetch } = await loadApi();
+    const url = `${payer}/Patient?name=x y`;
+
+    await fhirFetch(url);
+    await fhirFetch("https://other.example/fhir/metadata");
+
+    const [[requestUrl, init], [, otherInit]] = fetchMock.mock.calls;
+    expect(requestUrl).toBe(`/proxy?url=${encodeURIComponent(url)}`);
+    expect(init.headers.get("X-Api-Key")).toBe("k");
+    expect(otherInit.headers.get("X-Api-Key")).toBeNull();
+  });
+
+  it("attaches stored headers to a paging link of This server", async () => {
+    storeActiveServer(thisServer);
+    const { fhirFetch } = await loadApi();
+    const pageLink = `${thisServer}?_getpages=abc&_getpagesoffset=50`;
+
+    await fhirFetch(pageLink);
+
+    const [[requestUrl, init]] = fetchMock.mock.calls;
+    expect(requestUrl).toBe(pageLink);
+    expect(init.headers.get("X-Api-Key")).toBe("k");
+  });
+
+  it("uses a plain-text error body as the message", async () => {
+    const { fhirFetch } = await loadApi();
+    for (const contentType of ["text/plain", "text/plain;charset=UTF-8"]) {
+      fetchMock.mockResolvedValueOnce(
+        new Response("Destination is not a listed server", {
+          status: 403,
+          headers: { "Content-Type": contentType },
+        }),
+      );
+      await expect(
+        fhirFetch("https://other.example/fhir/metadata"),
+      ).rejects.toMatchObject({
+        status: 403,
+        message: "Destination is not a listed server",
+      });
+    }
+  });
+
+  it("keeps the status message for a response that does not come from the proxy", async () => {
+    const { fhirFetch } = await loadApi();
+    fetchMock.mockResolvedValueOnce(
+      new Response("Forbidden", {
+        status: 403,
+        headers: { "Content-Type": "text/plain" },
+      }),
+    );
+    await expect(fhirFetch(`${thisServer}/metadata`)).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringMatching(/^FHIR request failed: 403/),
+    });
   });
 });

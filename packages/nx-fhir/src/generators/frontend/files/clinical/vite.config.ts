@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import { devtools } from '@tanstack/devtools-vite';
 import viteReact from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -8,6 +8,7 @@ function isPackage(id: string, pkg: string): boolean {
   return id.includes(`/node_modules/${pkg}/`) || id.includes(`\\node_modules\\${pkg}\\`);
 }
 
+const devServerUrl = loadEnv('development', process.cwd(), '').DEV_SERVER_URL;
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
@@ -22,6 +23,15 @@ export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
+  server: devServerUrl
+    ? {
+        proxy: {
+          '/proxy': { target: devServerUrl },
+          '/config.js': { target: devServerUrl },
+          '/fhir': { target: devServerUrl },
+        },
+      }
+    : undefined,
   build: {
     rolldownOptions: {
       output: {

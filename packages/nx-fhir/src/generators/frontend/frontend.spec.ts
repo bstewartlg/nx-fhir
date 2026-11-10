@@ -8,6 +8,7 @@ import {
   readProjectConfiguration,
   readJson,
   removeProjectConfiguration,
+  updateProjectConfiguration,
 } from '@nx/devkit';
 import { FsTree } from 'nx/src/generators/tree';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
@@ -16,7 +17,8 @@ import { basename, join } from 'path';
 import { parse } from 'yaml';
 
 const select = vi.hoisted(() => vi.fn());
-vi.mock('@inquirer/prompts', () => ({ select }));
+const confirm = vi.hoisted(() => vi.fn(async () => false));
+vi.mock('@inquirer/prompts', () => ({ select, confirm }));
 
 const execSync = vi.hoisted(() => vi.fn());
 vi.mock('child_process', async (importOriginal) => ({
@@ -308,6 +310,13 @@ ${testerBlock}
         /->\s*status == HttpStatus\.NOT_FOUND && HttpMethod\.GET\.matches\(request\.getMethod\(\)\)\s*\?\s*new ModelAndView\("forward:\/index\.html", model, HttpStatus\.OK\)\s*:\s*null;/,
       );
       expect(tree.exists(`${configDir}/SpaController.java`)).toBe(false);
+
+      expect(tree.exists(`${configDir}/FhirServers.java`)).toBe(true);
+      expect(tree.read(`${configDir}/ConfigController.java`, 'utf-8')).toContain('app.proxy.enabled');
+      // Spring uses the first CORS mapping that matches, so the proxy mapping must come first.
+      const cors = tree.read(`${configDir}/GlobalCorsConfiguration.java`, 'utf-8') as string;
+      expect(cors.indexOf('addMapping("/proxy")')).toBeGreaterThan(-1);
+      expect(cors.indexOf('addMapping("/proxy")')).toBeLessThan(cors.indexOf('addMapping("/**")'));
     });
 
     it('should remove only the tester section from the server configuration', async () => {
@@ -513,6 +522,8 @@ spring:
       await frontendGenerator(tree, { ...options });
 
       expect(select).toHaveBeenCalledTimes(1);
+      // The proxy question needs an integrated server.
+      expect(confirm).not.toHaveBeenCalled();
       // "none" is a deliberate skip, not a server that failed to resolve.
       expect(errorSpy).not.toHaveBeenCalled();
       expect(infoSpy).toHaveBeenCalledWith(
@@ -589,6 +600,200 @@ spring:
       expect(config.targets?.['copy-to-server']).toBeUndefined();
       expect(tree.read(yamlPath, 'utf-8')).toBe(serverYaml);
       errorSpy.mockRestore();
+    });
+
+    describe('proxy option', () => {
+      const pomPath = `${serverRoot}/pom.xml`;
+      const proxyControllerPath = `${serverRoot}/src/main/java/com/example/proxy/FrontendProxyController.java`;
+      const envPath = 'test-frontend/.env.development';
+      const devServerLine = 'DEV_SERVER_URL=http://localhost:8080';
+      const proxyQuestion = 'Route requests to other servers through this server?';
+
+      const starterPom = (hapiVersion: string) => `<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>ca.uhn.hapi.fhir</groupId>
+        <artifactId>hapi-fhir</artifactId>
+        <version>${hapiVersion}</version>
+    </parent>
+    <artifactId>hapi-fhir-jpaserver-starter</artifactId>
+    <dependencies>
+        <dependency>
+            <groupId>ca.uhn.hapi.fhir</groupId>
+            <artifactId>hapi-fhir-base</artifactId>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+`;
+
+      const serverFeatures = () =>
+        (readProjectConfiguration(tree, serverRoot) as ServerProjectConfiguration).features;
+
+      beforeEach(() => {
+        tree.write(pomPath, starterPom('8.12.0'));
+      });
+
+      it('leaves proxy unset on the command line so the generator can ask', () => {
+        // Nx fills schema defaults before the generator runs, so a schema default would skip the question.
+        const schema = JSON.parse(readFileSync(join(__dirname, 'schema.json'), 'utf-8'));
+        expect(schema.properties.proxy.type).toBe('boolean');
+        expect(schema.properties.proxy).not.toHaveProperty('default');
+      });
+
+      it('does not install the proxy by default', async () => {
+        vi.stubEnv('NX_INTERACTIVE', 'false');
+
+        await frontendGenerator(tree, { ...options, server: serverRoot });
+
+        expect(confirm).not.toHaveBeenCalled();
+        expect(serverFeatures()).toBeUndefined();
+        expect(tree.exists(proxyControllerPath)).toBe(false);
+        expect(tree.exists(envPath)).toBe(false);
+      });
+
+      it('installs the proxy with --proxy', async () => {
+        vi.stubEnv('NX_INTERACTIVE', 'false');
+
+        await frontendGenerator(tree, { ...options, server: serverRoot, proxy: true });
+
+        expect(confirm).not.toHaveBeenCalled();
+        expect(serverFeatures()?.['frontend-proxy']).toMatchObject({
+          options: { passthrough: false },
+        });
+        expect(tree.exists(proxyControllerPath)).toBe(true);
+        expect(parse(tree.read(yamlPath, 'utf-8') as string).app.proxy.enabled).toBe(true);
+        expect(tree.read(envPath, 'utf-8')).toBe(`${devServerLine}\n`);
+      });
+
+      it('asks when interactive and installs on yes', async () => {
+        confirm.mockResolvedValueOnce(true);
+
+        await frontendGenerator(tree, { ...options, server: serverRoot });
+
+        expect(confirm).toHaveBeenNthCalledWith(1, { message: proxyQuestion, default: false });
+        expect(serverFeatures()?.['frontend-proxy']).toBeDefined();
+        expect(tree.read(envPath, 'utf-8')).toBe(`${devServerLine}\n`);
+      });
+
+      describe('when the server already has the proxy', () => {
+        const installed = { version: 1, options: { passthrough: true } };
+        let warnSpy: ReturnType<typeof vi.spyOn>;
+
+        beforeEach(() => {
+          const server = readProjectConfiguration(tree, serverRoot) as ServerProjectConfiguration;
+          updateProjectConfiguration(tree, serverRoot, {
+            ...server,
+            features: { 'frontend-proxy': installed },
+          } as ServerProjectConfiguration);
+          warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+        });
+
+        afterEach(() => {
+          warnSpy.mockRestore();
+        });
+
+        // The runner refuses a second install with an error that the generator prints as a warning,
+        // so no warning and an unchanged server show that the runner did not run.
+        const expectOnlyTheEnvLine = () => {
+          expect(confirm).not.toHaveBeenCalled();
+          expect(tree.read(envPath, 'utf-8')).toBe(`${devServerLine}\n`);
+          expect(warnSpy).not.toHaveBeenCalled();
+          expect(serverFeatures()).toEqual({ 'frontend-proxy': installed });
+          expect(tree.exists(proxyControllerPath)).toBe(false);
+          expect(tree.read(pomPath, 'utf-8')).toBe(starterPom('8.12.0'));
+        };
+
+        it('writes only the env line when the server already has the proxy', async () => {
+          vi.stubEnv('NX_INTERACTIVE', 'false');
+          const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+
+          await frontendGenerator(tree, { ...options, server: serverRoot });
+
+          expectOnlyTheEnvLine();
+          expect(infoSpy).toHaveBeenCalledWith(
+            "Server project 'test-server' already has the frontend proxy. Frontend 'test-frontend' is set up to use it.",
+          );
+          infoSpy.mockRestore();
+        });
+
+        it('does not ask in an interactive run', async () => {
+          await frontendGenerator(tree, { ...options, server: serverRoot });
+
+          expectOnlyTheEnvLine();
+        });
+
+        it('writes the env line with --proxy=false', async () => {
+          await frontendGenerator(tree, { ...options, server: serverRoot, proxy: false });
+
+          expectOnlyTheEnvLine();
+        });
+
+        it('does not install again with --proxy', async () => {
+          await frontendGenerator(tree, { ...options, server: serverRoot, proxy: true });
+
+          expectOnlyTheEnvLine();
+        });
+      });
+
+      it('warns and continues when the server is below HAPI 8.8.0', async () => {
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+        tree.write(pomPath, starterPom('8.6.0'));
+
+        await frontendGenerator(tree, { ...options, server: serverRoot, proxy: true });
+
+        expect(tree.exists('test-frontend/src/lib/fhir-config.ts')).toBe(true);
+        expect(readProjectConfiguration(tree, 'test-frontend').targets?.['copy-to-server']).toBeDefined();
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringMatching(
+            /^Skipped the install of feature 'frontend-proxy' on server project 'test-server'\. The frontend is generated without the proxy\. Reason: Feature 'frontend-proxy' supports HAPI FHIR 8\.8\.0 and later, but project 'test-server' builds against HAPI FHIR 8\.6\.0/,
+          ),
+        );
+        expect(serverFeatures()).toBeUndefined();
+        expect(tree.exists(proxyControllerPath)).toBe(false);
+        expect(tree.exists(envPath)).toBe(false);
+        warnSpy.mockRestore();
+      });
+
+      it('stops the run when the passthrough prompt is cancelled', async () => {
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+        const cancelled = Object.assign(new Error('User force closed the prompt with 0 SIGINT'), {
+          name: 'ExitPromptError',
+        });
+        confirm.mockRejectedValueOnce(cancelled);
+
+        await expect(
+          frontendGenerator(tree, { ...options, server: serverRoot, proxy: true }),
+        ).rejects.toBe(cancelled);
+
+        expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Skipped the install'));
+        warnSpy.mockRestore();
+      });
+
+      it('ignores --proxy when no server is integrated', async () => {
+        vi.stubEnv('NX_INTERACTIVE', 'false');
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+        await frontendGenerator(tree, { ...options, proxy: true });
+
+        expect(confirm).not.toHaveBeenCalled();
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(
+          'The proxy option needs a server project that the frontend is integrated with. The generator does not install the proxy.',
+        );
+        expect(serverFeatures()).toBeUndefined();
+        expect(tree.exists(envPath)).toBe(false);
+        warnSpy.mockRestore();
+      });
     });
 
     describe('server-root layout', () => {

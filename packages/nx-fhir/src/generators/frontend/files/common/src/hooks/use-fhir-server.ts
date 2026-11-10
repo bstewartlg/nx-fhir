@@ -4,6 +4,7 @@ import {
   type FhirServer,
   getServerByUrl,
   getStoredServerUrl,
+  isCustomServerAllowed,
   setStoredServerUrl,
 } from "@/lib/fhir-config";
 
@@ -13,6 +14,7 @@ export interface UseFhirServerResult {
   presetServers: FhirServer[];
   setServerUrl: (url: string) => void;
   isCustomServer: boolean;
+  customServerAllowed: boolean;
 }
 
 const serverUrlStore = {
@@ -63,6 +65,7 @@ export function useFhirServer(): UseFhirServerResult {
     presetServers: FHIR_SERVERS,
     setServerUrl,
     isCustomServer,
+    customServerAllowed: isCustomServerAllowed(),
   };
 }
 

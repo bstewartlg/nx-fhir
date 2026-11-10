@@ -68,6 +68,16 @@ export function getIntegratedServerRoot(
   return null;
 }
 
+/** The frontend projects whose copy-to-server target writes into the server at serverRoot. */
+export function getIntegratedFrontends(
+  tree: Tree,
+  serverRoot: string
+): ProjectConfiguration[] {
+  return Array.from(getProjects(tree).values()).filter(
+    (project) => getIntegratedServerRoot(project) === serverRoot
+  );
+}
+
 /**
  * True when a frontend project integrated with the server at serverRoot
  * writes its docker files inside that server root. This happens when the
