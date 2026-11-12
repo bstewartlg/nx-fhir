@@ -9,7 +9,7 @@ An Nx plugin for building FHIR servers and frontends.
 - Scaffold TanStack Router-based React frontend SPAs with browser or clinical templates
 - Generate custom FHIR operations from OperationDefinition resources
 - Add FHIR Implementation Guides to your server
-- Add packaged server features such as scheduled `$bulk-publish` bulk data publication, OpenTelemetry instrumentation, and a same-origin proxy for frontend requests to other FHIR servers
+- Add packaged server features such as scheduled `$bulk-publish` bulk data publication, OpenTelemetry instrumentation, a same-origin proxy for frontend requests to other FHIR servers, and a bearer token check on the FHIR endpoint
 - Keep your HAPI FHIR server and frontend up to date with newer releases via `nx migrate`
 
 ## Installation
@@ -257,6 +257,47 @@ A root-relative entry is the server itself. The frontend requests it directly on
 The proxy cannot forward a form-encoded `PUT`, `PATCH`, or `DELETE` body or a multipart body. Spring reads these bodies before the proxy runs, and the proxy answers 400. A form-encoded `POST` passes.
 
 If the `vite.config.ts` of a project already has a `server` block, `update-frontend` can leave two `server` keys in the file. Merge the `proxy` entry into the existing block by hand.
+
+Requires HAPI FHIR 8.8.0 or later.
+
+#### Auth Resource (auth-resource)
+
+Adds a bearer token check to the FHIR endpoint of a server:
+
+```sh
+nx g nx-fhir:feature-auth-resource
+```
+
+The check applies to each request under `/fhir`. A request needs the header `Authorization: Bearer <token>` with a JSON Web Token (JWT) from an issuer of `app.auth.issuers`. When an issuer entry has no `jwks-uri`, the server reads `{issuer}/.well-known/openid-configuration` at the first token from that issuer. After a valid token, `RequestDetails.getUserData()` holds the verified claims under the key `BearerTokenInterceptor.CLAIMS_KEY`. The generator also writes `AUTH-RESOURCE.md` to the server root, which gives the configuration and the request rule.
+
+`GET` and `HEAD` requests to `/fhir/metadata` pass with no token. Each request under `/fhir/.well-known/` passes with no token. A paging request (`_getpages`) that HAPI FHIR gives to its paging handler passes with no token. An entry of `app.auth.public-endpoints` names a resource type (`Practitioner`), a server-level operation (`$bulk-publish`), or an operation on a type (`Patient/$match`). A request that fits an entry passes with no token, for each request method. When `app.auth.enabled` is `true`, an entry in a different form stops the server at startup.
+
+**Options:**
+- `--project`: Name of the Nx server project to add the feature to
+- `--issuer`: Token issuer URL, an absolute `http` or `https` URL. The `iss` claim of a token must be equal to it. The generator writes `enabled: true` when this option is given.
+- `--audience`: Value that the `aud` claim of a token must contain. Needs `--issuer`.
+
+**Example:**
+```yaml
+app:
+  auth:
+    enabled: true
+    issuers:
+      - issuer: https://issuer.example.org
+        audience: https://fhir.example.org/fhir
+        jwks-uri: https://issuer.example.org/keys
+    public-endpoints:
+      - $bulk-publish
+      - Practitioner
+      - Patient/$match
+    # bypass-header: X-Bypass-Auth
+```
+
+WARNING: With `app.auth.bypass-header` set, each caller that sends this header skips the token check. Remove the property for a deployment that has data that is not public.
+
+A request that has the header that `app.auth.bypass-header` names passes with no token. The generated `application.yaml` has the comment line `# bypass-header: X-Bypass-Auth`, so the bypass is off after the install. To turn on the bypass, remove `# ` from that line.
+
+With `app.auth.enabled: false`, the server has no check. With `app.auth.enabled: true`, `app.auth.issuers` needs at least one entry, and the server stops at startup with none. An issuer entry with no `issuer` stops the server at startup. The install writes `app.auth.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`. A test that does not set `app.auth.enabled` to `true` runs with no check.
 
 Requires HAPI FHIR 8.8.0 or later.
 

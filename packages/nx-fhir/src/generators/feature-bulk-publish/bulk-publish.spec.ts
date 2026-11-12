@@ -494,6 +494,24 @@ describe('bulk-publish feature', () => {
       expect(integrationTest).toContain('classes = {Application.class}');
     });
 
+    it('runs the integration test under the test profile with the FHIR version of the server', async () => {
+      await bulkPublishFeature.apply(
+        tree,
+        { ...serverProject(tree), fhirVersion: FhirVersion.R5 },
+        { ...resolvedOptions },
+      );
+
+      const integrationTest = tree.read(
+        `${javaTestRoot}/publish/BulkPublishIT.java`,
+        'utf-8',
+      );
+      expect(integrationTest).toContain(
+        'import org.springframework.test.context.ActiveProfiles;',
+      );
+      expect(integrationTest).toContain('@ActiveProfiles("test")');
+      expect(integrationTest).toContain('"hapi.fhir.fhir_version=R5"');
+    });
+
     it('writes a filtered resource type entry into the publish configuration', async () => {
       await bulkPublishFeature.apply(tree, serverProject(tree), {
         ...resolvedOptions,

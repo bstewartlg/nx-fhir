@@ -234,6 +234,7 @@ export const bulkPublishFeature: FeatureDefinition = {
       packageBase: project.packageBase,
       applicationClassFqn,
       applicationClassName: applicationClassFqn.split('.').pop() as string,
+      fhirVersion: project.fhirVersion,
     };
 
     ensureServerWiring(tree, {

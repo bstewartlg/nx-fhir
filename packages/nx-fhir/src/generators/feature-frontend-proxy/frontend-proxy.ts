@@ -153,6 +153,7 @@ export const frontendProxyFeature: FeatureDefinition = {
       packageBase: project.packageBase,
       applicationClassFqn,
       applicationClassName: applicationClassFqn.split('.').pop() as string,
+      fhirVersion: project.fhirVersion,
     };
 
     const groups: Array<[group: string, target: string]> = [

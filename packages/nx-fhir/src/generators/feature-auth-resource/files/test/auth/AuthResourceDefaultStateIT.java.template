@@ -1,0 +1,46 @@
+package <%= packageBase %>.auth;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import <%= applicationClassFqn %>;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpResponse.BodyHandlers;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+
+/**
+ * Boots the full server with no app.auth property of its own and expects the FHIR endpoint to answer with no
+ * token.
+ *
+ * <p>The class has no @ActiveProfiles, so the server reads only its application.yaml files. On a server whose
+ * application.yaml has app.auth.enabled true, the test proves that src/test/resources/config/application.yaml
+ * turns the check off for a test with no profile.
+ */
+@SpringBootTest(
+		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+		classes = {<%= applicationClassName %>.class},
+		properties = {
+			"spring.datasource.url=jdbc:h2:mem:authresourcedefaultstateit",
+			"spring.ai.mcp.server.enabled=false",
+			"spring.main.allow-bean-definition-overriding=true",
+			"management.health.elasticsearch.enabled=false",
+			"spring.jpa.properties.hibernate.search.backend.directory.type=local-heap"
+		})
+class AuthResourceDefaultStateIT {
+
+	@LocalServerPort
+	private int port;
+
+	@Test
+	void serverWithNoIssuerNeedsNoToken() throws Exception {
+		HttpClient http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+		HttpResponse<String> response = http.send(
+				HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/fhir/Observation")).build(),
+				BodyHandlers.ofString());
+		assertEquals(200, response.statusCode(), response.body());
+	}
+}

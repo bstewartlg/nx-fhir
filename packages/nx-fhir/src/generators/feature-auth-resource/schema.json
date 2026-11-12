@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "FeatureAuthResource",
+  "title": "auth-resource Feature Generator",
+  "description": "Adds a bearer token check to the FHIR endpoint of an existing HAPI FHIR server",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Name of the Nx server project to add the feature to"
+    },
+    "issuer": {
+      "type": "string",
+      "description": "Token issuer URL. The iss claim of a token must be equal to it."
+    },
+    "audience": {
+      "type": "string",
+      "description": "Value that the aud claim of a token must contain. Needs issuer."
+    }
+  }
+}

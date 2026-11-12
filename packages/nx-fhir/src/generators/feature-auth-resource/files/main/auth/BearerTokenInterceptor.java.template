@@ -1,0 +1,254 @@
+package <%= packageBase %>.auth;
+
+import ca.uhn.fhir.context.FhirContext;
+import ca.uhn.fhir.interceptor.api.Hook;
+import ca.uhn.fhir.interceptor.api.Interceptor;
+import ca.uhn.fhir.interceptor.api.Pointcut;
+import ca.uhn.fhir.rest.api.Constants;
+import ca.uhn.fhir.rest.api.RequestTypeEnum;
+import ca.uhn.fhir.rest.api.server.RequestDetails;
+import ca.uhn.fhir.rest.server.RestfulServer;
+import ca.uhn.fhir.rest.server.exceptions.AuthenticationException;
+import ca.uhn.fhir.rest.server.method.PageMethodBinding;
+import ca.uhn.fhir.util.OperationOutcomeUtil;
+import com.nimbusds.jose.JOSEObjectType;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
+import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier;
+import com.nimbusds.jose.proc.JWSVerificationKeySelector;
+import com.nimbusds.jose.proc.SecurityContext;
+import com.nimbusds.jose.util.DefaultResourceRetriever;
+import com.nimbusds.jose.util.JSONObjectUtils;
+import com.nimbusds.jose.util.ResourceRetriever;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
+import com.nimbusds.jwt.proc.BadJWTException;
+import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
+import com.nimbusds.jwt.proc.DefaultJWTProcessor;
+import java.io.Closeable;
+import java.io.IOException;
+import java.net.URI;
+import java.net.URL;
+import java.text.ParseException;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Function;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import org.apache.commons.lang3.StringUtils;
+import org.hl7.fhir.instance.model.api.IBaseOperationOutcome;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Requires a bearer JWT from a configured issuer on each FHIR request, except for the capability
+ * statement, .well-known, the public endpoints, paging requests, and requests with the bypass header.
+ * The hook runs before HAPI selects a handler, so a rejected request reaches no provider.
+ */
+@Interceptor
+public class BearerTokenInterceptor {
+
+	/** The key in {@code RequestDetails.getUserData()} of an unmodifiable {@code Map<String, Object>} of the verified claims. */
+	public static final String CLAIMS_KEY = "auth.claims";
+
+	private static final Logger log = LoggerFactory.getLogger(BearerTokenInterceptor.class);
+	private static final String BEARER = "Bearer ";
+	private static final Pattern PUBLIC_ENDPOINT =
+			Pattern.compile("[A-Z][A-Za-z0-9]*(/\\$[A-Za-z0-9._-]+)?|\\$[A-Za-z0-9._-]+");
+	private static final Set<JWSAlgorithm> ALGORITHMS =
+			Set.of(JWSAlgorithm.RS256, JWSAlgorithm.RS384, JWSAlgorithm.ES256, JWSAlgorithm.ES384);
+	private static final ResourceRetriever DISCOVERY = new DefaultResourceRetriever(
+			JWKSourceBuilder.DEFAULT_HTTP_CONNECT_TIMEOUT,
+			JWKSourceBuilder.DEFAULT_HTTP_READ_TIMEOUT,
+			JWKSourceBuilder.DEFAULT_HTTP_SIZE_LIMIT);
+
+	/** An accepted token issuer. Without a jwksUri, the interceptor finds the keys by OpenID Connect discovery. */
+	public record Issuer(String issuer, String audience, String jwksUri) {}
+
+	private final Map<String, Issuer> issuers;
+	private final Set<String> publicEndpoints;
+	private final String bypassHeader;
+	private final Function<URL, JWKSource<SecurityContext>> keySources;
+	private final Map<String, DefaultJWTProcessor<SecurityContext>> processors = new ConcurrentHashMap<>();
+	private final List<JWKSource<SecurityContext>> openKeySources = new CopyOnWriteArrayList<>();
+
+	public BearerTokenInterceptor(List<Issuer> issuers, List<String> publicEndpoints, String bypassHeader) {
+		this(issuers, publicEndpoints, bypassHeader, url -> JWKSourceBuilder.create(url).build());
+	}
+
+	BearerTokenInterceptor(
+			List<Issuer> issuers,
+			List<String> publicEndpoints,
+			String bypassHeader,
+			Function<URL, JWKSource<SecurityContext>> keySources) {
+		for (Issuer issuer : issuers) {
+			if (StringUtils.isBlank(issuer.issuer())) {
+				throw new IllegalArgumentException("Each issuer entry needs an issuer value");
+			}
+		}
+		for (String entry : publicEndpoints) {
+			if (entry == null || !PUBLIC_ENDPOINT.matcher(entry).matches()) {
+				throw new IllegalArgumentException(
+						"Public endpoint \"" + entry + "\" is not in the form Type, $operation, or Type/$operation");
+			}
+		}
+		this.issuers = issuers.stream().collect(Collectors.toMap(Issuer::issuer, Function.identity()));
+		this.publicEndpoints = Set.copyOf(publicEndpoints);
+		this.bypassHeader = StringUtils.isBlank(bypassHeader) ? null : bypassHeader;
+		this.keySources = keySources;
+	}
+
+	@Hook(Pointcut.SERVER_INCOMING_REQUEST_PRE_HANDLER_SELECTED)
+	public boolean authenticate(RequestDetails details) {
+		if (isCapabilityStatement(details)
+				|| ".well-known".equals(details.getResourceName())
+				|| isPublicEndpoint(details)
+				|| isPagingRequest(details)
+				|| (bypassHeader != null && details.getHeader(bypassHeader) != null)) {
+			return true;
+		}
+		String authorization = details.getHeader(Constants.HEADER_AUTHORIZATION);
+		if (authorization == null || !authorization.regionMatches(true, 0, BEARER, 0, BEARER.length())) {
+			throw unauthorized(details, "Bearer", "Bearer token required");
+		}
+		JWTClaimsSet claims;
+		try {
+			claims = verify(authorization.substring(BEARER.length()).trim());
+		} catch (Exception e) {
+			log.info("Bearer token rejected: {}", e.getMessage());
+			throw unauthorized(details, "Bearer error=\"invalid_token\"", "Invalid bearer token");
+		}
+		details.getUserData().put(CLAIMS_KEY, Collections.unmodifiableMap(claims.getClaims()));
+		return true;
+	}
+
+	/** Closes the key sources of the issuers that have had a token. Each source closes once. */
+	public void close() {
+		for (JWKSource<SecurityContext> keys : openKeySources) {
+			if (openKeySources.remove(keys) && keys instanceof Closeable closeable) {
+				try {
+					closeable.close();
+				} catch (IOException e) {
+					log.warn("Could not close a key source", e);
+				}
+			}
+		}
+	}
+
+	private static boolean isCapabilityStatement(RequestDetails details) {
+		return details.getResourceName() == null
+				&& Constants.URL_TOKEN_METADATA.equals(details.getOperation())
+				&& (details.getRequestType() == RequestTypeEnum.GET || details.getRequestType() == RequestTypeEnum.HEAD);
+	}
+
+	/** Matches the resource type and the operation that HAPI parsed and routes on. */
+	private boolean isPublicEndpoint(RequestDetails details) {
+		String type = details.getResourceName();
+		String operation = details.getOperation();
+		if (type == null) {
+			return operation != null && publicEndpoints.contains(operation);
+		}
+		return publicEndpoints.contains(type) || (operation != null && publicEndpoints.contains(type + "/" + operation));
+	}
+
+	/**
+	 * Accepts the requests that HAPI gives to PageMethodBinding. The first test copies the conditions of that
+	 * handler: no resource type, GET or POST, and a non-blank first _getpages value. A provider registered after
+	 * the server starts can come before the paging handler, so the method also asks HAPI which handler it selects.
+	 */
+	private static boolean isPagingRequest(RequestDetails details) {
+		String[] pagingAction = details.getParameters().get(Constants.PARAM_PAGINGACTION);
+		if (details.getResourceName() != null
+				|| pagingAction == null
+				|| pagingAction.length == 0
+				|| StringUtils.isBlank(pagingAction[0])
+				|| (details.getRequestType() != RequestTypeEnum.GET && details.getRequestType() != RequestTypeEnum.POST)) {
+			return false;
+		}
+		try {
+			return details.getServer() instanceof RestfulServer server
+					&& server.determineResourceMethod(details, null) instanceof PageMethodBinding;
+		} catch (RuntimeException e) {
+			return false;
+		}
+	}
+
+	/**
+	 * Reads iss before verification only to select the entry, whose processor then verifies the signature
+	 * and the claims.
+	 */
+	private JWTClaimsSet verify(String token) throws Exception {
+		SignedJWT jwt = SignedJWT.parse(token);
+		String iss = jwt.getJWTClaimsSet().getIssuer();
+		Issuer issuer = iss == null ? null : issuers.get(iss);
+		if (issuer == null) {
+			throw new BadJWTException("The token issuer is not configured");
+		}
+		DefaultJWTProcessor<SecurityContext> processor = processors.get(iss);
+		if (processor == null) {
+			// Discovery runs outside the map lock, so an issuer that is down blocks no other request. A failed
+			// discovery stores nothing, so the next token for this issuer runs it again. The mapping function
+			// does no I/O and runs once per issuer, so each issuer gets one key source.
+			URL jwks = jwksUrl(issuer);
+			processor = processors.computeIfAbsent(iss, key -> processor(issuer, jwks));
+		}
+		JWTClaimsSet claims = processor.process(jwt, null);
+		// The required-claim check of Nimbus tests only for the key, so it accepts "exp": null.
+		if (claims.getExpirationTime() == null) {
+			throw new BadJWTException("The token has no expiration time");
+		}
+		return claims;
+	}
+
+	private DefaultJWTProcessor<SecurityContext> processor(Issuer issuer, URL jwks) {
+		JWKSource<SecurityContext> keys = keySources.apply(jwks);
+		openKeySources.add(keys);
+		DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
+		processor.setJWSTypeVerifier(
+				new DefaultJOSEObjectTypeVerifier<>(JOSEObjectType.JWT, new JOSEObjectType("at+jwt"), null));
+		processor.setJWSKeySelector(new JWSVerificationKeySelector<>(ALGORITHMS, keys));
+		processor.setJWTClaimsSetVerifier(new DefaultJWTClaimsVerifier<>(
+				StringUtils.isBlank(issuer.audience()) ? null : issuer.audience(),
+				new JWTClaimsSet.Builder().issuer(issuer.issuer()).build(),
+				Set.of("exp")));
+		return processor;
+	}
+
+	private static URL jwksUrl(Issuer issuer) {
+		try {
+			if (StringUtils.isNotBlank(issuer.jwksUri())) {
+				return URI.create(issuer.jwksUri()).toURL();
+			}
+			URL discovery = URI.create(StringUtils.removeEnd(issuer.issuer(), "/") + "/.well-known/openid-configuration")
+					.toURL();
+			Map<String, Object> metadata =
+					JSONObjectUtils.parse(DISCOVERY.retrieveResource(discovery).getContent());
+			if (!issuer.issuer().equals(JSONObjectUtils.getString(metadata, "issuer"))) {
+				throw new IllegalStateException("The discovery document of " + issuer.issuer() + " names another issuer");
+			}
+			URI jwksUri = JSONObjectUtils.getURI(metadata, "jwks_uri");
+			if (jwksUri == null) {
+				throw new IllegalStateException("The discovery document of " + issuer.issuer() + " has no jwks_uri");
+			}
+			return jwksUri.toURL();
+		} catch (IOException | ParseException e) {
+			throw new IllegalStateException("Discovery failed for " + issuer.issuer() + ": " + e.getMessage(), e);
+		}
+	}
+
+	/** The body has a fixed text, because a library message can name the expected issuer. */
+	private static AuthenticationException unauthorized(RequestDetails details, String challenge, String text) {
+		FhirContext context = details.getFhirContext();
+		IBaseOperationOutcome outcome = OperationOutcomeUtil.newInstance(context);
+		OperationOutcomeUtil.addIssue(context, outcome, "error", text, null, "security");
+		AuthenticationException exception = new AuthenticationException(text);
+		exception.setOperationOutcome(outcome);
+		exception.addResponseHeader("WWW-Authenticate", challenge);
+		return exception;
+	}
+}

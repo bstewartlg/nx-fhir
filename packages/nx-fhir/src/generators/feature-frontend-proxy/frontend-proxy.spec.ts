@@ -358,6 +358,24 @@ describe('frontend-proxy feature', () => {
       expect(integrationTest).toContain('classes = {AcmeServer.class}');
     });
 
+    it('runs the integration test under the test profile with the FHIR version of the server', async () => {
+      await frontendProxyFeature.apply(
+        tree,
+        { ...serverProject(tree), fhirVersion: FhirVersion.R5 },
+        { passthrough: false },
+      );
+
+      const integrationTest = tree.read(
+        `${javaTestRoot}/proxy/FrontendProxyControllerIT.java`,
+        'utf-8',
+      );
+      expect(integrationTest).toContain(
+        'import org.springframework.test.context.ActiveProfiles;',
+      );
+      expect(integrationTest).toContain('@ActiveProfiles("test")');
+      expect(integrationTest).toContain('"hapi.fhir.fhir_version=R5"');
+    });
+
     it('writes FRONTEND-PROXY.md with the keys, the warnings, and the doc rules', async () => {
       await frontendProxyFeature.apply(tree, serverProject(tree), {
         passthrough: false,

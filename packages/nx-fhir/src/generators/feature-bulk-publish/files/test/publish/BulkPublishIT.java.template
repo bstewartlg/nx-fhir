@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.zip.GZIPInputStream;
@@ -39,6 +40,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.test.context.ActiveProfiles;
 
 /**
  * Boots the full server and exercises the FHIR Bulk Data $bulk-publish operation end to end:
@@ -60,11 +62,14 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
  * {@code publish.transaction-lag-ms=0} keeps every write just made inside the claimed
  * transactionTime.
  */
+@ActiveProfiles("test")
 @SpringBootTest(
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 		classes = {<%= applicationClassName %>.class},
 		properties = {
 			"spring.datasource.url=jdbc:h2:mem:bulkpublishit",
+			// Overrides the R4 of application-test.yaml with the FHIR version of the server.
+			"hapi.fhir.fhir_version=<%= fhirVersion %>",
 			"publish.enabled=true",
 			"publish.interval-ms=600000",
 			"publish.transaction-lag-ms=0",
@@ -348,10 +353,8 @@ class BulkPublishIT {
 						.build(),
 				HttpResponse.BodyHandlers.ofByteArray());
 		assertEquals(406, rejected.statusCode());
-		assertEquals(
-				"Accept-Encoding, Accept",
-				rejected.headers().firstValue("Vary").orElse(null),
-				"a refused Accept still selects on both headers, so the 406 carries the same Vary");
+		assertVaryNamesAcceptEncodingAndAccept(
+				rejected, "a refused Accept still selects on both headers, so the 406 carries the same Vary");
 		assertTrue(
 				rejected.headers().firstValue("Content-Type").orElse("").startsWith("application/fhir+json"),
 				"an unsupported Accept header should get an OperationOutcome as application/fhir+json");
@@ -569,10 +572,8 @@ class BulkPublishIT {
 		assertTrue(
 				response.headers().firstValue("Content-Encoding").isEmpty(),
 				"a request without Accept-Encoding should not receive a Content-Encoding header");
-		assertEquals(
-				"Accept-Encoding, Accept",
-				response.headers().firstValue("Vary").orElse(null),
-				"file responses select on both Accept-Encoding and Accept, so Vary names both");
+		assertVaryNamesAcceptEncodingAndAccept(
+				response, "file responses select on both Accept-Encoding and Accept, so Vary names both");
 		return response.body();
 	}
 
@@ -594,12 +595,19 @@ class BulkPublishIT {
 				"gzip",
 				response.headers().firstValue("Content-Encoding").orElse(null),
 				"requesting gzip should receive a Content-Encoding: gzip response");
-		assertEquals(
-				"Accept-Encoding, Accept",
-				response.headers().firstValue("Vary").orElse(null),
-				"file responses select on both Accept-Encoding and Accept, so Vary names both");
+		assertVaryNamesAcceptEncodingAndAccept(
+				response, "file responses select on both Accept-Encoding and Accept, so Vary names both");
 		try (GZIPInputStream gzip = new GZIPInputStream(new ByteArrayInputStream(response.body()))) {
 			return gzip.readAllBytes();
 		}
+	}
+
+	/** A CORS mapping can add its own Vary header or name, so the check reads every Vary value. */
+	private static void assertVaryNamesAcceptEncodingAndAccept(HttpResponse<?> response, String message) {
+		List<String> names = response.headers().allValues("Vary").stream()
+				.flatMap(value -> Arrays.stream(value.split(",")))
+				.map(String::trim)
+				.toList();
+		assertTrue(names.containsAll(List.of("Accept-Encoding", "Accept")), message);
 	}
 }

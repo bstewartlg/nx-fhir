@@ -1,0 +1,150 @@
+package <%= packageBase %>.auth;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import <%= applicationClassFqn %>;
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.jwk.JWKSet;
+import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpResponse.BodyHandlers;
+import java.nio.charset.StandardCharsets;
+import java.util.Date;
+import java.util.Optional;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+
+/**
+ * Boots the full server with one issuer whose keys a JDK HTTP stub serves. The stub serves no discovery
+ * document, so a valid token passes only when the issuer and jwks-uri of the entry bind.
+ */
+@ActiveProfiles("test")
+@SpringBootTest(
+		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+		classes = {<%= applicationClassName %>.class},
+		properties = {
+			"spring.datasource.url=jdbc:h2:mem:authresourceit",
+			// Overrides the R4 of application-test.yaml with the FHIR version of the server.
+			"hapi.fhir.fhir_version=<%= fhirVersion %>",
+			"app.auth.enabled=true",
+			"app.auth.public-endpoints[0]=Patient",
+			"app.auth.bypass-header=X-Bypass-Auth",
+			"spring.ai.mcp.server.enabled=false",
+			"spring.main.allow-bean-definition-overriding=true",
+			"management.health.elasticsearch.enabled=false",
+			"spring.jpa.properties.hibernate.search.backend.directory.type=local-heap"
+		})
+class AuthResourceIT {
+
+	private static final String AUDIENCE = "fhir-api";
+	private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+	private static final RSAKey KEY;
+	private static final HttpServer ISSUER;
+
+	static {
+		try {
+			KEY = new RSAKeyGenerator(2048).keyID("it-rsa").generate();
+			ISSUER = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+		} catch (JOSEException | IOException e) {
+			throw new ExceptionInInitializerError(e);
+		}
+		ISSUER.createContext("/issuer/jwks", exchange -> {
+			byte[] body = new JWKSet(KEY).toString().getBytes(StandardCharsets.UTF_8);
+			exchange.getResponseHeaders().add("Content-Type", "application/json");
+			exchange.sendResponseHeaders(200, body.length);
+			try (OutputStream out = exchange.getResponseBody()) {
+				out.write(body);
+			}
+		});
+		ISSUER.start();
+	}
+
+	@LocalServerPort
+	private int port;
+
+	@DynamicPropertySource
+	static void issuer(DynamicPropertyRegistry registry) {
+		registry.add("app.auth.issuers[0].issuer", AuthResourceIT::issuerUrl);
+		registry.add("app.auth.issuers[0].audience", () -> AUDIENCE);
+		registry.add("app.auth.issuers[0].jwks-uri", () -> issuerUrl() + "/jwks");
+	}
+
+	@AfterAll
+	static void stopIssuer() {
+		ISSUER.stop(0);
+	}
+
+	@Test
+	void capabilityStatementNeedsNoToken() throws Exception {
+		HttpResponse<String> response = send(fhir("metadata"));
+		assertEquals(200, response.statusCode(), response.body());
+	}
+
+	@Test
+	void requestWithNoTokenIsRejected() throws Exception {
+		HttpResponse<String> response = send(fhir("Observation"));
+		assertEquals(401, response.statusCode(), response.body());
+		assertEquals(Optional.of("Bearer"), response.headers().firstValue("WWW-Authenticate"));
+	}
+
+	@Test
+	void validTokenIsAccepted() throws Exception {
+		HttpResponse<String> response = send(fhir("Observation").header("Authorization", "Bearer " + token()));
+		assertEquals(200, response.statusCode(), response.body());
+	}
+
+	@Test
+	void bypassHeaderSkipsTheCheck() throws Exception {
+		HttpResponse<String> response = send(fhir("Observation").header("X-Bypass-Auth", "1"));
+		assertEquals(200, response.statusCode(), response.body());
+	}
+
+	@Test
+	void publicEndpointNeedsNoToken() throws Exception {
+		HttpResponse<String> response = send(fhir("Patient"));
+		assertEquals(200, response.statusCode(), response.body());
+	}
+
+	private static String issuerUrl() {
+		return "http://127.0.0.1:" + ISSUER.getAddress().getPort() + "/issuer";
+	}
+
+	private static String token() throws JOSEException {
+		SignedJWT jwt = new SignedJWT(
+				new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(KEY.getKeyID()).build(),
+				new JWTClaimsSet.Builder()
+						.issuer(issuerUrl())
+						.audience(AUDIENCE)
+						.subject("it-user")
+						.expirationTime(new Date(System.currentTimeMillis() + 300_000))
+						.build());
+		jwt.sign(new RSASSASigner(KEY));
+		return jwt.serialize();
+	}
+
+	private HttpRequest.Builder fhir(String path) {
+		return HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/fhir/" + path));
+	}
+
+	private static HttpResponse<String> send(HttpRequest.Builder request) throws Exception {
+		return HTTP.send(request.build(), BodyHandlers.ofString());
+	}
+}
