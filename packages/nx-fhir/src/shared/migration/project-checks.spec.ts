@@ -37,12 +37,28 @@ describe('project checks', () => {
     return `"${process.execPath}" "${file}"`;
   };
 
+  // A killed process stays in the process table as a zombie until its parent
+  // reaps it, and signal 0 still reaches a zombie. PID 1 of a CI job container
+  // does not reap the processes it adopts, so Linux needs the state from /proc.
+  const isZombie = (pid: number) => {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      // The state follows the command name, which can hold spaces and parentheses
+      return stat.slice(stat.lastIndexOf(')') + 2).startsWith('Z');
+    } catch {
+      return false;
+    }
+  };
+
   const waitForExit = async (pid: number) => {
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
       try {
         process.kill(pid, 0);
       } catch {
+        return true;
+      }
+      if (isZombie(pid)) {
         return true;
       }
       await new Promise((r) => setTimeout(r, 50));

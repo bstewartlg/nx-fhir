@@ -259,7 +259,7 @@ describe('planDependencyChanges', () => {
     expect(changes.find((c) => c.name === '@biomejs/biome')).toMatchObject({
       kind: 'risky',
       from: '^2.4.5',
-      to: '2.6.4',
+      to: '2.6.7',
       advisory: expect.objectContaining({ packageName: '@biomejs/biome' }),
     });
     expect(changes.filter((c) => c.kind === 'added').length).toBeGreaterThan(0);

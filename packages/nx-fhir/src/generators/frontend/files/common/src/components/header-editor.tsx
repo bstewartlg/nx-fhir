@@ -64,6 +64,7 @@ export function HeaderEditor({ headers, onChange }: HeaderEditorProps) {
     <div className="space-y-2">
       <Label>Custom Headers</Label>
       {headers.map((header, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: rows have no stable id and their inputs are controlled
         <div key={index} className="flex gap-2">
           <Input
             aria-label={`Header ${index + 1} name`}

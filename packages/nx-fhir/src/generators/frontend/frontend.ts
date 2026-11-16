@@ -52,35 +52,35 @@ export const BASE_DEPENDENCIES: Record<string, string> = {
   '@radix-ui/react-collapsible': '^1.2.1',
   '@radix-ui/react-scroll-area': '^1.4.0',
   '@radix-ui/react-tabs': '^1.2.1',
-  '@tailwindcss/vite': '^4.3.3',
+  '@tailwindcss/vite': '^4.3.5',
   '@tanstack/react-devtools': '^0.10.14',
-  '@tanstack/react-query': '^5.105.1',
+  '@tanstack/react-query': '^5.107.1',
   '@tanstack/react-router': '^1.170.46',
-  '@tanstack/react-router-devtools': '^1.167.2',
+  '@tanstack/react-router-devtools': '^1.167.3',
   '@tanstack/react-table': '^9.3.1',
-  '@tanstack/router-plugin': '^1.168.48',
+  '@tanstack/router-plugin': '^1.169.0',
   'class-variance-authority': '^0.7.1',
   'clsx': '^2.1.1',
-  'lucide-react': '^1.66.0',
+  'lucide-react': '^1.72.0',
   '@monaco-editor/react': '^4.7.0',
   'radix-ui': '^1.8.1',
   'react': '^19.3.1',
   'react-dom': '^19.3.1',
   'sonner': '^2.0.8',
   'tailwind-merge': '^3.7.0',
-  'tailwindcss': '^4.3.3',
+  'tailwindcss': '^4.3.5',
   'tw-animate-css': '^1.4.0',
 };
 
 /** Dependencies only needed by the browser template */
 export const BROWSER_ONLY_DEPENDENCIES: Record<string, string> = {
-  '@tanstack/react-virtual': '^3.14.25',
+  '@tanstack/react-virtual': '^3.14.26',
   'cmdk': '^1.1.1',
 };
 
 /** Dev dependencies for all frontend templates */
 export const DEV_DEPENDENCIES: Record<string, string> = {
-  '@biomejs/biome': '2.6.4',
+  '@biomejs/biome': '2.6.7',
   '@tanstack/devtools-vite': '^0.8.6',
   '@testing-library/dom': '^10.4.2',
   '@testing-library/jest-dom': '~6.9.1',
@@ -89,10 +89,10 @@ export const DEV_DEPENDENCIES: Record<string, string> = {
   '@types/node': '^26.6.6',
   '@types/react': '^19.3.0',
   '@types/react-dom': '^19.3.0',
-  '@vitejs/plugin-react': '^6.1.2',
+  '@vitejs/plugin-react': '^6.3.0',
   'jsdom': '^29.1.1',
   'typescript': '~6.0.3',
-  'vite': '^8.3.5',
+  'vite': '^8.3.8',
   'vitest': '^4.1.12',
 };
 

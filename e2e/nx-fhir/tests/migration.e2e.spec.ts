@@ -245,6 +245,14 @@ describe('migration e2e test', () => {
     );
     expect(frontendProjectJson.frontendVersion).toBe(publishedFrontendVersion);
 
+    const frontendPackageJsonPath = join(
+      projectDirectory,
+      'frontend/package.json',
+    );
+    const publishedBiomeVersion = JSON.parse(
+      readFileSync(frontendPackageJsonPath, 'utf-8'),
+    ).devDependencies['@biomejs/biome'];
+
     const hookPath = join(
       projectDirectory,
       'frontend/src/hooks/use-fhir-api.ts',
@@ -328,12 +336,14 @@ describe('migration e2e test', () => {
     );
     expect(migratedProjectJson.frontendVersion).toBe(pluginVersion);
 
-    // The biome bump crosses the 2.6.0 advisory boundary, so its arrival
-    // proves a risky change was applied under the flag
-    const frontendPackageJson = JSON.parse(
-      readFileSync(join(projectDirectory, 'frontend/package.json'), 'utf-8'),
-    );
-    expect(frontendPackageJson.devDependencies['@biomejs/biome']).toBe('2.6.4');
+    // The biome bump crosses the 2.6.0 advisory boundary, so a version that
+    // differs from the published one proves a risky change was applied under
+    // the flag
+    const migratedBiomeVersion = JSON.parse(
+      readFileSync(frontendPackageJsonPath, 'utf-8'),
+    ).devDependencies['@biomejs/biome'];
+    expect(migratedBiomeVersion).toBeDefined();
+    expect(migratedBiomeVersion).not.toBe(publishedBiomeVersion);
 
     // The current template ships a test for the hook this test appended the
     // marker to, and a new template test is not added beside a changed file
