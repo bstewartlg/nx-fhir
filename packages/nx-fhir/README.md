@@ -9,7 +9,7 @@ An Nx plugin for building FHIR servers and frontends.
 - Scaffold TanStack Router-based React frontend SPAs with browser or clinical templates
 - Generate custom FHIR operations from OperationDefinition resources
 - Add FHIR Implementation Guides to your server
-- Add packaged server features such as scheduled `$bulk-publish` bulk data publication, OpenTelemetry instrumentation, a same-origin proxy for frontend requests to other FHIR servers, and a bearer token check on the FHIR endpoint
+- Add packaged server features such as scheduled `$bulk-publish` bulk data publication, OpenTelemetry instrumentation, a same-origin proxy for frontend requests to other FHIR servers, a bearer token check on the FHIR endpoint, and signed UDAP metadata for an external authorization server
 - Keep your HAPI FHIR server and frontend up to date with newer releases via `nx migrate`
 
 ## Installation
@@ -268,36 +268,133 @@ Adds a bearer token check to the FHIR endpoint of a server:
 nx g nx-fhir:feature-auth-resource
 ```
 
-The check applies to each request under `/fhir`. A request needs the header `Authorization: Bearer <token>` with a JSON Web Token (JWT) from an issuer of `app.auth.issuers`. When an issuer entry has no `jwks-uri`, the server reads `{issuer}/.well-known/openid-configuration` at the first token from that issuer. After a valid token, `RequestDetails.getUserData()` holds the verified claims under the key `BearerTokenInterceptor.CLAIMS_KEY`. The generator also writes `AUTH-RESOURCE.md` to the server root, which gives the configuration and the request rule.
+The check applies to each request under `/fhir`. A request needs the header `Authorization: Bearer <token>` with a JSON Web Token (JWT) from the issuer of `app.auth.issuer`. When `app.auth.jwks-uri` is absent, the server reads `{issuer}/.well-known/openid-configuration` at the first token and keeps the document after a successful read. After a valid token, `RequestDetails.getUserData()` holds the verified claims under the key `BearerTokenInterceptor.CLAIMS_KEY`. The generator also writes `AUTH-RESOURCE.md` to the server root, which gives the configuration and the request rule.
 
 `GET` and `HEAD` requests to `/fhir/metadata` pass with no token. Each request under `/fhir/.well-known/` passes with no token. A paging request (`_getpages`) that HAPI FHIR gives to its paging handler passes with no token. An entry of `app.auth.public-endpoints` names a resource type (`Practitioner`), a server-level operation (`$bulk-publish`), or an operation on a type (`Patient/$match`). A request that fits an entry passes with no token, for each request method. When `app.auth.enabled` is `true`, an entry in a different form stops the server at startup.
 
 **Options:**
 - `--project`: Name of the Nx server project to add the feature to
-- `--issuer`: Token issuer URL, an absolute `http` or `https` URL. The `iss` claim of a token must be equal to it. The generator writes `enabled: true` when this option is given.
-- `--audience`: Value that the `aud` claim of a token must contain. Needs `--issuer`.
+- `--issuer`: Token issuer URL, an absolute `http` or `https` URL (default: `https://udap-security.fast.hl7.org`). The `iss` claim of a token must be equal to it. With no `--issuer`, an interactive run shows a list of three choices: `https://udap-security.fast.hl7.org` (public FAST security server, selected), `https://localhost:5001` (local FAST security server), and Other, which asks for the URL.
+- `--audience`: Value that the `aud` claim of a token must contain.
 
 **Example:**
+```sh
+nx g nx-fhir:feature-auth-resource --project=my-fhir-server
+```
+
+The install writes this configuration to `application.yaml`:
+
 ```yaml
 app:
   auth:
     enabled: true
-    issuers:
-      - issuer: https://issuer.example.org
-        audience: https://fhir.example.org/fhir
-        jwks-uri: https://issuer.example.org/keys
-    public-endpoints:
-      - $bulk-publish
-      - Practitioner
-      - Patient/$match
+    issuer: https://udap-security.fast.hl7.org
+    public-endpoints: []
+    ssl-verify: true
     # bypass-header: X-Bypass-Auth
 ```
 
+The install replaces `app.auth` with this map. With `--audience`, the map also has `audience`. The optional key `app.auth.jwks-uri` gives the key set URL. With that key, the server reads no discovery document. The discovery read and the key set read each have a connect timeout of 5 seconds and a read timeout of 10 seconds.
+
 WARNING: With `app.auth.bypass-header` set, each caller that sends this header skips the token check. Remove the property for a deployment that has data that is not public.
 
-A request that has the header that `app.auth.bypass-header` names passes with no token. The generated `application.yaml` has the comment line `# bypass-header: X-Bypass-Auth`, so the bypass is off after the install. To turn on the bypass, remove `# ` from that line.
+A request that has the header that `app.auth.bypass-header` names passes with no token. The install writes the comment line `# bypass-header: X-Bypass-Auth`, and the bypass is off. To turn on the bypass, remove `# ` from that line.
 
-With `app.auth.enabled: false`, the server has no check. With `app.auth.enabled: true`, `app.auth.issuers` needs at least one entry, and the server stops at startup with none. An issuer entry with no `issuer` stops the server at startup. The install writes `app.auth.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`. A test that does not set `app.auth.enabled` to `true` runs with no check.
+With `app.auth.enabled: false`, the server has no check. With `app.auth.enabled: true` and no `app.auth.issuer`, the server stops at startup. The install writes `app.auth.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`. A test that does not set `app.auth.enabled` to `true` runs with no check.
+
+The install writes `ssl-verify: false` when the issuer is an `https` URL with the host `localhost`, and `ssl-verify: true` for each other issuer. With `app.auth.ssl-verify: false`, the server does not check the certificate chain or the host name for the calls of the auth features. With this value and `app.auth.enabled: true`, the server writes one WARN line at startup.
+
+WARNING: With `app.auth.ssl-verify: false`, the server accepts any certificate from the hosts it calls. Use it only with a local development certificate.
+
+Requires HAPI FHIR 8.8.0 or later.
+
+#### Auth UDAP (auth-udap)
+
+Adds signed UDAP metadata at `/fhir/.well-known/udap` to a server:
+
+```sh
+nx g nx-fhir:feature-auth-udap
+```
+
+The feature needs the `auth-resource` feature. When the server has no `auth-resource`, the generator offers to install it first. An interactive run asks one question, and yes is the default. With yes, `auth-resource` installs first and asks its own questions. With no, the generator stops and writes nothing. A run that is not interactive installs `auth-resource` with its defaults and asks no question. For a different issuer, run `feature-auth-resource` with `--issuer` first.
+
+The server answers `GET {baseURL}/.well-known/udap` with the UDAP metadata of the HL7 FAST security IG (STU2 2.0.0). The metadata gives a client the endpoints of the authorization server of `app.auth.issuer`. That server registers clients, authorizes them, and issues tokens. The server reads the UDAP metadata of the issuer at `{issuer}/.well-known/udap` for each endpoint, for the scope list, and for each UDAP list that no property sets. It reads the document at the first metadata request that needs it and keeps the document after a successful read.
+
+The server publishes the metadata only when `app.auth.enabled` and `app.auth.udap.enabled` are both `true`. The request needs no token, and each `community` value gets the same metadata. The generator also writes `AUTH-UDAP.md` to the server root. That file gives the configuration, the source of each metadata value, the IG rules for the lists, and the cases that stop startup.
+
+**Options:**
+- `--project`: Name of the Nx server project to add the feature to
+- `--certFile`: Path of a PKCS#12 certificate file. With no value, the server fetches a test certificate from the issuer.
+
+**Example:**
+```sh
+nx g nx-fhir:feature-auth-udap --project=my-fhir-server
+```
+
+On a server with no `auth-resource`, this command with the defaults of the two features writes this configuration to `application.yaml`:
+
+```yaml
+app:
+  auth:
+    enabled: true
+    issuer: https://udap-security.fast.hl7.org
+    public-endpoints: []
+    ssl-verify: true
+    # bypass-header: X-Bypass-Auth
+    udap:
+      enabled: true
+      fetch-cert: true
+      profiles-supported:
+        - udap_dcr
+        - udap_authn
+        - udap_authz
+        - udap_to
+      grant-types-supported:
+        - authorization_code
+        - refresh_token
+        - client_credentials
+      authorization-extensions-supported:
+        - hl7-b2b
+      authorization-extensions-required: []
+      certifications-supported: []
+      token-endpoint-auth-signing-alg-values-supported:
+        - RS256
+        - RS384
+        - ES256
+        - ES384
+      registration-endpoint-jwt-signing-alg-values-supported:
+        - RS256
+        - RS384
+        - ES256
+        - ES384
+```
+
+The `auth-udap` install writes the `udap` map. The `auth-resource` install writes the other keys of `app.auth`.
+
+At startup, the server gets its certificate by one of two routes:
+
+1. With `cert-file` set, the server loads that PKCS#12 file with `cert-password`.
+2. With no `cert-file` and with `fetch-cert: true`, the server loads `generated-cert.pfx` from its working directory. When that file is absent, the server sends `POST {issuer}/api/cert/generate` with its base URL and a password. Each try has a connect timeout of 5 seconds and a limit of 30 seconds for the complete response. After a try succeeds, the server writes the response to `generated-cert.pfx` one time, and an error of that write stops startup with no new try. By default, the fetch makes up to 10 tries, 5000 milliseconds apart. With no `cert-password`, the fetch sends the password `udap-test`.
+
+The server fetches a certificate only at startup. The file `generated-cert.pfx` holds a private key. The generator adds this file name to the `.gitignore` of the server project.
+
+To use a certificate file of your own, give its path with `--certFile`:
+
+```sh
+nx g nx-fhir:feature-auth-udap --project=my-fhir-server --certFile=certs/udap.p12
+```
+
+The generator then writes `cert-file` and no `fetch-cert`. The generator does not write `cert-password`. Before you start the server, set `cert-password` in `application.yaml` or with the environment variable `APP_AUTH_UDAP_CERTPASSWORD`. With `cert-file` set and no `cert-password`, the server stops at startup.
+
+The class `FhirBaseUrl` of the `auth-resource` feature gives the base URL. The base URL is the value of `hapi.fhir.server_address` with one trailing `/` removed. When that property is empty, the base URL is `http://localhost:`, then the value of `server.port` (`8080` when absent), then the servlet context path with one trailing `/` removed, then `/fhir`. The fetch sends the base URL as the name of the certificate. When you change the base URL or `app.auth.issuer`, delete `generated-cert.pfx`. The next start fetches a new certificate.
+
+WARNING: A fetched certificate comes from a test authority, and its private key is made by a different server. Use the fetch only for development.
+
+`app.auth.ssl-verify` of the `auth-resource` feature also applies to the certificate fetch and to the read of the UDAP metadata of the issuer. With `app.auth.ssl-verify: false`, the server does not check the certificate chain or the host name for these calls.
+
+WARNING: With `app.auth.ssl-verify: false`, the server accepts any certificate from the hosts it calls. Use it only with a local development certificate.
+
+With `app.auth.enabled: false` or `app.auth.udap.enabled: false`, the feature registers nothing. The install writes `app.auth.udap.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`. A test runs with the feature on only when it sets `app.auth.enabled` and `app.auth.udap.enabled` to `true`.
 
 Requires HAPI FHIR 8.8.0 or later.
 

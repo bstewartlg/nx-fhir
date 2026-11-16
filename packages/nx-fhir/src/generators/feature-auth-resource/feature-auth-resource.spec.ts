@@ -1,7 +1,5 @@
 import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
 import { Tree } from '@nx/devkit';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 
 import { featureAuthResourceGenerator } from './feature-auth-resource';
 import { authResourceFeature } from './auth-resource';
@@ -50,14 +48,5 @@ describe('feature-auth-resource generator', () => {
 
   it('is listed in the feature registry', () => {
     expect(FEATURES).toContain(authResourceFeature);
-  });
-
-  it('has no schema default for issuer and audience', () => {
-    const schema = JSON.parse(
-      readFileSync(join(__dirname, 'schema.json'), 'utf-8'),
-    );
-
-    expect(schema.properties.issuer).not.toHaveProperty('default');
-    expect(schema.properties.audience).not.toHaveProperty('default');
   });
 });

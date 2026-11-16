@@ -5,6 +5,7 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * The URL rules of the proxy and the classification of a destination against the listed servers.
@@ -79,7 +80,7 @@ public final class ProxyDestinations {
 	// Raw paths are compared, and parse returns the ASCII form, so the check sees the same bytes that the
 	// upstream receives.
 	private static boolean isUnder(URI target, URI base) {
-		String basePath = base.normalize().getRawPath().replaceAll("/+$", "");
+		String basePath = StringUtils.stripEnd(base.normalize().getRawPath(), "/");
 		String path = target.getRawPath();
 		return target.getScheme().equalsIgnoreCase(base.getScheme())
 				&& target.getHost().equalsIgnoreCase(base.getHost())

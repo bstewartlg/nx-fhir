@@ -1,10 +1,9 @@
 import { generateFiles, OverwriteStrategy, Tree } from '@nx/devkit';
-import { input } from '@inquirer/prompts';
+import { input, select } from '@inquirer/prompts';
 import * as path from 'path';
-import { Document, parseDocument } from 'yaml';
+import { Document, parseDocument, YAMLMap } from 'yaml';
 
 import { FeatureDefinition } from '../feature/types';
-import { updateServerYaml } from '../../shared/utils';
 import { isInteractive } from '../../shared/utils/interactive';
 import {
   detectApplicationClass,
@@ -12,16 +11,15 @@ import {
   listTemplateOutputs,
 } from '../../shared/utils/server-wiring';
 
+export const AUTH_RESOURCE_FEATURE = 'auth-resource';
+export const DEFAULT_ISSUER = 'https://udap-security.fast.hl7.org';
+export const LOCAL_FAST_ISSUER = 'https://localhost:5001';
+export const OTHER_ISSUER = 'other';
+
 interface AuthResourceOptions {
   issuer: string;
   audience: string;
 }
-
-// Spring Boot loads config/application.yaml for each test and application-test.yaml for the test profile.
-const TEST_CONFIG_FILES = [
-  path.join('src', 'test', 'resources', 'config', 'application.yaml'),
-  path.join('src', 'test', 'resources', 'application-test.yaml'),
-];
 
 function isHttpUrl(value: string): boolean {
   try {
@@ -31,15 +29,55 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-/** The text of a test configuration file with app.auth.enabled set to false. */
-function withCheckOff(tree: Tree, file: string): string {
-  const doc = parseDocument(tree.read(file, 'utf-8') ?? '');
-  doc.setIn(['app', 'auth', 'enabled'], false);
-  return doc.toString();
+export function parseYaml(file: string, text: string): Document {
+  const doc = parseDocument(text);
+  if (doc.errors.length > 0) {
+    throw new Error(`Invalid YAML in ${file}. ${doc.errors[0].message}`);
+  }
+  return doc;
+}
+
+/** Returns the path and the new text of each test configuration file with the value at keyPath set to false. The caller writes the files. */
+export function testConfigsWithKeyOff(
+  tree: Tree,
+  projectRoot: string,
+  keyPath: string[],
+): Array<[file: string, content: string]> {
+  // Spring Boot loads config/application.yaml for each test and application-test.yaml for the test profile.
+  return [
+    path.join('src', 'test', 'resources', 'config', 'application.yaml'),
+    path.join('src', 'test', 'resources', 'application-test.yaml'),
+  ].map((relative) => {
+    const file = path.join(projectRoot, relative);
+    const doc = parseYaml(file, tree.read(file, 'utf-8') ?? '');
+    doc.setIn(keyPath, false);
+    return [file, doc.toString()];
+  });
+}
+
+async function askForIssuer(): Promise<string> {
+  const choice = await select({
+    message: 'Token issuer URL (the iss claim):',
+    choices: [
+      {
+        name: `${DEFAULT_ISSUER} (public FAST security server)`,
+        value: DEFAULT_ISSUER,
+      },
+      {
+        name: `${LOCAL_FAST_ISSUER} (local FAST security server)`,
+        value: LOCAL_FAST_ISSUER,
+      },
+      { name: 'Other', value: OTHER_ISSUER },
+    ],
+    default: DEFAULT_ISSUER,
+  });
+  return choice === OTHER_ISSUER
+    ? input({ message: 'Token issuer URL:' })
+    : choice;
 }
 
 export const authResourceFeature: FeatureDefinition = {
-  name: 'auth-resource',
+  name: AUTH_RESOURCE_FEATURE,
   description: 'Require a bearer token from a configured issuer on the FHIR endpoint',
   featureVersion: 1,
   minHapiVersion: '8.8.0',
@@ -49,16 +87,13 @@ export const authResourceFeature: FeatureDefinition = {
       provided.issuer !== undefined
         ? String(provided.issuer)
         : isInteractive()
-          ? await input({
-              message:
-                'Token issuer URL (the iss claim). Leave empty to add issuers later in application.yaml:',
-            })
-          : ''
+          ? await askForIssuer()
+          : DEFAULT_ISSUER
     ).trim();
     const audience = (
       provided.audience !== undefined
         ? String(provided.audience)
-        : issuer && isInteractive()
+        : isInteractive()
           ? await input({
               message:
                 'Audience that the aud claim must contain. Leave empty for no audience check:',
@@ -66,13 +101,10 @@ export const authResourceFeature: FeatureDefinition = {
           : ''
     ).trim();
 
-    if (issuer && !isHttpUrl(issuer)) {
+    if (!isHttpUrl(issuer)) {
       throw new Error(
         `Invalid issuer '${issuer}'. Use an absolute http or https URL.`,
       );
-    }
-    if (audience && !issuer) {
-      throw new Error('The audience option needs an issuer option.');
     }
     const options: AuthResourceOptions = { issuer, audience };
     return options as unknown as Record<string, unknown>;
@@ -116,27 +148,33 @@ export const authResourceFeature: FeatureDefinition = {
     }
 
     // Each yaml step that can refuse runs before the first yaml write, so a refusal leaves the yaml files unchanged.
-    const testConfigs = TEST_CONFIG_FILES.map((relative) => {
-      const file = path.join(project.root, relative);
-      return [file, withCheckOff(tree, file)];
-    });
+    const testConfigs = testConfigsWithKeyOff(tree, project.root, [
+      'app',
+      'auth',
+      'enabled',
+    ]);
 
-    const auth = new Document().createNode({
-      enabled: Boolean(options.issuer),
-      issuers: options.issuer
-        ? [
-            {
-              issuer: options.issuer,
-              ...(options.audience ? { audience: options.audience } : {}),
-            },
-          ]
-        : [],
+    const configPath = path.join(
+      project.root,
+      'src/main/resources/application.yaml',
+    );
+    const configFile = tree.read(configPath, 'utf-8');
+    if (!configFile) {
+      throw new Error(`Configuration file not found at ${configPath}`);
+    }
+    const config = parseYaml(configPath, configFile);
+    const { protocol, hostname } = new URL(options.issuer);
+    const auth = config.createNode({
+      enabled: true,
+      issuer: options.issuer,
+      ...(options.audience ? { audience: options.audience } : {}),
       'public-endpoints': [],
-    });
+      'ssl-verify': !(protocol === 'https:' && hostname === 'localhost'),
+    }) as YAMLMap;
     // The comment follows the last key at the indentation of the app.auth keys, so the removal of "# " turns the bypass on.
     auth.comment = ' bypass-header: X-Bypass-Auth';
-    updateServerYaml(project.root, tree, 'app.auth', auth);
-
+    config.setIn(['app', 'auth'], auth);
+    tree.write(configPath, config.toString());
     for (const [file, content] of testConfigs) {
       tree.write(file, content);
     }

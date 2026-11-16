@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Bearer token check settings under the "app.auth" prefix in application.yaml
+ * Bearer token check settings under the "app.auth" prefix in application.yaml.
  */
 @Configuration
 @ConfigurationProperties(prefix = "app.auth")
@@ -15,11 +15,21 @@ public class AuthResourceProperties {
 	/** Turns the bearer token check on. Absent means false. */
 	private boolean enabled;
 
-	private List<Issuer> issuers = new ArrayList<>();
+	/** The issuer URL, which is the iss claim of an accepted token. */
+	private String issuer;
+
+	/** The aud claim that a token must hold. Absent means no audience check. */
+	private String audience;
+
+	/** The key set URL. Absent means the jwks_uri of the OpenID Connect discovery document of the issuer. */
+	private String jwksUri;
 
 	private List<String> publicEndpoints = new ArrayList<>();
 
 	private String bypassHeader;
+
+	/** Checks the certificate chain and the host name for each call that the auth features make. Absent means true. */
+	private boolean sslVerify = true;
 
 	public boolean isEnabled() {
 		return enabled;
@@ -29,12 +39,28 @@ public class AuthResourceProperties {
 		this.enabled = enabled;
 	}
 
-	public List<Issuer> getIssuers() {
-		return issuers;
+	public String getIssuer() {
+		return issuer;
 	}
 
-	public void setIssuers(List<Issuer> issuers) {
-		this.issuers = issuers;
+	public void setIssuer(String issuer) {
+		this.issuer = issuer;
+	}
+
+	public String getAudience() {
+		return audience;
+	}
+
+	public void setAudience(String audience) {
+		this.audience = audience;
+	}
+
+	public String getJwksUri() {
+		return jwksUri;
+	}
+
+	public void setJwksUri(String jwksUri) {
+		this.jwksUri = jwksUri;
 	}
 
 	public List<String> getPublicEndpoints() {
@@ -53,36 +79,11 @@ public class AuthResourceProperties {
 		this.bypassHeader = bypassHeader;
 	}
 
-	public static class Issuer {
+	public boolean isSslVerify() {
+		return sslVerify;
+	}
 
-		private String issuer;
-
-		private String audience;
-
-		private String jwksUri;
-
-		public String getIssuer() {
-			return issuer;
-		}
-
-		public void setIssuer(String issuer) {
-			this.issuer = issuer;
-		}
-
-		public String getAudience() {
-			return audience;
-		}
-
-		public void setAudience(String audience) {
-			this.audience = audience;
-		}
-
-		public String getJwksUri() {
-			return jwksUri;
-		}
-
-		public void setJwksUri(String jwksUri) {
-			this.jwksUri = jwksUri;
-		}
+	public void setSslVerify(boolean sslVerify) {
+		this.sslVerify = sslVerify;
 	}
 }

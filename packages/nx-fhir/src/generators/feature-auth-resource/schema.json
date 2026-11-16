@@ -11,11 +11,11 @@
     },
     "issuer": {
       "type": "string",
-      "description": "Token issuer URL. The iss claim of a token must be equal to it."
+      "description": "Token issuer URL. The iss claim of a token must be equal to it. The default is https://udap-security.fast.hl7.org, and the generator applies it."
     },
     "audience": {
       "type": "string",
-      "description": "Value that the aud claim of a token must contain. Needs issuer."
+      "description": "Value that the aud claim of a token must contain."
     }
   }
 }

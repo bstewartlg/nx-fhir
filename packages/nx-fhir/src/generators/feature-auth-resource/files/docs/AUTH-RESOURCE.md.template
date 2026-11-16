@@ -1,7 +1,7 @@
 <% const packagePath = packageBase.replace(/\./g, '/'); -%>
 # Bearer token check
 
-The nx-fhir `auth-resource` feature adds a bearer token check to this server. The check applies to requests under `/fhir`. When `app.auth.enabled` is `true`, a request needs a JSON Web Token (JWT) from a listed issuer. The request rule below lists the requests that pass with no token.
+The nx-fhir `auth-resource` feature adds a bearer token check to this server. The check applies to requests under `/fhir`. When `app.auth.enabled` is `true`, a request needs a JSON Web Token (JWT) from the issuer of `app.auth.issuer`. The request rule below lists the requests that pass with no token.
 
 ## What the feature adds
 
@@ -9,10 +9,14 @@ The nx-fhir `auth-resource` feature adds a bearer token check to this server. Th
 | --- | --- |
 | `src/main/java/<%= packagePath %>/auth/BearerTokenInterceptor.java` | The check. |
 | `src/main/java/<%= packagePath %>/auth/AuthResourceProperties.java` | The configuration properties under `app.auth`. |
-| `src/main/java/<%= packagePath %>/auth/AuthResourceConfig.java` | Registers the check on the FHIR server and closes the key sources at shutdown. |
+| `src/main/java/<%= packagePath %>/auth/AuthResourceConfig.java` | Registers the check on the FHIR server. |
+| `src/main/java/<%= packagePath %>/auth/IssuerMetadata.java` | Reads the documents under `{issuer}/.well-known/` and keeps each document after its first successful read. |
+| `src/main/java/<%= packagePath %>/auth/FhirBaseUrl.java` | Gives the base URL of the FHIR endpoint of this server. |
+| `src/main/java/<%= packagePath %>/auth/TrustAllSslContext.java` | The SSL context that accepts any certificate and any host name. The HTTP clients of the auth features use it when `app.auth.ssl-verify` is `false`. |
 | `src/test/java/<%= packagePath %>/auth/BearerTokenInterceptorTest.java` | Unit test of the check with a local issuer. |
+| `src/test/java/<%= packagePath %>/auth/FhirBaseUrlTest.java` | Unit test of the base URL rule. |
+| `src/test/java/<%= packagePath %>/auth/TestCertificates.java` | Makes self-signed certificates for the unit tests with `keytool`. |
 | `src/test/java/<%= packagePath %>/auth/AuthResourceIT.java` | Integration test of the registration. It runs under `mvn verify`. |
-| `src/test/java/<%= packagePath %>/auth/AuthResourceDefaultStateIT.java` | Integration test of a server with the check off. It runs under `mvn verify`. |
 | `src/main/resources/application.yaml` | The `app.auth` entries. |
 | `src/test/resources/config/application.yaml` | `app.auth.enabled: false` for each Spring Boot test. |
 | `src/test/resources/application-test.yaml` | `app.auth.enabled: false` for a test with the `test` profile. |
@@ -25,33 +29,39 @@ The two test configuration files turn the check off. A test that sets `app.auth.
 app:
   auth:
     enabled: true
-    issuers:
-      - issuer: https://issuer.example.org
-        audience: https://fhir.example.org/fhir
-        jwks-uri: https://issuer.example.org/keys
+    issuer: https://issuer.example.org
+    audience: https://fhir.example.org/fhir
+    jwks-uri: https://issuer.example.org/keys
     public-endpoints:
       - $bulk-publish
       - Practitioner
       - Patient/$match
+    ssl-verify: true
     # bypass-header: X-Bypass-Auth
 ```
 
+The install replaces `app.auth` with one map. The map has `enabled: true`, `issuer`, `audience` when the option has a value, `public-endpoints: []`, `ssl-verify`, and the comment line of `bypass-header`. The default issuer of the generator is `https://udap-security.fast.hl7.org`, the public FAST security server.
+
 ### `app.auth.enabled`
 
-- `true`: the server checks each request under `/fhir`. `app.auth.issuers` must have at least one entry. With no entry, the application stops at startup.
+- `true`: the server checks each request under `/fhir`. `app.auth.issuer` must have a value. With no value, the application stops at startup.
 - `false` or absent: the server has no check and ignores the other `app.auth` properties.
 
-The generator writes `enabled: true` when it gets an issuer, and `enabled: false` when it gets none.
+### `app.auth.issuer`
 
-### `app.auth.issuers`
+The `iss` claim of a token must be equal to `app.auth.issuer`.
 
-Each entry is an issuer that the server accepts. An entry has these keys:
+### `app.auth.audience`
 
-- `issuer` is necessary. The `iss` claim of a token must be equal to it. An entry with no `issuer` stops the application at startup.
-- `audience` is optional. When it is set, the `aud` claim must contain it.
-- `jwks-uri` is optional. When it is set, the server reads the signing keys from this URL and does no discovery for that entry. Use it for an issuer whose `iss` value is not a URL that the server can reach.
+`audience` is optional. When it is set, the `aud` claim must contain it.
 
-When `jwks-uri` is absent, the server reads `{issuer}/.well-known/openid-configuration` and uses its `jwks_uri`. The `issuer` member of that document must be equal to the configured value. Discovery runs at the first token for an issuer. After a failed discovery, the server tries again at the next request. The server starts and runs while an issuer is down.
+### `app.auth.jwks-uri`
+
+`jwks-uri` is optional. When it is set, the server reads the signing keys from this URL and reads no discovery document. Use it for an issuer whose `iss` value is not a URL that the server can reach.
+
+When `jwks-uri` is absent, the server reads `{issuer}/.well-known/openid-configuration` and uses its `jwks_uri`. The `issuer` member of that document must be equal to `app.auth.issuer`. The server reads the document at the first token and keeps it after a successful read. After a failed read, the server reads the document again at the next token. The server starts and runs while the issuer is down.
+
+The discovery read and the key set read each have a connect timeout of 5 seconds and a read timeout of 10 seconds.
 
 ### `app.auth.public-endpoints`
 
@@ -63,6 +73,16 @@ A request that fits an entry passes with no token. Each entry is relative to the
 
 A public entry applies to each request method. The server compares an entry with the resource type and the operation that HAPI FHIR reads from the request. When `app.auth.enabled` is `true`, an entry in a different form stops the application at startup.
 
+### `app.auth.ssl-verify`
+
+- `true` or absent: the server checks the certificate chain and the host name for each call that the auth features make.
+- `false`: the server does not check the certificate chain or the host name for these calls.
+- When it is `false` and `app.auth.enabled` is `true`, the server writes one WARN line at startup.
+
+The install writes `ssl-verify: false` when the issuer is an `https` URL with the host `localhost`. For each other issuer, the install writes `ssl-verify: true`.
+
+WARNING: With `app.auth.ssl-verify: false`, the server accepts any certificate from the hosts it calls. Use it only with a local development certificate.
+
 ### `app.auth.bypass-header`
 
 - `bypass-header` is optional. Its value is a header name.
@@ -70,7 +90,7 @@ A public entry applies to each request method. The server compares an entry with
 - When it is absent or empty, the server has no bypass.
 - When it is set and `app.auth.enabled` is `true`, the server writes one WARN line at startup that names the header.
 
-The generated `application.yaml` has the line `# bypass-header: X-Bypass-Auth`. To turn on the bypass, remove `# ` from that line.
+The install writes the comment line `# bypass-header: X-Bypass-Auth`, and the bypass is off. To turn on the bypass, remove `# ` from that line.
 
 WARNING: With `app.auth.bypass-header` set, each caller that sends this header skips the token check. Remove the property for a deployment that has data that is not public.
 
@@ -84,15 +104,15 @@ The server applies the first rule that fits. A request that passes by rules 1 to
 4. A paging request passes with no token. A paging request has the parameter `_getpages`. HAPI FHIR sends it to its paging handler.
 5. A request that has the bypass header passes.
 6. Each other request needs the header `Authorization: Bearer <token>`.
-7. The server reads the `iss` claim of the token before validation and selects the issuer entry with that value. When no entry has that value, the response has status 401.
-8. The server validates the signature, the issuer, the `exp` claim, the `nbf` claim when present, and the audience when configured. The `exp` claim is necessary. The token must use RS256, RS384, ES256, or ES384. When the token has a `typ` header, it must be `JWT` or `at+jwt`.
-9. After a valid token, the server puts the verified claims in the user data of the request.
+7. The server validates the signature, the issuer, the `exp` claim, the `nbf` claim when present, and the audience when configured. The `exp` claim is necessary. The checks of `exp` and `nbf` allow a clock difference of 60 seconds. The token must use RS256, RS384, ES256, or ES384. When the token has a `typ` header, it must be `JWT` or `at+jwt`.
+8. After a valid token, the server puts the verified claims in the user data of the request.
 
 ## Responses
 
 - No token: status 401 with `WWW-Authenticate: Bearer`.
-- A token that fails: status 401 with `WWW-Authenticate: Bearer error="invalid_token"`.
-- The body is an `OperationOutcome` with the issue code `security` and a fixed text. The reason goes to the server log.
+- A token that fails: status 401 with `WWW-Authenticate: Bearer error="invalid_token"`. The server log has the reason in one INFO line.
+- The server cannot check the token: status 503 with no `WWW-Authenticate` header. This occurs when the read of the discovery document or of the key set fails, when the discovery document names a different issuer or has no `jwks_uri`, when `app.auth.jwks-uri` is not a valid URL, or when the key source refuses a new read of the key set. The key source allows two reads of the key set in 30 seconds. The server log has the reason in one WARN line.
+- The body is an `OperationOutcome` with a fixed text. Its issue code is `security` for status 401 and `transient` for status 503.
 
 ## Claims in a custom interceptor
 

@@ -14,6 +14,7 @@ import <%= packageBase %>.common.BaseProvider;
 import <%= packageBase %>.publish.BulkPublishManifestJson;
 import <%= packageBase %>.publish.PublishProperties;
 import <%= packageBase %>.publish.PublishService;
+import org.apache.commons.lang3.StringUtils;
 import org.hl7.fhir.instance.model.api.IBaseOperationOutcome;
 import org.springframework.stereotype.Component;
 
@@ -128,7 +129,7 @@ public class BulkPublishProvider extends BaseProvider {
 	private String baseUrl(HttpServletRequest request) {
 		String configured = publishProps.getPublicBaseUrl();
 		if (configured != null && !configured.isBlank()) {
-			return configured.replaceAll("/+$", "");
+			return StringUtils.stripEnd(configured, "/");
 		}
 		String scheme = request.getScheme();
 		int port = request.getServerPort();

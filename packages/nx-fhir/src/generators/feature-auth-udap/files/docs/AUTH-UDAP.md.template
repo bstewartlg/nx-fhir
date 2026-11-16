@@ -1,0 +1,206 @@
+<% const packagePath = packageBase.replace(/\./g, '/'); -%>
+# UDAP metadata
+
+The nx-fhir `auth-udap` feature makes this server publish signed UDAP metadata at `{baseURL}/.well-known/udap`. The metadata gives a client the endpoints of the authorization server of `app.auth.issuer`. That server registers clients, authorizes them, and issues tokens.
+
+The metadata follows the HL7 FAST security IG (Security for Scalable Registration, Authentication, and Authorization), STU2 2.0.0.
+
+The feature needs the `auth-resource` feature. It uses `app.auth.enabled`, the issuer, the `ssl-verify` key, and the shared classes of the `auth` package of that feature. When the server has no `auth-resource`, the install offers to install it first. In an interactive run, the install asks one question, and yes is the default. With yes, `auth-resource` installs first and asks its own questions. In a run that is not interactive, `auth-resource` installs with its defaults, and the install asks no question.
+
+## What the feature adds
+
+| File | Purpose |
+| --- | --- |
+| `src/main/java/<%= packagePath %>/udap/UdapConfig.java` | Gets the certificate at startup and registers the metadata on the FHIR server. |
+| `src/main/java/<%= packagePath %>/udap/UdapProperties.java` | The configuration properties under `app.auth.udap`. |
+| `src/main/java/<%= packagePath %>/udap/UdapCertificate.java` | Loads the RSA key that signs the metadata and the certificate chain of that key. |
+| `src/main/java/<%= packagePath %>/udap/UdapCertificateFetcher.java` | Gets a certificate from `{issuer}/api/cert/generate`. |
+| `src/main/java/<%= packagePath %>/udap/UdapMetadata.java` | Builds the metadata and the signed metadata. |
+| `src/main/java/<%= packagePath %>/udap/UdapMetadataInterceptor.java` | Answers the metadata request. |
+| `src/test/java/<%= packagePath %>/udap/UdapMetadataTest.java` | Unit test of the metadata. The tests check the whole published document and the signed metadata. |
+| `src/test/java/<%= packagePath %>/udap/UdapCertificateFetcherTest.java` | Unit test of the certificate fetch against local HTTP and HTTPS servers. |
+| `src/test/java/<%= packagePath %>/udap/UdapConfigTest.java` | Unit test of the startup of the feature, the saved certificate, and the status 503 of the metadata request. |
+| `src/test/java/<%= packagePath %>/udap/AuthUdapIT.java` | Integration test of the metadata request with the token check on. It runs under `mvn verify`. |
+| `src/main/resources/application.yaml` | The `app.auth.udap` entries. |
+| `src/test/resources/config/application.yaml` | `app.auth.udap.enabled: false` for each Spring Boot test. |
+| `src/test/resources/application-test.yaml` | `app.auth.udap.enabled: false` for a test with the `test` profile. |
+| `.gitignore` | The line `generated-cert.pfx`. |
+
+The two test configuration files turn the feature off. A test that sets `app.auth.enabled` and `app.auth.udap.enabled` to `true` runs with the feature.
+
+## Configuration
+
+With the defaults of the two features, the install writes this configuration:
+
+```yaml
+app:
+  auth:
+    enabled: true
+    issuer: https://udap-security.fast.hl7.org
+    public-endpoints: []
+    ssl-verify: true
+    # bypass-header: X-Bypass-Auth
+    udap:
+      enabled: true
+      fetch-cert: true
+      profiles-supported:
+        - udap_dcr
+        - udap_authn
+        - udap_authz
+        - udap_to
+      grant-types-supported:
+        - authorization_code
+        - refresh_token
+        - client_credentials
+      authorization-extensions-supported:
+        - hl7-b2b
+      authorization-extensions-required: []
+      certifications-supported: []
+      token-endpoint-auth-signing-alg-values-supported:
+        - RS256
+        - RS384
+        - ES256
+        - ES384
+      registration-endpoint-jwt-signing-alg-values-supported:
+        - RS256
+        - RS384
+        - ES256
+        - ES384
+```
+
+The `auth-udap` install writes the `udap` map. The map has `enabled: true` and the lists. With the `certFile` option, the map has `cert-file`. With no `certFile` option, the map has `fetch-cert: true`. The `auth-resource` install writes the other keys of `app.auth`.
+
+### `app.auth.udap.enabled`
+
+- `app.auth.enabled` and `app.auth.udap.enabled` are both `true`: the server gets its certificate at startup and publishes the metadata.
+- One of the two is `false` or absent: the feature registers no interceptor, loads no certificate, and makes no call. HAPI FHIR answers a request to `/fhir/.well-known/udap` with status 404.
+
+### `app.auth.issuer`
+
+`app.auth.issuer` of the `auth-resource` feature is the URL of the authorization server. The server reads the UDAP metadata of the issuer at `{issuer}/.well-known/udap` for each endpoint, for the scope list, and for each UDAP list that no property sets. With `app.auth.enabled: true` and no `app.auth.issuer`, the application stops at startup.
+
+### Endpoints and scopes
+
+- `authorization-endpoint`, `token-endpoint`, and `registration-endpoint` are optional. A set value replaces the value from the UDAP metadata of the issuer.
+- `scopes-supported` is an optional list. A list with an entry replaces the scope list from the UDAP metadata of the issuer.
+
+### UDAP lists
+
+The UDAP lists are `profiles-supported`, `grant-types-supported`, `authorization-extensions-supported`, `authorization-extensions-required`, `certifications-supported`, `certifications-required`, `token-endpoint-auth-signing-alg-values-supported`, and `registration-endpoint-jwt-signing-alg-values-supported`.
+
+- A list in the configuration replaces the list from the UDAP metadata of the issuer. This is also true for an empty list such as `certifications-supported: []`.
+- For a list that is not in the configuration, the server uses the member with the same element name in the UDAP metadata of the issuer, for example `udap_profiles_supported` for `profiles-supported`. The server uses that member only when the document has `udap_versions_supported`. An issuer can publish its OpenID discovery document at `{issuer}/.well-known/udap`, and the server takes no list from such a document.
+- An empty `-supported` list tells a client that the authorization server does not support that capability. An empty `-required` list tells a client that no entry is required.
+- The generated values describe the FAST security server. For a different authorization server, write the values of that server, or remove a list that the UDAP metadata of that server gives.
+- `certifications-required` is optional.
+
+### Certificate keys
+
+- `cert-file` is the path of a PKCS#12 file.
+- `cert-password` is the password of the file. In the fetch route, it is the password that the server sends with the fetch. When it is absent in the fetch route, the server uses `udap-test`. A hosted container sets it with the environment variable `APP_AUTH_UDAP_CERTPASSWORD`.
+- `fetch-cert` is `true` or `false`. With `true` and no `cert-file`, the server gets a certificate from the issuer. Absent means `false`.
+- `fetch-cert-retry-attempts` is the number of fetch tries. The default is 10.
+- `fetch-cert-retry-delay` is the time between two fetch tries, in milliseconds. The default is 5000.
+
+With `cert-file`, set `cert-password` before you start the server.
+
+### `app.auth.ssl-verify`
+
+`app.auth.ssl-verify` of the `auth-resource` feature also applies to the certificate fetch and to the read of the UDAP metadata of the issuer.
+
+- `true` or absent: the server checks the certificate chain and the host name for these calls.
+- `false`: the server accepts any certificate and any host name for these calls. With `app.auth.enabled: true`, the server writes one WARN line at startup.
+
+WARNING: With `app.auth.ssl-verify: false`, the server accepts any certificate from the hosts it calls. Use it only with a local development certificate.
+
+## Base URL
+
+The class `FhirBaseUrl` of the `auth-resource` feature gives the base URL.
+
+- The base URL is the value of `hapi.fhir.server_address` with one trailing `/` removed.
+- With no value in `hapi.fhir.server_address`, the base URL is `http://localhost:`, then the value of `server.port` (`8080` when absent), then the servlet context path, then `/fhir`. The server removes one trailing `/` from the servlet context path.
+- The base URL is the `iss` and the `sub` of the signed metadata. The certificate fetch sends it as the name of the certificate.
+
+## Certificate
+
+At startup, with `app.auth.enabled` and `app.auth.udap.enabled` both `true`, the server gets its certificate by one of two routes:
+
+1. With `cert-file` set, the server loads that file with `cert-password`.
+2. With no `cert-file` and with `fetch-cert: true`, the server loads `generated-cert.pfx` from its working directory. When that file is absent, the server sends `POST {issuer}/api/cert/generate` with the base URL and the password. Each try has a connect timeout of 5 seconds and a limit of 30 seconds for the complete response. After a failed try, the server waits `fetch-cert-retry-delay` and tries again, up to `fetch-cert-retry-attempts` tries. After a try succeeds, the server writes the response to `generated-cert.pfx` one time. An error of that write stops startup with no new try.
+
+The fetch writes one INFO line before the first try, one WARN line for each failed try, and one INFO line after it saves the file. The server fetches a certificate only at startup.
+
+The server uses the first key entry of the file. The key must be an RSA key of 2048 bits or more. The `x5c` header of the signed metadata has the certificate chain of that entry, leaf first. When the leaf certificate is not valid or has no URI alternative name equal to the base URL, startup continues with one WARN line, and a UDAP client rejects the signed metadata.
+
+The file `generated-cert.pfx` holds a private key. The generator adds the file name to the `.gitignore` of the server project.
+
+When you change the base URL or `app.auth.issuer`, delete `generated-cert.pfx`. The next start fetches a new certificate.
+
+WARNING: A fetched certificate comes from a test authority, and its private key is made by a different server. Use the fetch only for development.
+
+## Where each metadata value comes from
+
+| Element | Value |
+| --- | --- |
+| `udap_versions_supported` | `["1"]` |
+| `udap_profiles_supported` | `profiles-supported`, or the UDAP metadata of the issuer |
+| `udap_authorization_extensions_supported` | `authorization-extensions-supported`, or the UDAP metadata of the issuer |
+| `udap_authorization_extensions_required` | `authorization-extensions-required`, or the UDAP metadata of the issuer, or `[]` when neither has it. It is present when `udap_authorization_extensions_supported` has an entry. |
+| `udap_certifications_supported` | `certifications-supported`, or the UDAP metadata of the issuer |
+| `udap_certifications_required` | `certifications-required`, or the UDAP metadata of the issuer, or `[]` when neither has it. It is present when `udap_certifications_supported` has an entry. |
+| `grant_types_supported` | `grant-types-supported`, or the UDAP metadata of the issuer |
+| `scopes_supported` | `scopes-supported`, or `scopes_supported` of the UDAP metadata of the issuer when the list is empty |
+| `authorization_endpoint` | `authorization-endpoint`, or the UDAP metadata of the issuer. It is present only when `grant_types_supported` has `authorization_code`. |
+| `token_endpoint` | `token-endpoint`, or the UDAP metadata of the issuer |
+| `registration_endpoint` | `registration-endpoint`, or the UDAP metadata of the issuer |
+| `token_endpoint_auth_methods_supported` | `["private_key_jwt"]` |
+| `token_endpoint_auth_signing_alg_values_supported` | `token-endpoint-auth-signing-alg-values-supported`, or the UDAP metadata of the issuer |
+| `registration_endpoint_jwt_signing_alg_values_supported` | `registration-endpoint-jwt-signing-alg-values-supported`, or the UDAP metadata of the issuer |
+| `signed_metadata` | The signed metadata |
+
+The UDAP metadata of the issuer:
+
+- The class `IssuerMetadata` of the `auth-resource` feature reads `{issuer}/.well-known/udap`. It reads the document at the first metadata request that needs it and keeps it after a successful read.
+- The server reads that document only when a value that it publishes has no property.
+- The server takes each of the three endpoints and `scopes_supported` from that document when it has the member. The section "UDAP lists" gives the rule for a list. A property replaces a value of that document.
+- The read has a connect timeout of 5 seconds and a read timeout of 10 seconds.
+
+The signed metadata:
+
+- It is a JWT signed with RS256 and the key of the certificate. The `x5c` header has the certificate chain.
+- `iss` and `sub` are the base URL.
+- `iat` is the time of the request. `exp` is 24 hours after `iat`.
+- `jti` is a new random UUID for each response.
+- `token_endpoint` and `registration_endpoint` have the values of the plain metadata. `authorization_endpoint` is there when the plain metadata has it.
+
+## IG rules for the lists
+
+When you write a list, obey these rules of the IG:
+
+- `profiles-supported` has `udap_dcr` and `udap_authn`.
+- When `grant-types-supported` has `client_credentials`, `profiles-supported` has `udap_authz`.
+- Each entry of `authorization-extensions-required` is also in `authorization-extensions-supported`.
+- Each entry of `certifications-required` is also in `certifications-supported`.
+- `grant-types-supported` has `refresh_token` only when it also has `authorization_code`.
+- When `profiles-supported` has `udap_to`, the published scope list has `udap`.
+
+## Request
+
+- `GET {baseURL}/.well-known/udap` gets the metadata as one JSON object with status 200 and `Content-Type: application/json`.
+- The request needs no token. The `auth-resource` feature lets each request under `/fhir/.well-known/` pass.
+- Each `community` value gets the same metadata.
+- Only `GET` gets the metadata. A request with a different method goes on to HAPI FHIR.
+- When a value that the metadata must have comes from no property and not from the UDAP metadata of the issuer, the response has status 503. Each list that is not a `-required` list is such a value. The log has the reason.
+- When the read of the UDAP metadata of the issuer fails, the response has status 503. The log has the reason. The next request reads it again.
+
+## What stops startup
+
+With `app.auth.enabled` and `app.auth.udap.enabled` both `true`, the application stops at startup in each of these cases. The message names the key, the file, or the URL of the certificate fetch.
+
+- `cert-file` is absent, and `fetch-cert` is `false` or absent.
+- `cert-file` is set and `cert-password` is not. The message also names the environment variable `APP_AUTH_UDAP_CERTPASSWORD`.
+- The file of `cert-file` does not load, or its key is not an RSA key.
+- The server makes a fetch, and `app.auth.issuer` is not an absolute `http` or `https` URL.
+- The fetch fails after the last try, or the write of the fetched certificate fails.
+- The saved `generated-cert.pfx` does not load, or its key is not an RSA key. Delete the file. Then the next start fetches a certificate.
+- The key of the certificate cannot sign the metadata. The signer refuses an RSA key shorter than 2048 bits.

@@ -12,7 +12,11 @@ import { FhirVersion, ServerProjectConfiguration } from '../../shared/models';
 
 const select = vi.hoisted(() => vi.fn());
 const input = vi.hoisted(() => vi.fn());
-vi.mock('@inquirer/prompts', () => ({ select, input }));
+const confirm = vi.hoisted(() => vi.fn());
+vi.mock('@inquirer/prompts', () => ({ select, input, confirm }));
+
+const isInteractive = vi.hoisted(() => vi.fn(() => false));
+vi.mock('../../shared/utils/interactive', () => ({ isInteractive }));
 
 function hapiPom(version: string): string {
   return `<project><parent><groupId>ca.uhn.hapi.fhir</groupId><artifactId>hapi-fhir</artifactId><version>${version}</version></parent></project>`;
@@ -48,14 +52,18 @@ function stubFeature(overrides: Partial<FeatureDefinition> = {}): FeatureDefinit
 describe('runFeature', () => {
   afterEach(() => vi.resetAllMocks());
 
-  it('runs collectOptions then apply and records the manifest', async () => {
+  it('runs collectOptions then apply and records the manifest without empty options', async () => {
     const tree = createServerTree();
     const feature = stubFeature();
-    await runFeature(tree, { feature: 'stub', project: 'server', options: { a: 1 } }, [feature]);
-    expect(feature.collectOptions).toHaveBeenCalledWith(tree, expect.objectContaining({ root: 'test-project' }), { a: 1 });
+    const given = { a: 1, empty: '', none: null, missing: undefined, off: false, zero: 0, list: [] };
+    await runFeature(tree, { feature: 'stub', project: 'server', options: given }, [feature]);
+    expect(feature.collectOptions).toHaveBeenCalledWith(tree, expect.objectContaining({ root: 'test-project' }), given);
+    expect(feature.apply).toHaveBeenCalledWith(tree, expect.anything(), { ...given, answered: true });
     expect(tree.read('test-project/stub.txt', 'utf-8')).toBe('ok');
     const config = readProjectConfiguration(tree, 'server') as ServerProjectConfiguration;
-    expect(config.features).toEqual({ stub: { version: 1, options: { a: 1, answered: true } } });
+    expect(config.features).toEqual({
+      stub: { version: 1, options: { a: 1, off: false, zero: 0, list: [], answered: true } },
+    });
   });
 
   it('keeps the project configuration apply writes', async () => {
@@ -108,6 +116,61 @@ describe('runFeature', () => {
     ).rejects.toThrow("Project 'web' is not a server project.");
     expect(feature.collectOptions).not.toHaveBeenCalled();
     expect(feature.apply).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['not interactive', false, undefined, false],
+    ['interactive, answer yes', true, true, false],
+    ['interactive, answer no', true, false, false],
+    ['the required feature is on the server', true, true, true],
+  ])('installs an absent required feature first (%s)', async (_, interactive, answer, installed) => {
+    vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+    isInteractive.mockReturnValue(interactive);
+    confirm.mockResolvedValue(answer);
+    const tree = createServerTree();
+    if (installed) {
+      const config = readProjectConfiguration(tree, 'server') as ServerProjectConfiguration;
+      updateProjectConfiguration(tree, 'server', {
+        ...config,
+        features: { a: { version: 1, options: { answered: true } } },
+      } as ServerProjectConfiguration);
+    }
+    const a = stubFeature({ name: 'a' });
+    const b = stubFeature({ name: 'b', requires: ['a'] });
+    const treeState = () =>
+      tree.listChanges().map((change) => [change.path, change.type, change.content?.toString()]);
+    const before = treeState();
+
+    const run = runFeature(tree, { feature: 'b', project: 'server' }, [a, b]);
+
+    if (answer === false) {
+      await expect(run).rejects.toThrow(
+        "Feature 'b' needs feature 'a' on project 'server'. Install 'a', or run 'b' again and answer yes.",
+      );
+      expect(a.apply).not.toHaveBeenCalled();
+      expect(b.apply).not.toHaveBeenCalled();
+      expect(treeState()).toEqual(before);
+    } else {
+      await run;
+      expect(a.apply).toHaveBeenCalledTimes(installed ? 0 : 1);
+      if (!installed) {
+        expect(vi.mocked(a.apply).mock.invocationCallOrder[0]).toBeLessThan(
+          vi.mocked(b.collectOptions).mock.invocationCallOrder[0],
+        );
+      }
+      const withA = expect.objectContaining({
+        features: { a: { version: 1, options: { answered: true } } },
+      });
+      expect(b.collectOptions).toHaveBeenCalledWith(tree, withA, {});
+      expect(b.apply).toHaveBeenCalledWith(tree, withA, { answered: true });
+      const config = readProjectConfiguration(tree, 'server') as ServerProjectConfiguration;
+      expect(Object.keys(config.features ?? {})).toEqual(['a', 'b']);
+    }
+    expect(confirm.mock.calls).toEqual(
+      interactive && !installed
+        ? [[{ message: "Feature 'b' needs feature 'a'. Install 'a' first?", default: true }]]
+        : [],
+    );
   });
 
   it('resolves the project via the server prompt when not given', async () => {

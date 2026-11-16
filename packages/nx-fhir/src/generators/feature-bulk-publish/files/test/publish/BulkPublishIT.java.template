@@ -3,6 +3,7 @@ package <%= packageBase %>.publish;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -68,7 +69,7 @@ import org.springframework.test.context.ActiveProfiles;
 		classes = {<%= applicationClassName %>.class},
 		properties = {
 			"spring.datasource.url=jdbc:h2:mem:bulkpublishit",
-			// Overrides the R4 of application-test.yaml with the FHIR version of the server.
+			// Sets the FHIR version of the server project. The application-test.yaml of the starter has R4.
 			"hapi.fhir.fhir_version=<%= fhirVersion %>",
 			"publish.enabled=true",
 			"publish.interval-ms=600000",
@@ -194,7 +195,7 @@ class BulkPublishIT {
 		BulkPublishManifestJson secondManifest = manifest();
 		String updatedOrgFileUrl = organizationFileUrl(secondManifest);
 		assertNotNull(updatedOrgFileUrl);
-		assertFalse(updatedOrgFileUrl.equals(orgFileUrl), "a new snapshot should not reuse the previous file URL");
+		assertNotEquals(updatedOrgFileUrl, orgFileUrl, "a new snapshot should not reuse the previous file URL");
 		assertTrue(
 				new String(downloadPlain(updatedOrgFileUrl), StandardCharsets.UTF_8).contains(updatedMarker),
 				"Organization ndjson should reflect the update");
@@ -382,7 +383,7 @@ class BulkPublishIT {
 	 * absolute file URLs and public-base-url is unset in this test's properties.
 	 */
 	@Test
-	void manifestEtagIsAStableContentHashThatVariesByHost() throws Exception {
+	void manifestEtagIsAStableContentHashThatVariesByHost() {
 		IGenericClient client = fhirClient();
 
 		String marker = "BulkPublishIT-etag-" + UUID.randomUUID();
@@ -406,8 +407,9 @@ class BulkPublishIT {
 		ResponseEntity<byte[]> viaLoopback = rest.getForEntity(loopbackUrl, byte[].class);
 		String loopbackEtag = viaLoopback.getHeaders().getFirst(HttpHeaders.ETAG);
 		assertNotNull(loopbackEtag);
-		assertFalse(
-				firstEtag.equals(loopbackEtag),
+		assertNotEquals(
+				firstEtag,
+				loopbackEtag,
 				"a different Host should embed a different absolute base URL and yield a different ETag");
 	}
 

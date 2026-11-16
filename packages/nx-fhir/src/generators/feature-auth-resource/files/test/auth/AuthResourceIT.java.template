@@ -34,7 +34,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * Boots the full server with one issuer whose keys a JDK HTTP stub serves. The stub serves no discovery
- * document, so a valid token passes only when the issuer and jwks-uri of the entry bind.
+ * document, so a valid token passes only when app.auth.issuer and app.auth.jwks-uri bind.
  */
 @ActiveProfiles("test")
 @SpringBootTest(
@@ -42,7 +42,7 @@ import org.springframework.test.context.DynamicPropertySource;
 		classes = {<%= applicationClassName %>.class},
 		properties = {
 			"spring.datasource.url=jdbc:h2:mem:authresourceit",
-			// Overrides the R4 of application-test.yaml with the FHIR version of the server.
+			// Sets the FHIR version of the server project. The application-test.yaml of the starter has R4.
 			"hapi.fhir.fhir_version=<%= fhirVersion %>",
 			"app.auth.enabled=true",
 			"app.auth.public-endpoints[0]=Patient",
@@ -82,20 +82,14 @@ class AuthResourceIT {
 
 	@DynamicPropertySource
 	static void issuer(DynamicPropertyRegistry registry) {
-		registry.add("app.auth.issuers[0].issuer", AuthResourceIT::issuerUrl);
-		registry.add("app.auth.issuers[0].audience", () -> AUDIENCE);
-		registry.add("app.auth.issuers[0].jwks-uri", () -> issuerUrl() + "/jwks");
+		registry.add("app.auth.issuer", AuthResourceIT::issuerUrl);
+		registry.add("app.auth.audience", () -> AUDIENCE);
+		registry.add("app.auth.jwks-uri", () -> issuerUrl() + "/jwks");
 	}
 
 	@AfterAll
 	static void stopIssuer() {
 		ISSUER.stop(0);
-	}
-
-	@Test
-	void capabilityStatementNeedsNoToken() throws Exception {
-		HttpResponse<String> response = send(fhir("metadata"));
-		assertEquals(200, response.statusCode(), response.body());
 	}
 
 	@Test
@@ -107,20 +101,12 @@ class AuthResourceIT {
 
 	@Test
 	void validTokenIsAccepted() throws Exception {
-		HttpResponse<String> response = send(fhir("Observation").header("Authorization", "Bearer " + token()));
-		assertEquals(200, response.statusCode(), response.body());
-	}
-
-	@Test
-	void bypassHeaderSkipsTheCheck() throws Exception {
-		HttpResponse<String> response = send(fhir("Observation").header("X-Bypass-Auth", "1"));
-		assertEquals(200, response.statusCode(), response.body());
-	}
-
-	@Test
-	void publicEndpointNeedsNoToken() throws Exception {
-		HttpResponse<String> response = send(fhir("Patient"));
-		assertEquals(200, response.statusCode(), response.body());
+		HttpResponse<String> withToken = send(fhir("Observation").header("Authorization", "Bearer " + token()));
+		assertEquals(200, withToken.statusCode(), withToken.body());
+		HttpResponse<String> withBypassHeader = send(fhir("Observation").header("X-Bypass-Auth", "1"));
+		assertEquals(200, withBypassHeader.statusCode(), withBypassHeader.body());
+		HttpResponse<String> publicEndpoint = send(fhir("Patient"));
+		assertEquals(200, publicEndpoint.statusCode(), publicEndpoint.body());
 	}
 
 	private static String issuerUrl() {

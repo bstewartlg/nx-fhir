@@ -2,6 +2,7 @@ package <%= packageBase %>.publish;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -19,8 +20,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
-import <%= packageBase %>.publish.BulkPublishManifestJson;
-import <%= packageBase %>.publish.PublishService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -454,8 +453,9 @@ class PublishServiceTest {
 
 		Optional<PublishService.CurrentSnapshot> current = service.currentSnapshot();
 		assertTrue(current.isPresent(), "the tick should complete and leave a readable current snapshot");
-		assertFalse(
-				corruptId.equals(current.get().snapshotId()),
+		assertNotEquals(
+				corruptId,
+				current.get().snapshotId(),
 				"the current pointer should move off the snapshot with the unreadable meta");
 		// Parses or throws: the swapped-in snapshot carries a valid manifest.
 		Instant.parse(current.get().meta().transactionTime());

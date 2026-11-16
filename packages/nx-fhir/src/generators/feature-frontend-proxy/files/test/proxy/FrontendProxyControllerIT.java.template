@@ -77,7 +77,7 @@ import org.springframework.test.context.DynamicPropertySource;
 		classes = {<%= applicationClassName %>.class},
 		properties = {
 			"spring.datasource.url=jdbc:h2:mem:frontendproxyit",
-			// Overrides the R4 of application-test.yaml with the FHIR version of the server.
+			// Sets the FHIR version of the server project. The application-test.yaml of the starter has R4.
 			"hapi.fhir.fhir_version=<%= fhirVersion %>",
 			"app.proxy.enabled=true",
 			"app.proxy.passthrough=true",

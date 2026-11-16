@@ -17,6 +17,8 @@ export interface FeatureDefinition {
    * Inclusive ceiling: set when a later HAPI release breaks the feature.
    */
   maxHapiVersion?: string;
+  /** Names of the features that must be on the server first. The runner offers to install an absent one. */
+  requires?: string[];
   /**
    * Resolve the full option set. A value the caller does not provide is
    * prompted for in interactive runs and falls back to the feature's default

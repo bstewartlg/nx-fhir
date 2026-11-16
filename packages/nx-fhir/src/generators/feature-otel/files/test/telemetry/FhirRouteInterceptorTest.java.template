@@ -209,7 +209,7 @@ class FhirRouteInterceptorTest {
 	}
 
 	private static FhirRouteInterceptor interceptor(LongCounter requests, LongCounter errors) {
-		return new FhirRouteInterceptor(false, Set.of(), () -> Set.of(), requests, errors);
+		return new FhirRouteInterceptor(false, Set.of(), Set::of, requests, errors);
 	}
 
 	private static String route(RestOperationTypeEnum type, String resourceName, String id, String operation) {
@@ -267,7 +267,7 @@ class FhirRouteInterceptorTest {
 	void errorResponseAddsOneToErrorCounter() {
 		RecordingCounter requests = new RecordingCounter();
 		RecordingCounter errors = new RecordingCounter();
-		new FhirRouteInterceptor(false, Set.of(), () -> Set.of(), requests, errors).finishServerSpan(patientSearchWithStatus(404));
+		new FhirRouteInterceptor(false, Set.of(), Set::of, requests, errors).finishServerSpan(patientSearchWithStatus(404));
 		assertEquals(List.of(new Increment(1, Attributes.of(
 						FhirRouteInterceptor.INTERACTION, "search",
 						FhirRouteInterceptor.RESOURCE_TYPE, "Patient"))),
@@ -281,7 +281,7 @@ class FhirRouteInterceptorTest {
 	@Test
 	void serverErrorResponseRecordsServerErrorOutcome() {
 		RecordingCounter errors = new RecordingCounter();
-		new FhirRouteInterceptor(false, Set.of(), () -> Set.of(), new RecordingCounter(), errors)
+		new FhirRouteInterceptor(false, Set.of(), Set::of, new RecordingCounter(), errors)
 				.finishServerSpan(patientSearchWithStatus(500));
 		assertEquals(List.of(new Increment(1, Attributes.of(
 						FhirRouteInterceptor.INTERACTION, "search",
@@ -293,7 +293,7 @@ class FhirRouteInterceptorTest {
 	void successfulResponseLeavesErrorCounterUnchanged() {
 		RecordingCounter requests = new RecordingCounter();
 		RecordingCounter errors = new RecordingCounter();
-		new FhirRouteInterceptor(false, Set.of(), () -> Set.of(), requests, errors).finishServerSpan(patientSearchWithStatus(200));
+		new FhirRouteInterceptor(false, Set.of(), Set::of, requests, errors).finishServerSpan(patientSearchWithStatus(200));
 		assertEquals(1, requests.increments.size());
 		assertEquals(List.of(), errors.increments);
 	}
@@ -341,7 +341,7 @@ class FhirRouteInterceptorTest {
 	}
 
 	private static void respond(RequestDetails details, IBaseResource response) {
-		new FhirRouteInterceptor(false, Set.of(), () -> Set.of(), new RecordingCounter(), new RecordingCounter())
+		new FhirRouteInterceptor(false, Set.of(), Set::of, new RecordingCounter(), new RecordingCounter())
 				.rememberPageResourceType(details, response);
 	}
 

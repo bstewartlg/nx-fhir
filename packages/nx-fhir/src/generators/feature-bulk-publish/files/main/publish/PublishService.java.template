@@ -214,34 +214,12 @@ public class PublishService {
 			boolean anyChanged = previousMeta != null && typesRemoved(previousMeta, entries);
 			for (String entry : entries) {
 				String type = baseType(entry);
-				Optional<FileMeta> exported = Optional.empty();
-				try {
-					exported = exportType(dir, snapshotId, entry, transactionTime, details);
-				} catch (Exception e) {
-					ourLog.warn("Bulk publish export failed for configured entry {}", entry, e);
-					failures.add("Failed to export configured entry '" + entry + "': "
-							+ e.getClass().getSimpleName() + ". The server log carries the detail.");
-					deleteQuietly(dir.resolve(type + ".ndjson.gz"));
-				}
-				Optional<FileMeta> previousFile = reusedFileMeta(previousFiles, type);
-				if (sameContent(exported, previousFile)) {
-					previousFile.ifPresent(files::add);
-					exported.ifPresent(fm -> deleteQuietly(fileFor(fm)));
-				} else {
-					anyChanged = true;
-					exported.ifPresent(files::add);
-				}
+				Optional<FileMeta> exported = exportEntry(dir, snapshotId, entry, transactionTime, details, failures);
+				anyChanged |= keepOrReplace(exported, reusedFileMeta(previousFiles, type), files);
 			}
 			List<FileMeta> outcomeFiles = new ArrayList<>();
 			Optional<FileMeta> outcome = writeOutcomeFile(dir, snapshotId, failures);
-			Optional<FileMeta> previousOutcome = reusedFileMeta(previousOutcomes, OUTCOME_TYPE);
-			if (sameContent(outcome, previousOutcome)) {
-				previousOutcome.ifPresent(outcomeFiles::add);
-				outcome.ifPresent(fm -> deleteQuietly(fileFor(fm)));
-			} else {
-				anyChanged = true;
-				outcome.ifPresent(outcomeFiles::add);
-			}
+			anyChanged |= keepOrReplace(outcome, reusedFileMeta(previousOutcomes, OUTCOME_TYPE), outcomeFiles);
 			if (!anyChanged && previousMeta != null) {
 				return;
 			}
@@ -260,6 +238,38 @@ public class PublishService {
 				"Bulk publish snapshot {} created in {} ms",
 				snapshotId,
 				(System.nanoTime() - startNanos) / 1_000_000);
+	}
+
+	private Optional<FileMeta> exportEntry(
+			Path dir,
+			String snapshotId,
+			String entry,
+			Instant transactionTime,
+			SystemRequestDetails details,
+			List<String> failures) {
+		try {
+			return exportType(dir, snapshotId, entry, transactionTime, details);
+		} catch (Exception e) {
+			ourLog.warn("Bulk publish export failed for configured entry {}", entry, e);
+			failures.add("Failed to export configured entry '" + entry + "': "
+					+ e.getClass().getSimpleName() + ". The server log carries the detail.");
+			deleteQuietly(dir.resolve(baseType(entry) + ".ndjson.gz"));
+			return Optional.empty();
+		}
+	}
+
+	/**
+	 * Keeps {@code previous} in {@code target} and deletes the file of {@code written} when their content is
+	 * the same, or else adds {@code written}, and returns true when the content differs.
+	 */
+	private boolean keepOrReplace(Optional<FileMeta> written, Optional<FileMeta> previous, List<FileMeta> target) {
+		if (sameContent(written, previous)) {
+			previous.ifPresent(target::add);
+			written.ifPresent(fm -> deleteQuietly(fileFor(fm)));
+			return false;
+		}
+		written.ifPresent(target::add);
+		return true;
 	}
 
 	/**
@@ -341,7 +351,7 @@ public class PublishService {
 	 * exception message, no timestamp and no id, for two reasons: the bytes feed the content digest,
 	 * so a message bearing an elapsed time or an object hash would republish a snapshot on every
 	 * tick, and this file is served unauthenticated, so internal detail belongs in the server log
-	 * that {@code publishTick} writes instead.
+	 * that {@code exportEntry} writes instead.
 	 */
 	private Optional<FileMeta> writeOutcomeFile(Path dir, String snapshotId, List<String> diagnostics)
 			throws IOException {
@@ -534,7 +544,7 @@ public class PublishService {
 		byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
 		digest.update(bytes);
 		digest.update((byte) '\n');
-		return bytes.length + 1;
+		return bytes.length + 1L;
 	}
 
 	private void writeMeta(Path dir, SnapshotMeta meta) throws IOException {

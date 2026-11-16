@@ -273,6 +273,8 @@ public class FrontendProxyController {
 
 	// A request body with fewer bytes than its Content-Length.
 	private static final class IncompleteBodyException extends IOException {
+		private static final long serialVersionUID = 1L;
+
 		IncompleteBodyException(long sent, long declared) {
 			super("The request body has " + sent + " of " + declared + " bytes");
 		}

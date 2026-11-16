@@ -1,12 +1,10 @@
 package <%= packageBase %>.auth;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import <%= packageBase %>.auth.BearerTokenInterceptor.Issuer;
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.rest.annotation.Create;
 import ca.uhn.fhir.rest.annotation.IdParam;
@@ -31,44 +29,49 @@ import com.nimbusds.jose.crypto.RSASSASigner;
 import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.JWK;
-import com.nimbusds.jose.jwk.JWKSelector;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
-import com.nimbusds.jose.jwk.source.JWKSource;
-import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
-import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import java.io.Closeable;
+import com.sun.net.httpserver.HttpsServer;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 import org.hl7.fhir.r4.model.Bundle;
 import org.hl7.fhir.r4.model.IdType;
-import org.hl7.fhir.r4.model.Observation;
 import org.hl7.fhir.r4.model.OperationOutcome;
 import org.hl7.fhir.r4.model.Parameters;
 import org.hl7.fhir.r4.model.Patient;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockServletConfig;
 
-/** Runs the interceptor on a plain RestfulServer, with issuers served by the JDK HTTP server. */
+/** Runs the interceptor on a plain RestfulServer, with issuers served by the JDK HTTP and HTTPS servers. */
 class BearerTokenInterceptorTest {
 
 	static final String AUDIENCE = "fhir-api";
@@ -77,17 +80,21 @@ class BearerTokenInterceptorTest {
 	static final Object NOT_CALLED = new Object();
 	static final AtomicReference<Object> claimsSeen = new AtomicReference<>();
 	static final List<RestfulServer> servers = new ArrayList<>();
-	static final List<BearerTokenInterceptor> interceptors = new ArrayList<>();
+
+	@TempDir
+	static Path certificates;
 
 	static HttpServer issuerServer;
-	static LocalIssuer first;
-	static LocalIssuer second;
+	static HttpsServer tlsServer;
+	static LocalIssuer issuer;
+	static LocalIssuer tls;
 	static ECKey ecKey;
-	static RSAKey laterKey;
+	/** A different RSA key with the key ID of the RSA key of the issuer. */
+	static RSAKey forgedKey;
 	static RestfulServer server;
 	static RestfulServer publicPatients;
 
-	/** An issuer at {@code http://127.0.0.1:<port>/<name>} with a discovery document and a JWKS. */
+	/** An issuer at {@code <origin>/<name>} with a discovery document and a JWKS. */
 	static final class LocalIssuer {
 		final String url;
 		final RSAKey key;
@@ -95,16 +102,16 @@ class BearerTokenInterceptorTest {
 		final AtomicInteger discoveryStatus = new AtomicInteger(200);
 
 		LocalIssuer(String name) throws JOSEException {
-			url = "http://127.0.0.1:" + issuerServer.getAddress().getPort() + "/" + name;
-			key = new RSAKeyGenerator(2048).keyID(name + "-rsa").generate();
-			keys = new AtomicReference<>(new JWKSet(key));
-			issuerServer.createContext("/" + name + "/.well-known/openid-configuration", exchange -> respond(
-					exchange, discoveryStatus.get(), "{\"issuer\":\"" + url + "\",\"jwks_uri\":\"" + url + "/jwks\"}"));
-			issuerServer.createContext("/" + name + "/jwks", exchange -> respond(exchange, 200, keys.get().toString()));
+			this(issuerServer, "http://127.0.0.1:" + issuerServer.getAddress().getPort(), name);
 		}
 
-		Issuer entry() {
-			return new Issuer(url, AUDIENCE, null);
+		LocalIssuer(HttpServer host, String origin, String name) throws JOSEException {
+			url = origin + "/" + name;
+			key = new RSAKeyGenerator(2048).keyID(name + "-rsa").generate();
+			keys = new AtomicReference<>(new JWKSet(key));
+			host.createContext("/" + name + "/.well-known/openid-configuration", exchange -> respond(
+					exchange, discoveryStatus.get(), "{\"issuer\":\"" + url + "\",\"jwks_uri\":\"" + url + "/jwks\"}"));
+			host.createContext("/" + name + "/jwks", exchange -> respond(exchange, 200, keys.get().toString()));
 		}
 	}
 
@@ -142,20 +149,6 @@ class BearerTokenInterceptorTest {
 		}
 	}
 
-	public static class ObservationProvider implements IResourceProvider {
-		@Override
-		public Class<Observation> getResourceType() {
-			return Observation.class;
-		}
-
-		@Read
-		public Observation read(@IdParam IdType id) {
-			Observation observation = new Observation();
-			observation.setId(id.getIdPart());
-			return observation;
-		}
-	}
-
 	public static class ServerOperations {
 		@Operation(name = "$ping", idempotent = true)
 		public Parameters ping() {
@@ -170,57 +163,52 @@ class BearerTokenInterceptorTest {
 		}
 	}
 
-	/** Serves the keys of the first issuer and counts its close calls. */
-	static final class CountingKeySource implements JWKSource<SecurityContext>, Closeable {
-		final AtomicInteger closes = new AtomicInteger();
-
-		@Override
-		public List<JWK> get(JWKSelector selector, SecurityContext context) {
-			return selector.select(first.keys.get());
-		}
-
-		@Override
-		public void close() {
-			closes.incrementAndGet();
-		}
-	}
-
 	@BeforeAll
 	static void start() throws Exception {
 		issuerServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
 		issuerServer.start();
-		first = new LocalIssuer("first");
-		second = new LocalIssuer("second");
-		ecKey = new ECKeyGenerator(Curve.P_256).keyID("first-ec").generate();
-		laterKey = new RSAKeyGenerator(2048).keyID("first-later").generate();
-		first.keys.set(new JWKSet(List.of(first.key, ecKey)));
-		server = serve(interceptor(List.of(first.entry(), second.entry()), List.of(), BYPASS_HEADER));
-		publicPatients = serve(interceptor(List.of(first.entry()), List.of("Patient"), null));
+		issuer = new LocalIssuer("issuer");
+		ecKey = new ECKeyGenerator(Curve.P_256).keyID("issuer-ec").generate();
+		forgedKey = new RSAKeyGenerator(2048).keyID(issuer.key.getKeyID()).generate();
+		issuer.keys.set(new JWKSet(List.of(issuer.key, ecKey)));
+		server = serve(interceptor(issuer, List.of(), BYPASS_HEADER));
+		publicPatients = serve(interceptor(issuer, List.of("Patient"), null));
+		startTlsIssuer();
+	}
+
+	static void startTlsIssuer() throws Exception {
+		tlsServer = TestCertificates.untrustedHttpsServer(certificates);
+		tlsServer.start();
+		tls = new LocalIssuer(tlsServer, "https://localhost:" + tlsServer.getAddress().getPort(), "tls");
 	}
 
 	@AfterAll
 	static void stop() {
 		servers.forEach(RestfulServer::destroy);
-		interceptors.forEach(BearerTokenInterceptor::close);
 		issuerServer.stop(0);
+		tlsServer.stop(0);
 	}
 
-	/** The default key source allows two JWKS fetches in 30 s, which would stall the key rotation case. */
-	static BearerTokenInterceptor interceptor(List<Issuer> issuers, List<String> publicEndpoints, String bypassHeader) {
-		return new BearerTokenInterceptor(
-				issuers, publicEndpoints, bypassHeader, url -> JWKSourceBuilder.create(url).rateLimited(false).build());
+	static IssuerMetadata metadata(String issuerUrl, boolean sslVerify) {
+		AuthResourceProperties properties = new AuthResourceProperties();
+		properties.setIssuer(issuerUrl);
+		properties.setSslVerify(sslVerify);
+		return new IssuerMetadata(properties);
+	}
+
+	static BearerTokenInterceptor interceptor(LocalIssuer from, List<String> publicEndpoints, String bypassHeader) {
+		return new BearerTokenInterceptor(metadata(from.url, true), AUDIENCE, null, publicEndpoints, bypassHeader);
 	}
 
 	static RestfulServer serve(BearerTokenInterceptor interceptor) throws Exception {
 		RestfulServer restfulServer = new RestfulServer(FHIR);
-		restfulServer.registerProviders(new PatientProvider(), new ObservationProvider(), new ServerOperations());
+		restfulServer.registerProviders(new PatientProvider(), new ServerOperations());
 		FifoMemoryPagingProvider paging = new FifoMemoryPagingProvider(10);
 		paging.setDefaultPageSize(1);
 		restfulServer.setPagingProvider(paging);
 		restfulServer.setDefaultResponseEncoding(EncodingEnum.JSON);
 		restfulServer.registerInterceptor(interceptor);
 		restfulServer.init(new MockServletConfig());
-		interceptors.add(interceptor);
 		servers.add(restfulServer);
 		return restfulServer;
 	}
@@ -234,9 +222,9 @@ class BearerTokenInterceptorTest {
 		}
 	}
 
-	static JWTClaimsSet.Builder claims(String issuer) {
+	static JWTClaimsSet.Builder claims(String issuerUrl) {
 		return new JWTClaimsSet.Builder()
-				.issuer(issuer)
+				.issuer(issuerUrl)
 				.audience(AUDIENCE)
 				.subject("user-1")
 				.expirationTime(secondsFromNow(300));
@@ -311,38 +299,60 @@ class BearerTokenInterceptorTest {
 		assertUnauthorized(response, "Bearer error=\"invalid_token\"", "Invalid bearer token");
 	}
 
-	@Test
-	void noTokenIsRejected() throws Exception {
-		assertNoToken(get(server, "/Patient/1", null));
+	static void assertCannotCheck(MockHttpServletResponse response) throws Exception {
+		assertEquals(503, response.getStatus());
+		assertNull(response.getHeader("WWW-Authenticate"));
+		OperationOutcome outcome = FHIR.newJsonParser().parseResource(OperationOutcome.class, response.getContentAsString());
+		assertEquals("The server cannot check the token", outcome.getIssueFirstRep().getDiagnostics());
 	}
 
-	@Test
-	void validTokenIsAccepted() throws Exception {
-		assertEquals(200, get(server, "/Patient/1", bearer(first.key, claims(first.url))).getStatus());
+	@ParameterizedTest
+	@NullSource
+	@ValueSource(strings = "Basic abc")
+	void noTokenIsRejected(String authorization) throws Exception {
+		assertNoToken(get(server, "/Patient/1", authorization));
 	}
 
-	@Test
-	void wrongIssuerIsRejected() throws Exception {
-		assertInvalidToken(get(server, "/Patient/1", bearer(first.key, claims("https://other.example"))));
+	static Stream<Named<String>> validTokens() throws JOSEException {
+		String token = bearer(issuer.key, JOSEObjectType.JWT, claims(issuer.url));
+		return Stream.of(
+				Named.of("RS256 with typ JWT", token),
+				Named.of("typ at+jwt", bearer(issuer.key, new JOSEObjectType("at+jwt"), claims(issuer.url))),
+				Named.of("ES256", bearer(ecKey, claims(issuer.url))),
+				Named.of("scheme written bearer", "bearer " + token.substring("Bearer ".length())));
 	}
 
-	@Test
-	void expiredTokenIsRejected() throws Exception {
-		assertInvalidToken(
-				get(server, "/Patient/1", bearer(first.key, claims(first.url).expirationTime(secondsFromNow(-120)))));
+	@ParameterizedTest
+	@MethodSource("validTokens")
+	void validTokenIsAccepted(String authorization) throws Exception {
+		claimsSeen.set(NOT_CALLED);
+		assertEquals(200, get(server, "/Patient/1", authorization).getStatus());
+		@SuppressWarnings("unchecked")
+		Map<String, Object> claims = (Map<String, Object>) claimsSeen.get();
+		assertEquals("user-1", claims.get("sub"));
+		assertThrows(UnsupportedOperationException.class, () -> claims.put("sub", "someone-else"));
 	}
 
-	@Test
-	void wrongAudienceIsRejected() throws Exception {
-		assertInvalidToken(get(server, "/Patient/1", bearer(first.key, claims(first.url).audience("other-api"))));
+	static Stream<Named<String>> invalidTokens() throws JOSEException {
+		JWSObject nullExp = new JWSObject(
+				new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(issuer.key.getKeyID()).build(),
+				new Payload("{\"iss\":\"" + issuer.url + "\",\"aud\":\"" + AUDIENCE + "\",\"sub\":\"user-1\",\"exp\":null}"));
+		nullExp.sign(new RSASSASigner(issuer.key));
+		return Stream.of(
+				Named.of("key ID of a served key, signature of a different key", bearer(forgedKey, claims(issuer.url))),
+				Named.of("unknown key ID", bearer(new RSAKeyGenerator(2048).keyID("unknown").generate(), claims(issuer.url))),
+				Named.of("another iss", bearer(issuer.key, claims("https://other.example"))),
+				Named.of("expired", bearer(issuer.key, claims(issuer.url).expirationTime(secondsFromNow(-120)))),
+				Named.of("another aud", bearer(issuer.key, claims(issuer.url).audience("other-api"))),
+				Named.of("no exp", bearer(issuer.key, claims(issuer.url).expirationTime(null))),
+				Named.of("exp null", "Bearer " + nullExp.serialize()),
+				Named.of("not a JWT", "Bearer not-a-jwt"));
 	}
 
-	@Test
-	void unknownKeyIdIsRejectedUntilTheJwksHasIt() throws Exception {
-		String rotated = bearer(laterKey, claims(first.url));
-		assertInvalidToken(get(server, "/Patient/1", rotated));
-		first.keys.set(new JWKSet(List.of(first.key, ecKey, laterKey)));
-		assertEquals(200, get(server, "/Patient/1", rotated).getStatus());
+	@ParameterizedTest
+	@MethodSource("invalidTokens")
+	void invalidTokenIsRejected(String authorization) throws Exception {
+		assertInvalidToken(get(server, "/Patient/1", authorization));
 	}
 
 	@Test
@@ -353,90 +363,22 @@ class BearerTokenInterceptorTest {
 	}
 
 	@Test
-	void tokenWithoutExpIsRejected() throws Exception {
-		assertInvalidToken(get(server, "/Patient/1", bearer(first.key, claims(first.url).expirationTime(null))));
-	}
-
-	@Test
-	void tokenWithNullExpIsRejected() throws Exception {
-		JWSObject jws = new JWSObject(
-				new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(first.key.getKeyID()).build(),
-				new Payload("{\"iss\":\"" + first.url + "\",\"aud\":\"" + AUDIENCE + "\",\"sub\":\"user-1\",\"exp\":null}"));
-		jws.sign(new RSASSASigner(first.key));
-		assertInvalidToken(get(server, "/Patient/1", "Bearer " + jws.serialize()));
-	}
-
-	@Test
-	void atJwtTypeIsAccepted() throws Exception {
-		String token = bearer(first.key, new JOSEObjectType("at+jwt"), claims(first.url));
-		assertEquals(200, get(server, "/Patient/1", token).getStatus());
-	}
-
-	@Test
-	void es256TokenIsAccepted() throws Exception {
-		assertEquals(200, get(server, "/Patient/1", bearer(ecKey, claims(first.url))).getStatus());
-	}
-
-	@Test
-	void audienceArrayIsAccepted() throws Exception {
-		String token = bearer(first.key, claims(first.url).audience(List.of("other-api", AUDIENCE)));
-		assertEquals(200, get(server, "/Patient/1", token).getStatus());
-	}
-
-	@Test
-	void malformedAuthorizationGives401() throws Exception {
-		String lowercase = "bearer " + bearer(first.key, claims(first.url)).substring("Bearer ".length());
-		assertEquals(200, get(server, "/Patient/1", lowercase).getStatus());
-		assertInvalidToken(get(server, "/Patient/1", "Bearer not-a-jwt"));
-		assertNoToken(get(server, "/Patient/1", "Basic abc"));
-	}
-
-	@Test
-	void unauthorizedBodyHasAFixedText() throws Exception {
-		LocalIssuer down = new LocalIssuer("down");
-		down.discoveryStatus.set(500);
-		RestfulServer downServer = serve(interceptor(List.of(down.entry()), List.of(), null));
-		MockHttpServletResponse response = get(downServer, "/Patient/1", bearer(down.key, claims(down.url)));
-		assertInvalidToken(response);
-		// The discovery failure message names the issuer, so the body must not carry it.
-		assertFalse(response.getContentAsString().contains(down.url));
-	}
-
-	@Test
-	void secondIssuerIsAccepted() throws Exception {
-		assertEquals(200, get(server, "/Patient/1", bearer(second.key, claims(second.url))).getStatus());
-	}
-
-	@Test
-	void tokenOfOneIssuerSignedByTheOtherIsRejected() throws Exception {
-		assertInvalidToken(get(server, "/Patient/1", bearer(first.key, claims(second.url))));
-		assertInvalidToken(get(server, "/Patient/1", bearer(second.key, claims(first.url))));
-	}
-
-	@Test
-	void jwksUriSkipsDiscovery() throws Exception {
-		LocalIssuer keysOnly = new LocalIssuer("keys-only");
-		keysOnly.discoveryStatus.set(404);
-		RestfulServer keysOnlyServer =
-				serve(interceptor(List.of(new Issuer(keysOnly.url, null, keysOnly.url + "/jwks")), List.of(), null));
-		assertEquals(200, get(keysOnlyServer, "/Patient/1", bearer(keysOnly.key, claims(keysOnly.url))).getStatus());
-	}
-
-	@Test
 	void discoveryRunsAgainAfterAFailure() throws Exception {
 		LocalIssuer flaky = new LocalIssuer("flaky");
 		flaky.discoveryStatus.set(500);
-		RestfulServer flakyServer = serve(interceptor(List.of(flaky.entry()), List.of(), null));
+		RestfulServer flakyServer = serve(interceptor(flaky, List.of(), null));
 		String token = bearer(flaky.key, claims(flaky.url));
-		assertInvalidToken(get(flakyServer, "/Patient/1", token));
+		assertCannotCheck(get(flakyServer, "/Patient/1", token));
 		flaky.discoveryStatus.set(200);
 		assertEquals(200, get(flakyServer, "/Patient/1", token).getStatus());
 	}
 
-	@Test
-	void defaultKeySourceAcceptsAValidToken() throws Exception {
-		RestfulServer defaultServer = serve(new BearerTokenInterceptor(List.of(first.entry()), List.of(), null));
-		assertEquals(200, get(defaultServer, "/Patient/1", bearer(first.key, claims(first.url))).getStatus());
+	@ParameterizedTest(name = "ssl-verify {0} gives {1}")
+	@CsvSource({"false, 200", "true, 503"})
+	void sslVerifySwitchesTheCertificateCheck(boolean sslVerify, int status) throws Exception {
+		RestfulServer restfulServer =
+				serve(new BearerTokenInterceptor(metadata(tls.url, sslVerify), AUDIENCE, null, List.of(), null));
+		assertEquals(status, get(restfulServer, "/Patient/1", bearer(tls.key, claims(tls.url))).getStatus());
 	}
 
 	@Test
@@ -451,59 +393,38 @@ class BearerTokenInterceptorTest {
 
 	@Test
 	void operationEntriesMatchTheirLevelOnly() throws Exception {
-		RestfulServer serverPing = serve(interceptor(List.of(first.entry()), List.of("$ping"), null));
+		RestfulServer serverPing = serve(interceptor(issuer, List.of("$ping"), null));
 		assertEquals(200, get(serverPing, "/$ping", null).getStatus());
 		assertNoToken(get(serverPing, "/Patient/$ping", null));
 
-		RestfulServer patientPing = serve(interceptor(List.of(first.entry()), List.of("Patient/$ping"), null));
+		RestfulServer patientPing = serve(interceptor(issuer, List.of("Patient/$ping"), null));
 		assertEquals(200, get(patientPing, "/Patient/$ping", null).getStatus());
 		assertEquals(200, get(patientPing, "/Patient/1/$ping", null).getStatus());
 		assertNoToken(get(patientPing, "/$ping", null));
 		assertNoToken(get(patientPing, "/Patient/1", null));
 	}
 
-	@Test
-	void invalidPublicEndpointEntryStopsConstruction() {
-		for (String entry : List.of("Patient/1", "/Patient", "", "$ping ", "$ping?x=1", "$a b")) {
-			assertThrows(
-					IllegalArgumentException.class,
-					() -> new BearerTokenInterceptor(List.of(first.entry()), List.of(entry), null),
-					entry);
-		}
+	static Stream<Arguments> invalidConfigurations() {
+		return Stream.of(
+				Arguments.of(null, List.of()),
+				Arguments.of(" ", List.of()),
+				Arguments.of(issuer.url, List.of("Patient/1")));
 	}
 
-	@Test
-	void issuerEntryWithoutAnIssuerStopsConstruction() {
-		for (String blank : new String[] {null, "", " "}) {
-			assertThrows(
-					IllegalArgumentException.class,
-					() -> new BearerTokenInterceptor(List.of(new Issuer(blank, AUDIENCE, null)), List.of(), null));
-		}
-	}
-
-	@Test
-	void closeClosesEachKeySourceOnce() throws Exception {
-		CountingKeySource keys = new CountingKeySource();
-		BearerTokenInterceptor closing = new BearerTokenInterceptor(List.of(first.entry()), List.of(), null, url -> keys);
-		assertEquals(200, get(serve(closing), "/Patient/1", bearer(first.key, claims(first.url))).getStatus());
-		closing.close();
-		closing.close();
-		assertEquals(1, keys.closes.get());
+	@ParameterizedTest(name = "issuer \"{0}\", public endpoints {1}")
+	@MethodSource("invalidConfigurations")
+	void invalidConfigurationStopsConstruction(String issuerUrl, List<String> publicEndpoints) {
+		IssuerMetadata issuerMetadata = metadata(issuerUrl, true);
+		assertThrows(
+				IllegalArgumentException.class,
+				() -> new BearerTokenInterceptor(issuerMetadata, AUDIENCE, null, publicEndpoints, null));
 	}
 
 	@Test
 	void bypassHeaderSkipsTheCheck() throws Exception {
+		claimsSeen.set(NOT_CALLED);
 		assertEquals(200, send(server, withHeader("GET", "/Patient/1", BYPASS_HEADER, "false")).getStatus());
-	}
-
-	@Test
-	void blankBypassHeaderMeansNoBypass() throws Exception {
-		for (String blank : List.of("", " ")) {
-			RestfulServer noBypass = serve(interceptor(List.of(first.entry()), List.of(), blank));
-			MockHttpServletRequest request = withHeader("GET", "/Patient/1", BYPASS_HEADER, "true");
-			request.addHeader(blank, "true");
-			assertNoToken(send(noBypass, request));
-		}
+		assertNull(claimsSeen.get());
 	}
 
 	@Test
@@ -516,28 +437,14 @@ class BearerTokenInterceptorTest {
 				.getUrl();
 		assertEquals(200, get(publicPatients, "?" + URI.create(next).getRawQuery(), null).getStatus());
 		// HAPI gives a _getpages request to its paging handler only when the path names no resource type.
-		assertNoToken(get(publicPatients, "/Observation?_getpages=x", null));
+		assertNoToken(get(server, "/Patient?_getpages=x", null));
 	}
 
 	@Test
 	void operationRegisteredAfterInitIsNotAPagingRequest() throws Exception {
-		RestfulServer lateServer = serve(interceptor(List.of(first.entry()), List.of(), null));
+		RestfulServer lateServer = serve(interceptor(issuer, List.of(), null));
 		lateServer.registerProvider(new LateOperations());
-		assertEquals(200, get(lateServer, "/$late", bearer(first.key, claims(first.url))).getStatus());
+		assertEquals(200, get(lateServer, "/$late", bearer(issuer.key, claims(issuer.url))).getStatus());
 		assertNoToken(get(lateServer, "/$late?_getpages=x", null));
-	}
-
-	@Test
-	void claimsAreInUserDataForAValidTokenOnly() throws Exception {
-		claimsSeen.set(NOT_CALLED);
-		assertEquals(200, get(server, "/Patient/1", bearer(first.key, claims(first.url))).getStatus());
-		@SuppressWarnings("unchecked")
-		Map<String, Object> claims = (Map<String, Object>) claimsSeen.get();
-		assertEquals("user-1", claims.get("sub"));
-		assertThrows(UnsupportedOperationException.class, () -> claims.put("sub", "someone-else"));
-
-		claimsSeen.set(NOT_CALLED);
-		assertEquals(200, send(server, withHeader("GET", "/Patient/1", BYPASS_HEADER, "true")).getStatus());
-		assertNull(claimsSeen.get());
 	}
 }

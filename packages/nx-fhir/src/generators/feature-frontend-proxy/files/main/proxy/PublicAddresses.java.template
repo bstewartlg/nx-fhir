@@ -26,6 +26,8 @@ public final class PublicAddresses {
 	 * DnsResolver contract of Apache HttpClient permits only that exception.
 	 */
 	public static final class BlockedAddressException extends UnknownHostException {
+		private static final long serialVersionUID = 1L;
+
 		public BlockedAddressException(String host, InetAddress address) {
 			super("The address " + address.getHostAddress() + " of host " + host + " is not public");
 		}

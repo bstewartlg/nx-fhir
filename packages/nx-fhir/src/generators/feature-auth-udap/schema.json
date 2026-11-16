@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "FeatureAuthUdap",
+  "title": "auth-udap Feature Generator",
+  "description": "Adds signed UDAP metadata at /fhir/.well-known/udap to an existing HAPI FHIR server",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Name of the Nx server project to add the feature to"
+    },
+    "certFile": {
+      "type": "string",
+      "description": "Path of a PKCS#12 certificate file. When empty, the server fetches a test certificate from the issuer of the auth-resource feature."
+    }
+  }
+}

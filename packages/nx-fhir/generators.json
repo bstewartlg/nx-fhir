@@ -46,6 +46,11 @@
       "schema": "./src/generators/feature-auth-resource/schema.json",
       "description": "Add a bearer token check on the FHIR endpoint to an existing server project"
     },
+    "feature-auth-udap": {
+      "factory": "./src/generators/feature-auth-udap/feature-auth-udap",
+      "schema": "./src/generators/feature-auth-udap/schema.json",
+      "description": "Add signed UDAP metadata at /fhir/.well-known/udap to an existing server project"
+    },
     "preset": {
       "factory": "./src/generators/preset/generator",
       "schema": "./src/generators/preset/schema.json",

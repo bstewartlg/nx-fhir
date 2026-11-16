@@ -1,0 +1,81 @@
+package <%= packageBase %>.auth;
+
+import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
+import com.nimbusds.jose.util.DefaultResourceRetriever;
+import com.nimbusds.jose.util.JSONObjectUtils;
+import com.nimbusds.jose.util.ResourceRetriever;
+import java.io.IOException;
+import java.net.URI;
+import java.text.ParseException;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
+import org.springframework.stereotype.Component;
+
+/**
+ * Reads the documents under {issuer}/.well-known/ of app.auth.issuer and keeps each document after its first
+ * successful read. It owns the HTTP retriever of the issuer documents and the key set.
+ */
+@Component
+public class IssuerMetadata {
+
+	// The timeouts allow for a slow issuer.
+	static final int CONNECT_TIMEOUT_MS = 5000;
+	static final int READ_TIMEOUT_MS = 10000;
+
+	private final String issuer;
+	private final ResourceRetriever retriever;
+	private final Map<String, Map<String, Object>> documents = new ConcurrentHashMap<>();
+
+	/** With app.auth.ssl-verify false, the retriever accepts any certificate and any host name. */
+	public IssuerMetadata(AuthResourceProperties properties) {
+		this.issuer = properties.getIssuer();
+		this.retriever = properties.isSslVerify()
+				? new DefaultResourceRetriever(CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS, JWKSourceBuilder.DEFAULT_HTTP_SIZE_LIMIT)
+				: new DefaultResourceRetriever(
+						CONNECT_TIMEOUT_MS,
+						READ_TIMEOUT_MS,
+						JWKSourceBuilder.DEFAULT_HTTP_SIZE_LIMIT,
+						true,
+						TrustAllSslContext.create().getSocketFactory());
+	}
+
+	/** The configured issuer, or null. */
+	public String issuer() {
+		return issuer;
+	}
+
+	public ResourceRetriever retriever() {
+		return retriever;
+	}
+
+	/**
+	 * Returns the JSON object at {issuer}/.well-known/{name}. A failed read keeps nothing, so the next call reads
+	 * again.
+	 *
+	 * @throws IllegalStateException when the issuer is blank, the read fails, or the body is not a JSON object
+	 */
+	public Map<String, Object> wellKnown(String name) {
+		Map<String, Object> document = documents.get(name);
+		if (document != null) {
+			return document;
+		}
+		String url = Strings.CS.removeEnd(Objects.toString(issuer, ""), "/") + "/.well-known/" + name;
+		if (StringUtils.isBlank(issuer)) {
+			throw new IllegalStateException("Could not read " + url + ": app.auth.issuer has no value");
+		}
+		try {
+			document = JSONObjectUtils.parse(retriever.retrieveResource(URI.create(url).toURL()).getContent());
+		} catch (IOException | ParseException | IllegalArgumentException e) {
+			throw new IllegalStateException("Could not read " + url + ": " + e.getMessage(), e);
+		}
+		// JSONObjectUtils.parse returns null for the JSON literal null.
+		if (document == null) {
+			throw new IllegalStateException("Could not read " + url + ": the body is not a JSON object");
+		}
+		documents.put(name, document);
+		return document;
+	}
+}

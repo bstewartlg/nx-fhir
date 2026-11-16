@@ -5,8 +5,10 @@ import {
   Tree,
   updateProjectConfiguration,
 } from '@nx/devkit';
+import { confirm } from '@inquirer/prompts';
 import { InstalledFeature, ServerProjectConfiguration } from '../../shared/models';
 import { getServerProjects, promptForServerProject } from '../../shared/utils';
+import { isInteractive } from '../../shared/utils/interactive';
 import { compareHapiVersions } from '../../shared/migration/hapi-migration-resolver';
 import { detectPomImageIdentity } from '../../shared/utils/server-detection';
 import { FEATURES } from './registry';
@@ -90,12 +92,42 @@ export async function runFeature(
 
   assertHapiCompatibility(tree, feature, project, projectName);
 
-  const options = await feature.collectOptions(tree, project, opts.options ?? {});
-  await feature.apply(tree, project, options);
+  for (const name of feature.requires ?? []) {
+    if (project.features?.[name]) {
+      continue;
+    }
+    // A run that cannot ask installs the required feature with its defaults.
+    const install =
+      !isInteractive() ||
+      (await confirm({
+        message: `Feature '${feature.name}' needs feature '${name}'. Install '${name}' first?`,
+        default: true,
+      }));
+    if (!install) {
+      throw new Error(
+        `Feature '${feature.name}' needs feature '${name}' on project '${projectName}'. Install '${name}', or run '${feature.name}' again and answer yes.`,
+      );
+    }
+    await runFeature(tree, { feature: name, project: projectName }, registry);
+  }
+
+  // Re-read so collectOptions and apply see the manifest entries of the required installs.
+  const current = readProjectConfiguration(tree, projectName) as ServerProjectConfiguration;
+  const options = await feature.collectOptions(tree, current, opts.options ?? {});
+  await feature.apply(tree, current, options);
+
+  const recordedOptions = Object.fromEntries(
+    Object.entries(options).filter(
+      ([, value]) => value !== '' && value !== null && value !== undefined,
+    ),
+  );
 
   // Re-read so any project.json change apply makes survives: updateProjectConfiguration
   // writes the whole object, and the object read above predates apply.
-  const installed: InstalledFeature = { version: feature.featureVersion, options };
+  const installed: InstalledFeature = {
+    version: feature.featureVersion,
+    options: recordedOptions,
+  };
   const updated = readProjectConfiguration(tree, projectName) as ServerProjectConfiguration;
   updated.features = { ...(updated.features ?? {}), [feature.name]: installed };
   updateProjectConfiguration(tree, projectName, updated);
