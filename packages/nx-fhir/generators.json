@@ -51,6 +51,11 @@
       "schema": "./src/generators/feature-auth-udap/schema.json",
       "description": "Add signed UDAP metadata at /fhir/.well-known/udap to an existing server project"
     },
+    "feature-auth-smart": {
+      "factory": "./src/generators/feature-auth-smart/feature-auth-smart",
+      "schema": "./src/generators/feature-auth-smart/schema.json",
+      "description": "Add SMART configuration at /fhir/.well-known/smart-configuration to an existing server project"
+    },
     "preset": {
       "factory": "./src/generators/preset/generator",
       "schema": "./src/generators/preset/schema.json",

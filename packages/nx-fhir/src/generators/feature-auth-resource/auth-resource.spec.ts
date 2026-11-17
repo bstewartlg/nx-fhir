@@ -143,6 +143,7 @@ describe('auth-resource feature', () => {
         `${javaRoot}/auth/FhirBaseUrl.java`,
         `${javaRoot}/auth/IssuerMetadata.java`,
         `${javaRoot}/auth/TrustAllSslContext.java`,
+        `${javaRoot}/auth/WellKnownInterceptor.java`,
         `${javaTestRoot}/auth/AuthResourceIT.java`,
         `${javaTestRoot}/auth/BearerTokenInterceptorTest.java`,
         `${javaTestRoot}/auth/FhirBaseUrlTest.java`,
@@ -154,7 +155,7 @@ describe('auth-resource feature', () => {
         expect(content, `${file} should exist`).not.toBeNull();
         expect(content).not.toContain('<%');
       }
-      expect(tree.children(`${javaRoot}/auth`)).toHaveLength(6);
+      expect(tree.children(`${javaRoot}/auth`)).toHaveLength(7);
       expect(tree.children(`${javaTestRoot}/auth`)).toHaveLength(4);
       expect(
         tree.read(`${javaRoot}/auth/BearerTokenInterceptor.java`, 'utf-8'),

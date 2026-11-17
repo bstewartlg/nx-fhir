@@ -1,12 +1,12 @@
 import { generateFiles, OverwriteStrategy, Tree } from '@nx/devkit';
 import { input } from '@inquirer/prompts';
 import * as path from 'path';
-import { isMap, Scalar, YAMLMap } from 'yaml';
 
 import { FeatureDefinition } from '../feature/types';
 import {
   AUTH_RESOURCE_FEATURE,
   parseYaml,
+  setAuthMap,
   testConfigsWithKeyOff,
 } from '../feature-auth-resource/auth-resource';
 import { ensureGitignoreEntries } from '../../shared/utils';
@@ -116,23 +116,13 @@ export const authUdapFeature: FeatureDefinition = {
       'src/main/resources/application.yaml',
     );
     const config = parseYaml(configPath, tree.read(configPath, 'utf-8') ?? '');
-    const udap = config.createNode({
+    setAuthMap(config, 'udap', {
       enabled: true,
       ...(options.certFile
         ? { 'cert-file': options.certFile }
         : { 'fetch-cert': true }),
       ...UDAP_LISTS,
-    }) as YAMLMap;
-    udap.flow = false;
-    // The trailing comment of app.auth holds the bypass-header line of auth-resource. Before the udap key, the line
-    // stays with the app.auth keys, so the removal of "# " gives app.auth.bypass-header.
-    const udapKey = new Scalar('udap');
-    const auth = config.getIn(['app', 'auth'], true);
-    if (isMap(auth)) {
-      udapKey.commentBefore = auth.comment;
-      auth.comment = undefined;
-    }
-    config.setIn(['app', 'auth', udapKey], udap);
+    });
 
     tree.write(configPath, config.toString());
     for (const [file, content] of testConfigs) {

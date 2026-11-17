@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import <%= packageBase %>.auth.AuthResourceProperties;
 import <%= packageBase %>.auth.IssuerMetadata;
 import <%= packageBase %>.auth.TestCertificates;
+import <%= packageBase %>.auth.WellKnownInterceptor;
 import ca.uhn.fhir.rest.server.RestfulServer;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -115,7 +116,7 @@ class UdapConfigTest {
 
 	List<Object> udapInterceptors() {
 		return restfulServer.getInterceptorService().getAllRegisteredInterceptors().stream()
-				.filter(UdapMetadataInterceptor.class::isInstance)
+				.filter(WellKnownInterceptor.class::isInstance)
 				.toList();
 	}
 
@@ -211,7 +212,7 @@ class UdapConfigTest {
 		request.setPathInfo("/.well-known/udap");
 		MockHttpServletResponse response = new MockHttpServletResponse();
 
-		assertFalse(new UdapMetadataInterceptor(metadata).serve(request, response));
+		assertFalse(new WellKnownInterceptor("/.well-known/udap", metadata::build).serve(request, response));
 		assertEquals(503, response.getStatus());
 	}
 

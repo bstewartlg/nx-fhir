@@ -16,7 +16,6 @@ The feature needs the `auth-resource` feature. It uses `app.auth.enabled`, the i
 | `src/main/java/<%= packagePath %>/udap/UdapCertificate.java` | Loads the RSA key that signs the metadata and the certificate chain of that key. |
 | `src/main/java/<%= packagePath %>/udap/UdapCertificateFetcher.java` | Gets a certificate from `{issuer}/api/cert/generate`. |
 | `src/main/java/<%= packagePath %>/udap/UdapMetadata.java` | Builds the metadata and the signed metadata. |
-| `src/main/java/<%= packagePath %>/udap/UdapMetadataInterceptor.java` | Answers the metadata request. |
 | `src/test/java/<%= packagePath %>/udap/UdapMetadataTest.java` | Unit test of the metadata. The tests check the whole published document and the signed metadata. |
 | `src/test/java/<%= packagePath %>/udap/UdapCertificateFetcherTest.java` | Unit test of the certificate fetch against local HTTP and HTTPS servers. |
 | `src/test/java/<%= packagePath %>/udap/UdapConfigTest.java` | Unit test of the startup of the feature, the saved certificate, and the status 503 of the metadata request. |
@@ -185,6 +184,8 @@ When you write a list, obey these rules of the IG:
 - When `profiles-supported` has `udap_to`, the published scope list has `udap`.
 
 ## Request
+
+The class `WellKnownInterceptor` of the `auth-resource` feature answers the request.
 
 - `GET {baseURL}/.well-known/udap` gets the metadata as one JSON object with status 200 and `Content-Type: application/json`.
 - The request needs no token. The `auth-resource` feature lets each request under `/fhir/.well-known/` pass.

@@ -13,6 +13,7 @@ The nx-fhir `auth-resource` feature adds a bearer token check to this server. Th
 | `src/main/java/<%= packagePath %>/auth/IssuerMetadata.java` | Reads the documents under `{issuer}/.well-known/` and keeps each document after its first successful read. |
 | `src/main/java/<%= packagePath %>/auth/FhirBaseUrl.java` | Gives the base URL of the FHIR endpoint of this server. |
 | `src/main/java/<%= packagePath %>/auth/TrustAllSslContext.java` | The SSL context that accepts any certificate and any host name. The HTTP clients of the auth features use it when `app.auth.ssl-verify` is `false`. |
+| `src/main/java/<%= packagePath %>/auth/WellKnownInterceptor.java` | Answers a `GET` request for one document under `{baseURL}/.well-known/`. The auth features that publish such a document register it. |
 | `src/test/java/<%= packagePath %>/auth/BearerTokenInterceptorTest.java` | Unit test of the check with a local issuer. |
 | `src/test/java/<%= packagePath %>/auth/FhirBaseUrlTest.java` | Unit test of the base URL rule. |
 | `src/test/java/<%= packagePath %>/auth/TestCertificates.java` | Makes self-signed certificates for the unit tests with `keytool`. |

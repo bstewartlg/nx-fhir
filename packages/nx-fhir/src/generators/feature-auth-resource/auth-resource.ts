@@ -1,7 +1,7 @@
 import { generateFiles, OverwriteStrategy, Tree } from '@nx/devkit';
 import { input, select } from '@inquirer/prompts';
 import * as path from 'path';
-import { Document, parseDocument, YAMLMap } from 'yaml';
+import { Document, isMap, parseDocument, Scalar, YAMLMap } from 'yaml';
 
 import { FeatureDefinition } from '../feature/types';
 import { isInteractive } from '../../shared/utils/interactive';
@@ -35,6 +35,25 @@ export function parseYaml(file: string, text: string): Document {
     throw new Error(`Invalid YAML in ${file}. ${doc.errors[0].message}`);
   }
   return doc;
+}
+
+/** Sets app.auth.<key> to the value as a block-style map. */
+export function setAuthMap(
+  config: Document,
+  key: string,
+  value: Record<string, unknown>,
+): void {
+  const map = config.createNode(value) as YAMLMap;
+  map.flow = false;
+  // The trailing comment of app.auth holds the bypass-header line of auth-resource. Before the new key, the line
+  // stays with the app.auth keys, so the removal of "# " gives app.auth.bypass-header.
+  const mapKey = new Scalar(key);
+  const auth = config.getIn(['app', 'auth'], true);
+  if (isMap(auth)) {
+    mapKey.commentBefore = auth.comment;
+    auth.comment = undefined;
+  }
+  config.setIn(['app', 'auth', mapKey], map);
 }
 
 /** Returns the path and the new text of each test configuration file with the value at keyPath set to false. The caller writes the files. */

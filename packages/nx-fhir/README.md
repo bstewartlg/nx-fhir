@@ -9,7 +9,7 @@ An Nx plugin for building FHIR servers and frontends.
 - Scaffold TanStack Router-based React frontend SPAs with browser or clinical templates
 - Generate custom FHIR operations from OperationDefinition resources
 - Add FHIR Implementation Guides to your server
-- Add packaged server features such as scheduled `$bulk-publish` bulk data publication, OpenTelemetry instrumentation, a same-origin proxy for frontend requests to other FHIR servers, a bearer token check on the FHIR endpoint, and signed UDAP metadata for an external authorization server
+- Add packaged server features such as scheduled `$bulk-publish` bulk data publication, OpenTelemetry instrumentation, a same-origin proxy for frontend requests to other FHIR servers, a bearer token check on the FHIR endpoint, signed UDAP metadata for an external authorization server, and the SMART configuration of that server
 - Keep your HAPI FHIR server and frontend up to date with newer releases via `nx migrate`
 
 ## Installation
@@ -395,6 +395,58 @@ WARNING: A fetched certificate comes from a test authority, and its private key 
 WARNING: With `app.auth.ssl-verify: false`, the server accepts any certificate from the hosts it calls. Use it only with a local development certificate.
 
 With `app.auth.enabled: false` or `app.auth.udap.enabled: false`, the feature registers nothing. The install writes `app.auth.udap.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`. A test runs with the feature on only when it sets `app.auth.enabled` and `app.auth.udap.enabled` to `true`.
+
+Requires HAPI FHIR 8.8.0 or later.
+
+#### Auth SMART (auth-smart)
+
+Adds the SMART configuration at `/fhir/.well-known/smart-configuration` to a server:
+
+```sh
+nx g nx-fhir:feature-auth-smart
+```
+
+The feature needs the `auth-resource` feature. When the server has no `auth-resource`, the generator offers to install it first. An interactive run asks one question, and yes is the default. With yes, `auth-resource` installs first and asks its own questions. With no, the generator stops and writes nothing. A run that is not interactive installs `auth-resource` with its defaults and asks no question. For a different issuer, run `feature-auth-resource` with `--issuer` first.
+
+The server answers `GET {baseURL}/.well-known/smart-configuration` with the SMART configuration document that SMART App Launch 2.2.0 defines. A SMART client reads the document to find the endpoints of the authorization server of `app.auth.issuer`. The server builds the document from the list `app.auth.smart.capabilities` and from the OpenID discovery document of the issuer at `{issuer}/.well-known/openid-configuration`. It reads the issuer document at the first request that needs it and keeps the document after a successful read. `grant_types_supported` and `token_endpoint_auth_methods_supported` keep only the values that SMART App Launch lists, and `code_challenge_methods_supported` loses `plain`. The server copies the other members as the issuer publishes them. `grant_types_supported` keeps `client_credentials` only when the issuer lists `private_key_jwt`.
+
+The server publishes the document only when `app.auth.enabled` and `app.auth.smart.enabled` are both `true`. The request needs no token, and the response is `application/json` for each `Accept` header. When the issuer document has no value that the document must have, the response has status 503. The generator also writes `AUTH-SMART.md` to the server root. That file gives the configuration, the source of each member, and the cases of status 503.
+
+**Options:**
+- `--project`: Name of the Nx server project to add the feature to
+
+**Example:**
+```sh
+nx g nx-fhir:feature-auth-smart --project=my-fhir-server
+```
+
+On a server with no `auth-resource`, this command with the defaults of the two features writes this configuration to `application.yaml`:
+
+```yaml
+app:
+  auth:
+    enabled: true
+    issuer: https://udap-security.fast.hl7.org
+    public-endpoints: []
+    ssl-verify: true
+    # bypass-header: X-Bypass-Auth
+    smart:
+      enabled: true
+      capabilities:
+        - launch-standalone
+        - client-public
+        - client-confidential-symmetric
+        - sso-openid-connect
+        - permission-offline
+        - permission-patient
+        - permission-user
+        - permission-v1
+        - permission-v2
+```
+
+The `auth-smart` install writes the `smart` map. The `auth-resource` install writes the other keys of `app.auth`. The generated `capabilities` list is the starter list, the set that the OpenID discovery document of the FAST security server supports on paper. For a different authorization server, write the capabilities of that server.
+
+With `app.auth.enabled: false` or `app.auth.smart.enabled: false`, the feature registers nothing. The install writes `app.auth.smart.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`. A test runs with the feature on only when it sets `app.auth.enabled` and `app.auth.smart.enabled` to `true`.
 
 Requires HAPI FHIR 8.8.0 or later.
 

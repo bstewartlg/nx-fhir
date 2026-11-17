@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "FeatureAuthSmart",
+  "title": "auth-smart Feature Generator",
+  "description": "Adds the SMART configuration at /fhir/.well-known/smart-configuration to an existing HAPI FHIR server",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Name of the Nx server project to add the feature to"
+    }
+  }
+}

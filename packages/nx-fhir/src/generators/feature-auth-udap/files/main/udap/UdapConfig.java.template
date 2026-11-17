@@ -4,6 +4,7 @@ import <%= packageBase %>.auth.AuthResourceProperties;
 import <%= packageBase %>.auth.FhirBaseUrl;
 import <%= packageBase %>.auth.IssuerMetadata;
 import <%= packageBase %>.auth.TrustAllSslContext;
+import <%= packageBase %>.auth.WellKnownInterceptor;
 import ca.uhn.fhir.rest.server.RestfulServer;
 import jakarta.annotation.PostConstruct;
 import java.net.http.HttpClient;
@@ -81,7 +82,7 @@ public class UdapConfig {
 			throw new IllegalStateException(
 					loaded.source() + " has a key that cannot sign the UDAP metadata. " + e.getMessage(), e);
 		}
-		restfulServer.registerInterceptor(new UdapMetadataInterceptor(metadata));
+		restfulServer.registerInterceptor(new WellKnownInterceptor("/.well-known/udap", metadata::build));
 	}
 
 	/** Returns why a UDAP client rejects the metadata that the leaf certificate signs for the base URL, or null. */

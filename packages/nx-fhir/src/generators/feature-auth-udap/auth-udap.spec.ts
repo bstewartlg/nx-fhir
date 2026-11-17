@@ -172,7 +172,6 @@ describe('auth-udap feature', () => {
         'UdapCertificateFetcher',
         'UdapConfig',
         'UdapMetadata',
-        'UdapMetadataInterceptor',
         'UdapProperties',
       ];
       const tests = [

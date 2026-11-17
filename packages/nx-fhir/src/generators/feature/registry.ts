@@ -4,6 +4,7 @@ import { otelFeature } from '../feature-otel/otel';
 import { frontendProxyFeature } from '../feature-frontend-proxy/frontend-proxy';
 import { authResourceFeature } from '../feature-auth-resource/auth-resource';
 import { authUdapFeature } from '../feature-auth-udap/auth-udap';
+import { authSmartFeature } from '../feature-auth-smart/auth-smart';
 
 export const FEATURES: FeatureDefinition[] = [
   bulkPublishFeature,
@@ -11,4 +12,5 @@ export const FEATURES: FeatureDefinition[] = [
   frontendProxyFeature,
   authResourceFeature,
   authUdapFeature,
+  authSmartFeature,
 ];
