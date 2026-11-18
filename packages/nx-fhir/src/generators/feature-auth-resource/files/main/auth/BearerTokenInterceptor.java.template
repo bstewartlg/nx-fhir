@@ -1,6 +1,5 @@
 package <%= packageBase %>.auth;
 
-import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.interceptor.api.Hook;
 import ca.uhn.fhir.interceptor.api.Interceptor;
 import ca.uhn.fhir.interceptor.api.Pointcut;
@@ -213,9 +212,6 @@ public class BearerTokenInterceptor {
 	}
 
 	private static IBaseOperationOutcome outcome(RequestDetails details, String code, String text) {
-		FhirContext context = details.getFhirContext();
-		IBaseOperationOutcome outcome = OperationOutcomeUtil.newInstance(context);
-		OperationOutcomeUtil.addIssue(context, outcome, "error", text, null, code);
-		return outcome;
+		return OperationOutcomeUtil.createOperationOutcome("error", text, code, details.getFhirContext(), null);
 	}
 }

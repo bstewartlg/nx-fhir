@@ -9,7 +9,7 @@ An Nx plugin for building FHIR servers and frontends.
 - Scaffold TanStack Router-based React frontend SPAs with browser or clinical templates
 - Generate custom FHIR operations from OperationDefinition resources
 - Add FHIR Implementation Guides to your server
-- Add packaged server features such as scheduled `$bulk-publish` bulk data publication, OpenTelemetry instrumentation, a same-origin proxy for frontend requests to other FHIR servers, a bearer token check on the FHIR endpoint, signed UDAP metadata for an external authorization server, and the SMART configuration of that server
+- Add packaged server features such as scheduled `$bulk-publish` bulk data publication, OpenTelemetry instrumentation, a same-origin proxy for frontend requests to other FHIR servers, a bearer token check on the FHIR endpoint, signed UDAP metadata for an external authorization server, the SMART configuration of that server, and a token scope check on the FHIR endpoint
 - Keep your HAPI FHIR server and frontend up to date with newer releases via `nx migrate`
 
 ## Installation
@@ -447,6 +447,48 @@ app:
 The `auth-smart` install writes the `smart` map. The `auth-resource` install writes the other keys of `app.auth`. The generated `capabilities` list is the starter list, the set that the OpenID discovery document of the FAST security server supports on paper. For a different authorization server, write the capabilities of that server.
 
 With `app.auth.enabled: false` or `app.auth.smart.enabled: false`, the feature registers nothing. The install writes `app.auth.smart.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`. A test runs with the feature on only when it sets `app.auth.enabled` and `app.auth.smart.enabled` to `true`.
+
+Requires HAPI FHIR 8.8.0 or later.
+
+#### Auth scopes (auth-scopes)
+
+Adds a token scope check to the FHIR endpoint of a server:
+
+```sh
+nx g nx-fhir:feature-auth-scopes
+```
+
+The feature needs the `auth-resource` feature. When the server has no `auth-resource`, the generator offers to install it first. An interactive run asks one question, and yes is the default. With yes, `auth-resource` installs first and asks its own questions. With no, the generator stops and writes nothing. A run that is not interactive installs `auth-resource` with its defaults and asks no question. For a different issuer, run `feature-auth-resource` with `--issuer` first.
+
+The server reads the `scope` claim of the verified token of a FHIR request. A request gets status 403 when no scope of the token covers its resource type and its action. The check applies to each verified token and does not need the `auth-smart` feature or the `auth-udap` feature. A resource scope has the SMART App Launch 2.2.0 form `(patient|user|system)/(Type|*).(permissions)`, with the letters `cruds` or the v1 forms `read`, `write`, and `*`. The server ignores each other scope. A resource scope in a different form, for example with a `?` suffix, grants nothing. The check also applies to each resource in the response of a read, a search, or a history, to each resource that `_include` or `_revinclude` adds, and to each entry of a transaction or a batch. A request with no verified claims, for example `metadata` or a request with the bypass header, passes with no check. A direct request for an operation gets no scope check, also for the reads and writes that the operation makes.
+
+`user/` and `system/` scopes cover each resource of their type. A `patient/` scope covers the resources of its type in the Patient compartment of the patient that the `patient` claim of the token names. The claim value is a resource id with no type. With no `patient` claim that is a string with text, a `patient/` scope grants nothing. A `patient/` scope on a type with no resource in the Patient compartment allows no read, search, create, update, or delete, and a conditional delete that matches no resource gets status 200 and deletes nothing. With a `patient/` scope, `r` covers read, vread, and the instance history of the Patient of the claim, `u` covers update and the patch of the Patient of the claim, and `s` covers a type search that names the patient and not a system history. A search with no parameter that names the patient gets status 403 when no `user/` or `system/` scope of the token covers its type. With a `patient/` scope, a count search that names the patient of the claim and a different patient in one parameter returns a total for the two, and a conditional delete gets status 403 for a match with a resource of a different patient and status 200 for no match. With a `patient/` scope, `c` does not cover a conditional create: a `POST` with `If-None-Exist`, and a transaction or a batch with a create entry that has `ifNoneExist`, get status 403 when only a `patient/` create scope of the token covers the type. A create or an update with a reference in the form of a search, for example `Encounter?identifier=123`, gets the id of the resource that matches, also for a type or a patient that the token does not cover. The method `limit` of `ScopeAuthorizationInterceptor` returns the resources that one scope covers and is the place to change these limits. The patient limit does not apply to a direct request for an operation. A refused request gets status 403, the header `WWW-Authenticate: Bearer error="insufficient_scope"`, and an `OperationOutcome` with the code `forbidden`. The generator also writes `AUTH-SCOPES.md` to the server root. That file gives the scope forms, the requests that each letter allows, the rules for transactions and batches, and the body of `limit`.
+
+**Options:**
+- `--project`: Name of the Nx server project to add the feature to
+
+**Example:**
+```sh
+nx g nx-fhir:feature-auth-scopes --project=my-fhir-server
+```
+
+On a server with no `auth-resource`, this command with the defaults of the two features writes this configuration to `application.yaml`:
+
+```yaml
+app:
+  auth:
+    enabled: true
+    issuer: https://udap-security.fast.hl7.org
+    public-endpoints: []
+    ssl-verify: true
+    # bypass-header: X-Bypass-Auth
+    scopes:
+      enabled: true
+```
+
+The `auth-scopes` install writes the `scopes` map. The `auth-resource` install writes the other keys of `app.auth`.
+
+With `app.auth.enabled: false` or `app.auth.scopes.enabled: false`, the feature registers nothing. The install writes `app.auth.scopes.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`. A test runs with the feature on only when it sets `app.auth.enabled` and `app.auth.scopes.enabled` to `true`.
 
 Requires HAPI FHIR 8.8.0 or later.
 

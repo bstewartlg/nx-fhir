@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "FeatureAuthScopes",
+  "title": "auth-scopes Feature Generator",
+  "description": "Adds a token scope check to the FHIR endpoint of an existing HAPI FHIR server",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Name of the Nx server project to add the feature to"
+    }
+  }
+}

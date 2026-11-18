@@ -7,6 +7,7 @@ import com.nimbusds.jose.util.ResourceRetriever;
 import java.io.IOException;
 import java.net.URI;
 import java.text.ParseException;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,14 +33,12 @@ public class IssuerMetadata {
 	/** With app.auth.ssl-verify false, the retriever accepts any certificate and any host name. */
 	public IssuerMetadata(AuthResourceProperties properties) {
 		this.issuer = properties.getIssuer();
-		this.retriever = properties.isSslVerify()
-				? new DefaultResourceRetriever(CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS, JWKSourceBuilder.DEFAULT_HTTP_SIZE_LIMIT)
-				: new DefaultResourceRetriever(
-						CONNECT_TIMEOUT_MS,
-						READ_TIMEOUT_MS,
-						JWKSourceBuilder.DEFAULT_HTTP_SIZE_LIMIT,
-						true,
-						TrustAllSslContext.create().getSocketFactory());
+		this.retriever = new DefaultResourceRetriever(
+				CONNECT_TIMEOUT_MS,
+				READ_TIMEOUT_MS,
+				JWKSourceBuilder.DEFAULT_HTTP_SIZE_LIMIT,
+				true,
+				properties.isSslVerify() ? null : TrustAllSslContext.create().getSocketFactory());
 	}
 
 	/** The configured issuer, or null. */
@@ -77,5 +76,18 @@ public class IssuerMetadata {
 		}
 		documents.put(name, document);
 		return document;
+	}
+
+	/** Returns the member when it is a string with text, or null. */
+	public static String string(Map<String, Object> document, String member) {
+		return document.get(member) instanceof String value && StringUtils.isNotBlank(value) ? value : null;
+	}
+
+	/** Returns the member when it is a list that holds only strings, or null. */
+	public static List<String> stringList(Map<String, Object> document, String member) {
+		if (!(document.get(member) instanceof List<?> list) || !list.stream().allMatch(String.class::isInstance)) {
+			return null;
+		}
+		return list.stream().map(String.class::cast).toList();
 	}
 }

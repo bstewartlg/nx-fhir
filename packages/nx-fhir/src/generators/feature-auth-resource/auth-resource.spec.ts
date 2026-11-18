@@ -148,6 +148,7 @@ describe('auth-resource feature', () => {
         `${javaTestRoot}/auth/BearerTokenInterceptorTest.java`,
         `${javaTestRoot}/auth/FhirBaseUrlTest.java`,
         `${javaTestRoot}/auth/TestCertificates.java`,
+        `${javaTestRoot}/auth/TestIssuer.java`,
         docPath,
       ];
       for (const file of written) {
@@ -156,7 +157,7 @@ describe('auth-resource feature', () => {
         expect(content).not.toContain('<%');
       }
       expect(tree.children(`${javaRoot}/auth`)).toHaveLength(7);
-      expect(tree.children(`${javaTestRoot}/auth`)).toHaveLength(4);
+      expect(tree.children(`${javaTestRoot}/auth`)).toHaveLength(5);
       expect(
         tree.read(`${javaRoot}/auth/BearerTokenInterceptor.java`, 'utf-8'),
       ).toContain('package com.example.auth;');

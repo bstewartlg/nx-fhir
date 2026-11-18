@@ -3,26 +3,12 @@ package <%= packageBase %>.auth;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import <%= applicationClassFqn %>;
-import com.nimbusds.jose.JOSEException;
-import com.nimbusds.jose.JWSAlgorithm;
-import com.nimbusds.jose.JWSHeader;
-import com.nimbusds.jose.crypto.RSASSASigner;
-import com.nimbusds.jose.jwk.JWKSet;
-import com.nimbusds.jose.jwk.RSAKey;
-import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import com.nimbusds.jwt.JWTClaimsSet;
-import com.nimbusds.jwt.SignedJWT;
-import com.sun.net.httpserver.HttpServer;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
-import java.nio.charset.StandardCharsets;
-import java.util.Date;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -33,7 +19,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 /**
- * Boots the full server with one issuer whose keys a JDK HTTP stub serves. The stub serves no discovery
+ * Boots the full server with one issuer whose keys TestIssuer serves. TestIssuer serves no discovery
  * document, so a valid token passes only when app.auth.issuer and app.auth.jwks-uri bind.
  */
 @ActiveProfiles("test")
@@ -56,40 +42,21 @@ class AuthResourceIT {
 
 	private static final String AUDIENCE = "fhir-api";
 	private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
-	private static final RSAKey KEY;
-	private static final HttpServer ISSUER;
-
-	static {
-		try {
-			KEY = new RSAKeyGenerator(2048).keyID("it-rsa").generate();
-			ISSUER = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-		} catch (JOSEException | IOException e) {
-			throw new ExceptionInInitializerError(e);
-		}
-		ISSUER.createContext("/issuer/jwks", exchange -> {
-			byte[] body = new JWKSet(KEY).toString().getBytes(StandardCharsets.UTF_8);
-			exchange.getResponseHeaders().add("Content-Type", "application/json");
-			exchange.sendResponseHeaders(200, body.length);
-			try (OutputStream out = exchange.getResponseBody()) {
-				out.write(body);
-			}
-		});
-		ISSUER.start();
-	}
+	private static final TestIssuer ISSUER = new TestIssuer();
 
 	@LocalServerPort
 	private int port;
 
 	@DynamicPropertySource
 	static void issuer(DynamicPropertyRegistry registry) {
-		registry.add("app.auth.issuer", AuthResourceIT::issuerUrl);
+		registry.add("app.auth.issuer", ISSUER::url);
 		registry.add("app.auth.audience", () -> AUDIENCE);
-		registry.add("app.auth.jwks-uri", () -> issuerUrl() + "/jwks");
+		registry.add("app.auth.jwks-uri", () -> ISSUER.url() + "/jwks");
 	}
 
 	@AfterAll
 	static void stopIssuer() {
-		ISSUER.stop(0);
+		ISSUER.stop();
 	}
 
 	@Test
@@ -101,29 +68,13 @@ class AuthResourceIT {
 
 	@Test
 	void validTokenIsAccepted() throws Exception {
-		HttpResponse<String> withToken = send(fhir("Observation").header("Authorization", "Bearer " + token()));
+		String token = ISSUER.sign(new JWTClaimsSet.Builder().audience(AUDIENCE).subject("it-user"));
+		HttpResponse<String> withToken = send(fhir("Observation").header("Authorization", "Bearer " + token));
 		assertEquals(200, withToken.statusCode(), withToken.body());
 		HttpResponse<String> withBypassHeader = send(fhir("Observation").header("X-Bypass-Auth", "1"));
 		assertEquals(200, withBypassHeader.statusCode(), withBypassHeader.body());
 		HttpResponse<String> publicEndpoint = send(fhir("Patient"));
 		assertEquals(200, publicEndpoint.statusCode(), publicEndpoint.body());
-	}
-
-	private static String issuerUrl() {
-		return "http://127.0.0.1:" + ISSUER.getAddress().getPort() + "/issuer";
-	}
-
-	private static String token() throws JOSEException {
-		SignedJWT jwt = new SignedJWT(
-				new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(KEY.getKeyID()).build(),
-				new JWTClaimsSet.Builder()
-						.issuer(issuerUrl())
-						.audience(AUDIENCE)
-						.subject("it-user")
-						.expirationTime(new Date(System.currentTimeMillis() + 300_000))
-						.build());
-		jwt.sign(new RSASSASigner(KEY));
-		return jwt.serialize();
 	}
 
 	private HttpRequest.Builder fhir(String path) {

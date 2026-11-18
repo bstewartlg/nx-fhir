@@ -5,6 +5,7 @@ import { frontendProxyFeature } from '../feature-frontend-proxy/frontend-proxy';
 import { authResourceFeature } from '../feature-auth-resource/auth-resource';
 import { authUdapFeature } from '../feature-auth-udap/auth-udap';
 import { authSmartFeature } from '../feature-auth-smart/auth-smart';
+import { authScopesFeature } from '../feature-auth-scopes/auth-scopes';
 
 export const FEATURES: FeatureDefinition[] = [
   bulkPublishFeature,
@@ -13,4 +14,5 @@ export const FEATURES: FeatureDefinition[] = [
   authResourceFeature,
   authUdapFeature,
   authSmartFeature,
+  authScopesFeature,
 ];

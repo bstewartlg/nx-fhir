@@ -1,10 +1,10 @@
 package <%= packageBase %>.smart;
 
+import <%= packageBase %>.auth.IssuerMetadata;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
-import org.apache.commons.lang3.StringUtils;
 
 /**
  * Builds the SMART configuration of GET {baseURL}/.well-known/smart-configuration from the OpenID discovery document
@@ -41,12 +41,13 @@ public class SmartConfiguration {
 	public Map<String, Object> build() {
 		Map<String, Object> document = issuerDocument.get();
 		boolean openIdConnect = capabilities.contains("sso-openid-connect");
-		String issuer = string(document, "issuer");
-		String jwksUri = string(document, "jwks_uri");
-		String authorizationEndpoint = string(document, "authorization_endpoint");
-		String tokenEndpoint = string(document, "token_endpoint");
-		List<String> codeChallengeMethods = stringList(document, "code_challenge_methods_supported");
-		List<String> issuerAuthMethods = stringList(document, "token_endpoint_auth_methods_supported");
+		String issuer = IssuerMetadata.string(document, "issuer");
+		String jwksUri = IssuerMetadata.string(document, "jwks_uri");
+		String authorizationEndpoint = IssuerMetadata.string(document, "authorization_endpoint");
+		String tokenEndpoint = IssuerMetadata.string(document, "token_endpoint");
+		List<String> codeChallengeMethods = IssuerMetadata.stringList(document, "code_challenge_methods_supported");
+		List<String> issuerAuthMethods = IssuerMetadata.stringList(document, "token_endpoint_auth_methods_supported");
+		List<String> issuerGrantTypes = IssuerMetadata.stringList(document, "grant_types_supported");
 		if (tokenEndpoint == null) {
 			throw new IllegalStateException(NO_MEMBER + "token_endpoint");
 		}
@@ -70,8 +71,7 @@ public class SmartConfiguration {
 		}
 		putIfPresent(configuration, "jwks_uri", jwksUri);
 		putIfPresent(configuration, "authorization_endpoint", authorizationEndpoint);
-		configuration.put(
-				"grant_types_supported", grantTypes(stringList(document, "grant_types_supported"), issuerAuthMethods));
+		configuration.put("grant_types_supported", grantTypes(issuerGrantTypes, issuerAuthMethods));
 		configuration.put("token_endpoint", tokenEndpoint);
 		if (issuerAuthMethods != null) {
 			List<String> authMethods =
@@ -81,11 +81,11 @@ public class SmartConfiguration {
 			}
 		}
 		copyList(configuration, document, "token_endpoint_auth_signing_alg_values_supported");
-		putIfPresent(configuration, "registration_endpoint", string(document, "registration_endpoint"));
+		putIfPresent(configuration, "registration_endpoint", IssuerMetadata.string(document, "registration_endpoint"));
 		copyList(configuration, document, "scopes_supported");
 		copyList(configuration, document, "response_types_supported");
-		putIfPresent(configuration, "introspection_endpoint", string(document, "introspection_endpoint"));
-		putIfPresent(configuration, "revocation_endpoint", string(document, "revocation_endpoint"));
+		putIfPresent(configuration, "introspection_endpoint", IssuerMetadata.string(document, "introspection_endpoint"));
+		putIfPresent(configuration, "revocation_endpoint", IssuerMetadata.string(document, "revocation_endpoint"));
 		configuration.put("capabilities", capabilities);
 		configuration.put(
 				"code_challenge_methods_supported",
@@ -110,23 +110,12 @@ public class SmartConfiguration {
 	}
 
 	private static void copyList(Map<String, Object> configuration, Map<String, Object> document, String member) {
-		putIfPresent(configuration, member, stringList(document, member));
+		putIfPresent(configuration, member, IssuerMetadata.stringList(document, member));
 	}
 
 	private static void putIfPresent(Map<String, Object> configuration, String member, Object value) {
 		if (value != null) {
 			configuration.put(member, value);
 		}
-	}
-
-	private static String string(Map<String, Object> document, String member) {
-		return document.get(member) instanceof String value && StringUtils.isNotBlank(value) ? value : null;
-	}
-
-	private static List<String> stringList(Map<String, Object> document, String member) {
-		if (!(document.get(member) instanceof List<?> list) || !list.stream().allMatch(String.class::isInstance)) {
-			return null;
-		}
-		return list.stream().map(String.class::cast).toList();
 	}
 }

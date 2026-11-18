@@ -4,13 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import <%= applicationClassFqn %>;
 import <%= packageBase %>.auth.TestCertificates;
+import <%= packageBase %>.auth.TestIssuer;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.SignedJWT;
-import com.sun.net.httpserver.HttpServer;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -31,7 +28,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 /**
- * Boots the full server with the bearer token check and the UDAP metadata on. A JDK HTTP stub is the issuer and
+ * Boots the full server with the bearer token check and the UDAP metadata on. TestIssuer is the issuer and
  * serves its UDAP metadata, which gives each endpoint and the scope list. The certificate is a test file, so the
  * server fetches no certificate.
  */
@@ -71,25 +68,10 @@ class AuthUdapIT {
 			"registration_endpoint", "https://as.test/register",
 			"scopes_supported", List.of("openid", "system/*.rs"));
 	static final AtomicInteger ISSUER_UDAP_READS = new AtomicInteger();
-	static final HttpServer ISSUER;
-
-	static {
-		try {
-			ISSUER = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-		} catch (IOException e) {
-			throw new ExceptionInInitializerError(e);
-		}
-		ISSUER.createContext("/issuer/.well-known/udap", exchange -> {
-			ISSUER_UDAP_READS.incrementAndGet();
-			byte[] body = JSON.writeValueAsBytes(ISSUER_UDAP);
-			exchange.getResponseHeaders().add("Content-Type", "application/json");
-			exchange.sendResponseHeaders(200, body.length);
-			try (OutputStream out = exchange.getResponseBody()) {
-				out.write(body);
-			}
-		});
-		ISSUER.start();
-	}
+	static final TestIssuer ISSUER = new TestIssuer().serve("/.well-known/udap", () -> {
+		ISSUER_UDAP_READS.incrementAndGet();
+		return ISSUER_UDAP;
+	});
 
 	@TempDir
 	static Path directory;
@@ -99,7 +81,7 @@ class AuthUdapIT {
 
 	@DynamicPropertySource
 	static void issuerAndCertificate(DynamicPropertyRegistry registry) throws Exception {
-		registry.add("app.auth.issuer", () -> "http://127.0.0.1:" + ISSUER.getAddress().getPort() + "/issuer");
+		registry.add("app.auth.issuer", ISSUER::url);
 		Path keystore = TestCertificates.selfSigned(directory, "RSA", "uri:" + BASE_URL, PASSWORD);
 		registry.add("app.auth.udap.cert-file", keystore::toString);
 		registry.add("app.auth.udap.cert-password", () -> PASSWORD);
@@ -107,7 +89,7 @@ class AuthUdapIT {
 
 	@AfterAll
 	static void stopIssuer() {
-		ISSUER.stop(0);
+		ISSUER.stop();
 	}
 
 	@Test

@@ -1,5 +1,6 @@
 package <%= packageBase %>.udap;
 
+import <%= packageBase %>.auth.IssuerMetadata;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -75,7 +76,7 @@ public class UdapMetadata {
 				endpoint(properties.getRegistrationEndpoint(), "registration_endpoint", "registration-endpoint");
 		List<String> scopesSupported = properties.getScopesSupported();
 		if (scopesSupported.isEmpty()) {
-			scopesSupported = stringListOrNull(issuerDocument.get(), "scopes_supported");
+			scopesSupported = IssuerMetadata.stringList(issuerDocument.get(), "scopes_supported");
 		}
 		if (scopesSupported == null || scopesSupported.isEmpty()) {
 			throw missing("scopes_supported", "scopes-supported");
@@ -136,7 +137,7 @@ public class UdapMetadata {
 			return configured;
 		}
 		Map<String, Object> document = issuerDocument.get();
-		return document.containsKey("udap_versions_supported") ? stringListOrNull(document, member) : null;
+		return document.containsKey("udap_versions_supported") ? IssuerMetadata.stringList(document, member) : null;
 	}
 
 	private List<String> requiredList(List<String> configured, String member, String property) {
@@ -153,10 +154,11 @@ public class UdapMetadata {
 		if (StringUtils.isNotBlank(configured)) {
 			return configured;
 		}
-		if (issuerDocument.get().get(member) instanceof String value && StringUtils.isNotBlank(value)) {
-			return value;
+		String value = IssuerMetadata.string(issuerDocument.get(), member);
+		if (value == null) {
+			throw missing(member, property);
 		}
-		throw missing(member, property);
+		return value;
 	}
 
 	private String sign(String authorizationEndpoint, String tokenEndpoint, String registrationEndpoint) {
@@ -178,13 +180,6 @@ public class UdapMetadata {
 			throw new IllegalStateException("Could not sign the UDAP metadata", e);
 		}
 		return jwt.serialize();
-	}
-
-	private static List<String> stringListOrNull(Map<String, Object> document, String member) {
-		if (!(document.get(member) instanceof List<?> list) || !list.stream().allMatch(String.class::isInstance)) {
-			return null;
-		}
-		return list.stream().map(String.class::cast).toList();
 	}
 
 	private static IllegalStateException missing(String element, String property) {

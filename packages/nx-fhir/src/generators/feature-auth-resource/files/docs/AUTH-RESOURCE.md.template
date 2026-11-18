@@ -17,6 +17,7 @@ The nx-fhir `auth-resource` feature adds a bearer token check to this server. Th
 | `src/test/java/<%= packagePath %>/auth/BearerTokenInterceptorTest.java` | Unit test of the check with a local issuer. |
 | `src/test/java/<%= packagePath %>/auth/FhirBaseUrlTest.java` | Unit test of the base URL rule. |
 | `src/test/java/<%= packagePath %>/auth/TestCertificates.java` | Makes self-signed certificates for the unit tests with `keytool`. |
+| `src/test/java/<%= packagePath %>/auth/TestIssuer.java` | A local issuer for the integration tests. It serves its key set and signs tokens. |
 | `src/test/java/<%= packagePath %>/auth/AuthResourceIT.java` | Integration test of the registration. It runs under `mvn verify`. |
 | `src/main/resources/application.yaml` | The `app.auth` entries. |
 | `src/test/resources/config/application.yaml` | `app.auth.enabled: false` for each Spring Boot test. |

@@ -3,12 +3,9 @@ package <%= packageBase %>.smart;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import <%= applicationClassFqn %>;
+import <%= packageBase %>.auth.TestIssuer;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sun.net.httpserver.HttpServer;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -26,7 +23,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 /**
- * Boots the full server with the bearer token check and the SMART configuration on. A JDK HTTP stub is the issuer
+ * Boots the full server with the bearer token check and the SMART configuration on. TestIssuer is the issuer
  * and serves its OpenID discovery document.
  */
 @ActiveProfiles("test")
@@ -56,36 +53,19 @@ class AuthSmartIT {
 			"authorization_endpoint", "https://as.test/authorize",
 			"token_endpoint", "https://as.test/token",
 			"code_challenge_methods_supported", List.of("plain", "S256"));
-	static final HttpServer ISSUER;
-
-	static {
-		try {
-			ISSUER = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-		} catch (IOException e) {
-			throw new ExceptionInInitializerError(e);
-		}
-		ISSUER.createContext("/issuer/.well-known/openid-configuration", exchange -> {
-			byte[] body = JSON.writeValueAsBytes(ISSUER_DOCUMENT);
-			exchange.getResponseHeaders().add("Content-Type", "application/json");
-			exchange.sendResponseHeaders(200, body.length);
-			try (OutputStream out = exchange.getResponseBody()) {
-				out.write(body);
-			}
-		});
-		ISSUER.start();
-	}
+	static final TestIssuer ISSUER = new TestIssuer().serve("/.well-known/openid-configuration", () -> ISSUER_DOCUMENT);
 
 	@LocalServerPort
 	private int port;
 
 	@DynamicPropertySource
 	static void issuer(DynamicPropertyRegistry registry) {
-		registry.add("app.auth.issuer", () -> "http://127.0.0.1:" + ISSUER.getAddress().getPort() + "/issuer");
+		registry.add("app.auth.issuer", ISSUER::url);
 	}
 
 	@AfterAll
 	static void stopIssuer() {
-		ISSUER.stop(0);
+		ISSUER.stop();
 	}
 
 	@Test

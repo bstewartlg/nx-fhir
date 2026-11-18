@@ -1,0 +1,230 @@
+package <%= packageBase %>.scopes;
+
+import <%= packageBase %>.auth.BearerTokenInterceptor;
+import ca.uhn.fhir.context.FhirContext;
+import ca.uhn.fhir.rest.api.RestOperationTypeEnum;
+import ca.uhn.fhir.rest.api.server.RequestDetails;
+import ca.uhn.fhir.rest.server.exceptions.ForbiddenOperationException;
+import ca.uhn.fhir.rest.server.interceptor.auth.AuthorizationInterceptor;
+import ca.uhn.fhir.rest.server.interceptor.auth.IAuthRule;
+import ca.uhn.fhir.rest.server.interceptor.auth.IAuthRuleBuilder;
+import ca.uhn.fhir.rest.server.interceptor.auth.IAuthRuleBuilderRuleOp;
+import ca.uhn.fhir.rest.server.interceptor.auth.IAuthRuleBuilderRuleOpClassifier;
+import ca.uhn.fhir.rest.server.interceptor.auth.IAuthRuleBuilderRuleOpClassifierFinished;
+import ca.uhn.fhir.rest.server.interceptor.auth.IAuthRuleTester;
+import ca.uhn.fhir.rest.server.interceptor.auth.PolicyEnum;
+import ca.uhn.fhir.rest.server.interceptor.auth.RuleBuilder;
+import ca.uhn.fhir.util.OperationOutcomeUtil;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Predicate;
+import org.hl7.fhir.instance.model.api.IIdType;
+
+/**
+ * Checks the SMART scopes of the verified token against the resource type and the action of each FHIR request. A
+ * patient scope also limits the request to the Patient compartment of the patient that the patient claim names, and
+ * its letter c does not cover a conditional create. A request with no verified claims passes with no check. A direct
+ * request for an operation passes with no scope check.
+ */
+public class ScopeAuthorizationInterceptor extends AuthorizationInterceptor {
+
+	private static final String DENIED = "The token does not allow this request";
+	private static final Set<RestOperationTypeEnum> READ_OPERATIONS =
+			EnumSet.of(RestOperationTypeEnum.READ, RestOperationTypeEnum.VREAD, RestOperationTypeEnum.HISTORY_INSTANCE);
+	private static final Set<RestOperationTypeEnum> SEARCH_OPERATIONS = EnumSet.of(
+			RestOperationTypeEnum.SEARCH_TYPE,
+			RestOperationTypeEnum.SEARCH_SYSTEM,
+			RestOperationTypeEnum.HISTORY_TYPE,
+			RestOperationTypeEnum.HISTORY_SYSTEM,
+			RestOperationTypeEnum.GET_PAGE);
+	private static final Set<RestOperationTypeEnum> OPERATIONS = EnumSet.of(
+			RestOperationTypeEnum.EXTENDED_OPERATION_SERVER,
+			RestOperationTypeEnum.EXTENDED_OPERATION_TYPE,
+			RestOperationTypeEnum.EXTENDED_OPERATION_INSTANCE);
+
+	private final FhirContext context;
+
+	public ScopeAuthorizationInterceptor(FhirContext context) {
+		super(PolicyEnum.DENY);
+		this.context = context;
+	}
+
+	/** Runs one time for each HTTP request. The entries of a transaction or a batch use the same list. */
+	@Override
+	public List<IAuthRule> buildRuleList(RequestDetails details) {
+		if (!(details.getUserData().get(BearerTokenInterceptor.CLAIMS_KEY) instanceof Map<?, ?> verified)) {
+			return new RuleBuilder().allowAll().build();
+		}
+		// A direct request for an operation gets no scope check, also for the reads and writes that the operation makes.
+		if (OPERATIONS.contains(details.getRestOperationType())) {
+			return new RuleBuilder().allowAll().build();
+		}
+		@SuppressWarnings("unchecked")
+		Map<String, Object> claims = (Map<String, Object>) verified;
+		Set<String> resourceTypes = details.getFhirContext().getResourceTypes();
+		IAuthRuleBuilder rules = new RuleBuilder();
+		for (SmartScope scope : SmartScope.parse(claims.get("scope"))) {
+			if (!"*".equals(scope.type()) && !resourceTypes.contains(scope.type())) {
+				continue;
+			}
+			// allow() with no name returns one shared builder, and its write() and create() share one rule builder.
+			String letters = scope.permissions();
+			if (letters.contains("r") || letters.contains("s")) {
+				addRule(rules.allow(scope.toString()).read(), scope, claims, List.of(new ReadTester(letters)));
+			}
+			if (letters.contains("u")) {
+				addRule(rules.allow(scope.toString()).write(), scope, claims, List.of(new Tester(request -> isUpdate(request))));
+			}
+			if (letters.contains("c")) {
+				List<IAuthRuleTester> testers = new ArrayList<>();
+				if (!"*".equals(scope.type())) {
+					testers.add(new Tester(request -> hasType(request, scope.type())));
+				}
+				if ("patient".equals(scope.prefix())) {
+					testers.add(new Tester(request -> isNotConditionalCreate(request)));
+				}
+				addRule(rules.allow(scope.toString()).create(), scope, claims, testers);
+			}
+			if (letters.contains("d")) {
+				addRule(rules.allow(scope.toString()).delete(), scope, claims, List.of());
+			}
+		}
+		return rules.allow().transaction().withAnyOperation().andApplyNormalRules()
+				.andThen().allow().metadata()
+				.andThen().allow().operation().withAnyName().atAnyLevel().andAllowAllResponses()
+				.andThen().denyAll()
+				.build();
+	}
+
+	/**
+	 * Returns the resources that one scope covers. A user or system scope covers each resource of the type. A patient
+	 * scope covers the resources of the type in the Patient compartment of the patient that the patient claim names,
+	 * and it grants nothing when the token has no patient claim that is a string with text. Change this method to
+	 * limit a scope in a different way. With the result null, the scope grants nothing.
+	 */
+	protected IAuthRuleBuilderRuleOpClassifierFinished limit(
+			IAuthRuleBuilderRuleOpClassifier rule, SmartScope scope, Map<String, Object> claims) {
+		if (!"patient".equals(scope.prefix())) {
+			return rule.withAnyId();
+		}
+		if (!(claims.get("patient") instanceof String patient) || patient.isBlank()) {
+			return null;
+		}
+		IIdType owner = context.getVersion().newIdType().setParts(null, "Patient", patient, null);
+		// The one-owner form adds to an existing rule of the same operation, type, and compartment, and both testers apply.
+		return rule.inCompartment("Patient", List.of(owner));
+	}
+
+	@Override
+	protected void handleDeny(RequestDetails details, Verdict verdict) {
+		ForbiddenOperationException exception = new ForbiddenOperationException(
+				DENIED, OperationOutcomeUtil.createOperationOutcome("error", DENIED, "forbidden", details.getFhirContext(), null));
+		exception.addResponseHeader("WWW-Authenticate", "Bearer error=\"insufficient_scope\"");
+		throw exception;
+	}
+
+	private void addRule(
+			IAuthRuleBuilderRuleOp operation,
+			SmartScope scope,
+			Map<String, Object> claims,
+			List<IAuthRuleTester> testers) {
+		IAuthRuleBuilderRuleOpClassifier rule =
+				"*".equals(scope.type()) ? operation.allResources() : operation.resourcesOfType(scope.type());
+		IAuthRuleBuilderRuleOpClassifierFinished limited = limit(rule, scope, claims);
+		if (limited != null) {
+			testers.forEach(limited::withTester);
+		}
+	}
+
+	private static boolean isBundle(IAuthRuleTester.RuleTestRequest request) {
+		return request.requestDetails != null
+				&& request.requestDetails.getRestOperationType() == RestOperationTypeEnum.TRANSACTION;
+	}
+
+	/**
+	 * Accepts an update and a patch. It also accepts CREATE for an update request, because the engine checks an update
+	 * that makes a new resource as CREATE before the write.
+	 */
+	private static boolean isUpdate(IAuthRuleTester.RuleTestRequest request) {
+		return request.operation == RestOperationTypeEnum.UPDATE
+				|| request.operation == RestOperationTypeEnum.PATCH
+				|| (request.operation == RestOperationTypeEnum.CREATE
+						&& request.requestDetails != null
+						&& request.requestDetails.getRestOperationType() == RestOperationTypeEnum.UPDATE);
+	}
+
+	/**
+	 * Accepts a check only when its resource, or its id when it has no resource, has the type of the scope. Under a
+	 * compartment rule, the engine does not check the type of a created resource with no id, for example the resource
+	 * of a conditional update with no match in a transaction.
+	 */
+	private static boolean hasType(IAuthRuleTester.RuleTestRequest request, String type) {
+		if (request.resource != null) {
+			return type.equals(request.requestDetails.getFhirContext().getResourceType(request.resource));
+		}
+		return request.resourceId != null && type.equals(request.resourceId.getResourceType());
+	}
+
+	/**
+	 * Accepts a check only when its request has no conditional URL for a create. A direct conditional create that
+	 * matches a stored resource returns that resource, and a transaction entry can return its id, also when the
+	 * resource is of a different patient. It refuses a check with no request details, because it cannot tell whether
+	 * that create is conditional.
+	 */
+	private static boolean isNotConditionalCreate(IAuthRuleTester.RuleTestRequest request) {
+		return request.requestDetails != null
+				&& request.requestDetails.getConditionalUrl(RestOperationTypeEnum.CREATE) == null;
+	}
+
+	/**
+	 * Accepts the operations of the letters r and s. On a response, it also accepts READ in a transaction or a batch,
+	 * because the engine checks each resource of a Bundle response one more time as READ.
+	 */
+	private static final class ReadTester implements IAuthRuleTester {
+
+		private final Set<RestOperationTypeEnum> operations = EnumSet.noneOf(RestOperationTypeEnum.class);
+
+		ReadTester(String letters) {
+			if (letters.contains("r")) {
+				operations.addAll(READ_OPERATIONS);
+			}
+			if (letters.contains("s")) {
+				operations.addAll(SEARCH_OPERATIONS);
+			}
+		}
+
+		@Override
+		public boolean matches(RuleTestRequest request) {
+			return operations.contains(request.operation);
+		}
+
+		@Override
+		public boolean matchesOutput(RuleTestRequest request) {
+			return operations.contains(request.operation)
+					|| (request.operation == RestOperationTypeEnum.READ && isBundle(request));
+		}
+	}
+
+	/** Applies one predicate to the check of the request and to the check of the response. */
+	private static final class Tester implements IAuthRuleTester {
+
+		private final Predicate<RuleTestRequest> predicate;
+
+		Tester(Predicate<RuleTestRequest> predicate) {
+			this.predicate = predicate;
+		}
+
+		@Override
+		public boolean matches(RuleTestRequest request) {
+			return predicate.test(request);
+		}
+
+		@Override
+		public boolean matchesOutput(RuleTestRequest request) {
+			return predicate.test(request);
+		}
+	}
+}
