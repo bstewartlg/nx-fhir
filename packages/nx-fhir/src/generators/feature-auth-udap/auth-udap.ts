@@ -23,7 +23,7 @@ interface AuthUdapOptions {
 /** The file name of a fetched certificate in the working directory of the server. */
 const SAVED_CERTIFICATE = 'generated-cert.pfx';
 
-/** The UDAP lists of the FAST security server, in the order of the app.auth.udap keys. */
+/** The starter values of the UDAP lists, in the order of the app.auth.udap keys. */
 const UDAP_LISTS = {
   'profiles-supported': ['udap_dcr', 'udap_authn', 'udap_authz', 'udap_to'],
   'grant-types-supported': [

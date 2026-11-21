@@ -1,163 +1,142 @@
 <% const packagePath = packageBase.replace(/\./g, '/'); -%>
 # Token scope check
 
-The nx-fhir `auth-scopes` feature makes this server check the scopes of the token of a FHIR request. A request gets status 403 when no scope of the token covers its resource type and its action. The check applies to each verified token. It does not need the `auth-smart` feature or the `auth-udap` feature.
+The nx-fhir `auth-scopes` feature makes this server check the scopes of the token of a FHIR request. A request gets status 403 when no scope of the token covers its resource type and its action. The check applies to each verified token. The feature needs the `auth-resource` feature, and it does not need the `auth-smart` feature or the `auth-udap` feature.
 
-The scope syntax follows SMART App Launch 2.2.0. The check uses the rule engine of the HAPI FHIR `AuthorizationInterceptor`.
-
-The feature needs the `auth-resource` feature. It uses `app.auth.enabled` and the verified claims that `BearerTokenInterceptor` of that feature keeps on each request. When the server has no `auth-resource`, the install offers to install it first. In an interactive run, the install asks one question, and yes is the default. With yes, `auth-resource` installs first and asks its own questions. In a run that is not interactive, `auth-resource` installs with its defaults, and the install asks no question.
+The scope syntax follows SMART App Launch 2.2.0. `ScopeAuthorizationInterceptor` builds the rules of each request for the HAPI FHIR [`AuthorizationInterceptor`](https://hapifhir.io/hapi-fhir/docs/security/authorization_interceptor.html). `PatientSearchNarrowingInterceptor` narrows searches with the HAPI FHIR [`SearchNarrowingInterceptor`](https://hapifhir.io/hapi-fhir/docs/security/search_narrowing_interceptor.html).
 
 ## What the feature adds
 
-| File | Purpose |
-| --- | --- |
-| `src/main/java/<%= packagePath %>/scopes/ScopeConfig.java` | Registers the scope check on the FHIR server. |
-| `src/main/java/<%= packagePath %>/scopes/ScopeProperties.java` | The configuration properties under `app.auth.scopes`. |
-| `src/main/java/<%= packagePath %>/scopes/ScopeAuthorizationInterceptor.java` | Builds the rules of each request from the scopes of the token and answers a refused request. |
-| `src/main/java/<%= packagePath %>/scopes/SmartScope.java` | Reads the resource scopes of the `scope` claim. |
-| `src/test/java/<%= packagePath %>/scopes/SmartScopeTest.java` | Unit test of the scope forms. |
-| `src/test/java/<%= packagePath %>/scopes/AuthScopesIT.java` | Integration test of the requests with the token check and the scope check on. It runs under `mvn verify`. |
-| `src/main/resources/application.yaml` | The `app.auth.scopes` entries. |
-| `src/test/resources/config/application.yaml` | `app.auth.scopes.enabled: false` for each Spring Boot test. |
-| `src/test/resources/application-test.yaml` | `app.auth.scopes.enabled: false` for a test with the `test` profile. |
+The feature adds `ScopeConfig`, `ScopeProperties`, `ScopeAuthorizationInterceptor`, `PatientSearchNarrowingInterceptor`, and `SmartScope` to `src/main/java/<%= packagePath %>/scopes/`, and the unit test `SmartScopeTest` and the integration test `AuthScopesIT`, which runs under `mvn verify`, to `src/test/java/<%= packagePath %>/scopes/`.
 
-The two test configuration files turn the feature off. A test that sets `app.auth.enabled` and `app.auth.scopes.enabled` to `true` runs with the feature.
+The install writes `app.auth.scopes.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`, so a test runs with the feature only when it sets `app.auth.enabled` and `app.auth.scopes.enabled` to `true`.
 
 ## Configuration
 
-With the defaults of the two features, the install writes this configuration:
+The install writes the configuration below, the `scopes` map of `app.auth`. `AUTH-RESOURCE.md` gives the other keys of `app.auth`.
 
 ```yaml
 app:
   auth:
-    enabled: true
-    issuer: https://udap-security.fast.hl7.org
-    public-endpoints: []
-    ssl-verify: true
-    # bypass-header: X-Bypass-Auth
     scopes:
       enabled: true
 ```
 
-The `auth-scopes` install writes the `scopes` map. The `auth-resource` install writes the other keys of `app.auth`.
-
-### `app.auth.scopes.enabled`
-
-- `app.auth.enabled` and `app.auth.scopes.enabled` are both `true`: the feature registers the interceptor, and the server checks the scopes.
-- One of the two is `false` or absent: the feature registers no interceptor, and the server checks no scope.
+When `app.auth.enabled` and `app.auth.scopes.enabled` are both `true`, the server checks the scopes and narrows searches. When one of the two is `false` or absent, the feature registers no interceptor.
 
 ## Which requests get the check
 
-- A request with verified claims gets the check, other than a direct request for an operation (see [Operations](#operations)). The claims come from `BearerTokenInterceptor` of the `auth-resource` feature.
-- A request with no verified claims passes with no check. `BearerTokenInterceptor` reads no token for these requests, so they have no verified claims also when they have a token: `metadata`, a request under `/fhir/.well-known/`, a public endpoint of `app.auth.public-endpoints`, a request with the bypass header, and a `_getpages` request.
+A request with verified claims gets the check, other than a direct request for an operation (`$name`), which gets the operation check in its place (see [Operations](#operations)). A request that the token check of `auth-resource` lets through with no token gets no scope check, also when it has a token: a `GET` or `HEAD` of `metadata`, a request under `/fhir/.well-known/`, a public endpoint of `app.auth.public-endpoints`, a request with the bypass header, and a request for a later page of a search or of the result of an operation (`_getpages`). `AUTH-RESOURCE.md` gives the rule of the token check.
 
 ## Scope forms
 
-The server reads the claim `scope`. The claim is one string with spaces between the scopes, or a JSON list of such strings.
-
-A resource scope has the form `(patient|user|system)/(Type|*).(permissions)`:
+The server reads the claim `scope`, one string with spaces between the scopes or a JSON list of such strings. A resource scope has the form `(patient|user|system)/(Type|*).(permissions)`:
 
 - `Type` is a resource type of the FHIR version of the server. `*` is each type.
 - `permissions` has one or more of the letters `cruds` in that order, or `read` (the same as `rs`), `write` (the same as `cud`), or `*` (the same as `cruds`).
 
-The server ignores each other scope, for example `openid`, `fhirUser`, `launch/patient`, `offline_access`, and `udap`. A resource scope in a different form grants nothing. Examples are a scope with a `?` suffix, letters in a different order, a different prefix, and a type that the server does not have. The scopes of a token add up.
+The server ignores each other scope, for example `openid` or `launch/patient`. A resource scope in a different form grants nothing, for example a scope with a `?` suffix. The scopes of a token add up.
 
-For a `user/` or `system/` scope, the check reads resource types and does not read search parameters. A `patient/` scope also limits the request to one Patient compartment (see [Prefixes and the `limit` method](#prefixes-and-the-limit-method)).
+For a `user/` or `system/` scope, the check reads resource types and does not read search parameters.
 
 ## Letters
 
-This section applies to `user/` and `system/` scopes. For a `patient/` scope, see [Prefixes and the `limit` method](#prefixes-and-the-limit-method).
+For `user/` and `system/` scopes, the letters allow these direct requests:
 
 | Letter | Direct requests |
 | --- | --- |
-| `c` | create, conditional create |
+| `c` | create. With `s` on the type, also conditional create (see [Conditional requests](#conditional-requests)). |
 | `r` | read, vread, instance history |
-| `u` | update, patch, conditional update. An update that makes a new resource passes with `u`. |
-| `d` | delete, conditional delete |
+| `u` | update, patch. With `s` on the type, also conditional update and conditional patch. An update that makes a new resource passes with `u`. |
+| `d` | delete. With `s` on the type, also conditional delete. A delete with `_cascade=delete` or with `_expunge=true` gets status 403 for each token, also when the server allows it. |
 | `s` | type search, type history, system history |
 
-- A request for a type with no covering scope gets status 403 on the incoming request. This is also true when the search has no match or the id does not exist.
-- A conditional delete for a type with no covering scope gets status 403 when it matches a resource, and the resource stays. When it matches no resource, it gets status 200 and deletes nothing.
-- A conditional create that matches a stored resource gets status 200 and returns that resource. It needs `c` on the type and no `r` or `s`.
-- A create or an update can hold a reference in the form of a search, for example `"reference": "Encounter?identifier=123"`. The server puts the id of the resource that matches in its place, and the token needs no scope on that type. A direct create or update returns the id in its response. With no match, the request gets status 404. With more than one match, it gets status 412.
-- Each resource in a response needs the letter of its request on its own type. A resource that a search adds through `_include` or `_revinclude` needs `s` on its type. One resource with no covering scope makes the complete request fail with status 403.
-- A system history needs `s` on each type that it returns.
-- A write needs no `r` for the resource in its response.
-- A page of a search (`_getpages`) gets no check. `BearerTokenInterceptor` lets a paging request through before it reads a token, so such a request never has claims. The include rule above applies to the first page only.
+- A request for a type with no covering scope gets status 403 on the incoming request, also when the search has no match or the id does not exist. This includes a delete by id or by condition when the `d` scope of the token has a different type, for example `patient/Observation.d` with `DELETE Encounter/123`.
+- Each resource in the response of a read, a search, or a history needs the letter of its request on its own type. A resource that a search adds to its first page through `_include` or `_revinclude` needs `s` on its type. A stored `OperationOutcome` that a search adds in this way needs no scope. One resource with no covering scope makes the complete request fail with status 403.
+- A direct write needs no `r` for the resource in its response, so a write with `u` and no `r` can return the resource that it changed.
+- The scope check and the search narrowing apply to the request that starts a search, and not to its later pages (`_getpages`). A resource that `_include` or `_revinclude` puts on a later page needs no scope. With `user/Patient.rs`, page 2 of `Patient?_revinclude=Observation:subject&_count=1` returns the Observation of the Patient on that page. HAPI FHIR gives a later page of a history the parameter `_offset` and not `_getpages`, so that page gets the check of the history.
 
 ## Transactions and batches
 
-- The server checks each entry with the same rules.
-- One write entry with no covering scope refuses the complete Bundle with status 403. This is also true for a batch, with one exception: in a batch, an update that makes a new resource with `u` and no `c` gets a 403 entry in a 200 Bundle.
-- A read entry with no covering scope gets a 403 entry in a 200 Bundle.
-- A transaction or a batch with a create entry (`POST`) that has `ifNoneExist` gets status 403 for the complete Bundle when only a `patient/` create scope of the token covers the type of the entry. For a transaction, this is also true when the condition matches no resource. A create entry with `ifNoneExist` of a type that a `user/` create scope covers follows the `user/` rule.
-- In a Bundle, an update that makes a new resource needs `u` and `c` on its type. The rule engine checks the entry as an update on the request and as a create before the write.
-- An operation as an entry of a Bundle needs `r` or `s` on each type in its response, and one type with no covering scope makes the complete Bundle fail with status 403.
-- In a Bundle with `Prefer: return=representation`, a created resource needs `r` or `s`.
+- The server checks each entry with the same rules, and each resource that a Bundle response returns, other than an `OperationOutcome`, also needs `r` or `s` on its type. A write entry with no covering scope refuses a complete transaction with status 403, and in a batch it refuses the complete Bundle or gets a 403 entry. A read entry with no covering scope gets a 403 entry in a 200 Bundle.
+- In a Bundle, an update that makes a new resource needs `u` and `c` on its type.
+- A conditional entry and an entry with a reference in the form of a search also get the check of [Conditional requests](#conditional-requests).
+- A `GET` entry for an operation gets the operation check (see [Operations](#operations)), and a refused entry gets a 403 entry in a 200 Bundle. The entry also needs `r` or `s` on each type in its response other than `OperationOutcome`, and one type with no covering scope makes the complete Bundle fail with status 403.
+- A `POST` entry for `$meta-add` gets the check of a create, and `allowsOperation` does not run for it. With `user/*.c`, the entry passes. With `patient/*.c`, it passes only for the Patient of the claim. With `user/Patient.cruds`, the complete Bundle gets status 403.
+- With HAPI FHIR 8.8.0 and 8.10.0, the bullets above do not apply to an entry for an operation at instance level. A Bundle with such an entry, for example `Patient/123/$everything`, gets status 400 (`HAPI-1742`) for the complete Bundle.
 
 ## Operations
 
-A direct request for an operation (`$name`) gets no scope check, also for the reads and writes that the operation makes. For example, a token with only `patient/Patient.r` can call `$everything`, `$expunge`, and `$reindex`.
+The method `allowsOperation` of `ScopeAuthorizationInterceptor` makes the operation check of each direct request for an operation (`$name`) other than `$graphql`. A request for an operation gets status 403 unless a scope of the token covers the operation. A token with no resource scope, for example a token with only `openid`, can call no operation.
 
-`buildRuleList` of `ScopeAuthorizationInterceptor` returns a rule list that allows all for a direct request for an operation. The rule `allow().operation().withAnyName().atAnyLevel().andAllowAllResponses()` passes an operation as an entry of a Bundle. To check operations, change these two places.
+A scope covers an operation only when its type is `*` or the resource type of the operation. The letters of the scope and the name of the operation do not matter, so a scope that covers one operation on a resource covers each operation on that resource. With `system/Patient.c`, `Patient/$everything` passes.
 
-## Prefixes and the `limit` method
+- A `user/` or `system/` scope covers the operation at each level. With `user/Patient.rs`, `Patient/$everything` and `Patient/456/$everything` pass. An operation at server level has no type, so only the type `*` covers it. `$meta` at server level passes with `user/*.r` and gets status 403 with `user/Patient.rs`.
+- A `patient/` scope covers only an operation at instance level on the Patient of the `patient` claim. With `patient/Patient.rs` and the claim `123`, `Patient/123/$everything` passes, and `Patient/$everything`, `Patient/456/$everything`, and `$meta` at server level get status 403. An operation on a different resource of the patient needs a `user/` or `system/` scope. With `patient/Patient.rs patient/Observation.rs` and the claim `123`, `Observation/789/$meta` gets status 403, also when 789 is an Observation of 123.
+
+A direct request for an operation that passes the operation check gets no scope check, also for the reads and writes that the operation makes and for each page of its result. With `patient/Patient.rs` and the claim `123`, `Patient/123/$everything` also returns the Observations of 123. With only `patient/Patient.r` and the claim `123`, `Patient/123/$meta-add` adds a tag to Patient 123, and `Patient/123/$expunge` with `expungePreviousVersions` removes the earlier versions of Patient 123. A refused direct request gets the answer of [The answer for a missing scope](#the-answer-for-a-missing-scope). [Transactions and batches](#transactions-and-batches) gives the answer for an entry of a Bundle.
+
+When GraphQL is on, a request for `$graphql` gets status 403 for each token.
+
+To check operations in a different way, change `allowsOperation`. The method gets the request, the scopes of the token, and the claims of the token. The request gives the operation name with its `$` (`getOperation()`), the resource type (`getResourceName()`), and the id (`getId()`). For an operation as an entry of a Bundle, the method can run more than one time.
+
+## Prefixes
 
 A `user/` or `system/` scope covers each resource of its type. A `patient/` scope covers the resources of its type in the Patient compartment of the patient that the `patient` claim of the token names. The claim value is a resource id with no type, for example `123`.
 
 - With no `patient` claim that is a string with text, a `patient/` scope grants nothing.
-- A `patient/` scope on a type with no resource in the Patient compartment, for example Practitioner, allows no read, search, create, update, or delete. A conditional delete that matches no resource gets status 200 and deletes nothing.
+- A `patient/` scope on a type with no resource in the Patient compartment, for example Practitioner, allows no read, search, create, update, or delete.
 
 With a `patient/` scope, the letters allow these direct requests:
 
 | Letter | Direct requests |
 | --- | --- |
-| `c` | create of a resource in the compartment. A conditional create (`If-None-Exist`) gets status 403 when only a `patient/` create scope of the token covers the type, also when the condition matches a resource of the patient or no resource. |
+| `c` | create of a resource in the compartment |
 | `r` | read and vread of a resource in the compartment, and instance history of the Patient of the claim |
 | `u` | update of a resource in the compartment, also an update that makes a new resource, and patch of the Patient of the claim. A patch of a different resource gets status 403. |
 | `d` | delete of a resource in the compartment |
-| `s` | type search that names the patient in a parameter, for example `Observation?patient=123`. A system history gets status 403. |
+| `s` | type search, narrowed to the compartment (see [Search narrowing](#search-narrowing)). Its later pages hold the result of the narrowed search. A system history gets status 403. |
 
-With a `patient/` scope, these requests get an answer about a resource of a different patient:
+To limit a scope in a different way, change the method `limit` of `ScopeAuthorizationInterceptor`. To make a different rule list, change `buildRuleList`.
 
-- A search that names the patient of the claim and a different patient in one parameter, for example `Observation?patient=123,456`, gets status 403. With `_summary=count` or `_count=0`, it gets status 200 and a total for the two patients.
-- A conditional delete that matches a resource of a different patient gets status 403, and the resource stays. With no match, it gets status 200.
-- A create or an update with a reference in the form of a search, for example `Encounter?identifier=123`, gets the id of the resource that matches, also when it is a resource of a different patient.
+## Conditional requests
 
-The method `limit` of `ScopeAuthorizationInterceptor` returns the resources that one scope covers:
+These requests run a search before they write:
 
-```java
-protected IAuthRuleBuilderRuleOpClassifierFinished limit(
-		IAuthRuleBuilderRuleOpClassifier rule, SmartScope scope, Map<String, Object> claims) {
-	if (!"patient".equals(scope.prefix())) {
-		return rule.withAnyId();
-	}
-	if (!(claims.get("patient") instanceof String patient) || patient.isBlank()) {
-		return null;
-	}
-	IIdType owner = context.getVersion().newIdType().setParts(null, "Patient", patient, null);
-	// The one-owner form adds to an existing rule of the same operation, type, and compartment, and both testers apply.
-	return rule.inCompartment("Patient", List.of(owner));
-}
-```
+- a conditional create (`If-None-Exist`)
+- a conditional update, patch, or delete (`Type?query` as the URL)
+- a create, update, or patch whose resource holds a reference in the form of a search, for example `"reference": "Patient?identifier=123"`
 
-- `context` is the `FhirContext` of the server. `ScopeConfig` gives it to the constructor.
-- With the result `null`, the scope grants nothing.
-- The method runs one time for each rule of a scope (read, write, create, and delete). It gets the scope, not the letters of the rule.
-- `claims` holds the verified claims of the token.
+The status of such a request tells whether zero, one, or more resources match. For this reason, the request needs the letter of its write and also a `user/` or `system/` scope with the letter `s` on the type that the search reads. Without that scope, the request gets status 403 with the answer of [The answer for a missing scope](#the-answer-for-a-missing-scope). The check comes before the search, so the status is the same with and without a match.
 
-To limit a scope in a different way, change this method. To make a different rule list, change `buildRuleList`.
+- HAPI searches the type of the request for `If-None-Exist`, also when the header names a different type, and the type in the URL for a conditional update, patch, or delete. For a reference such as `Patient?identifier=123`, the type is `Patient`.
+- The URL of a create or update entry in a Bundle can name a different type than its resource. HAPI searches the resource type for a create entry and the URL type for an update entry, so such an entry needs `s` on both types.
+- A refused entry refuses the complete Bundle with status 403, in a transaction and in a batch. The one exception is a JSON Patch entry of a batch whose patch adds a reference in the form of a search. It gets a 403 entry in a 200 Bundle.
+- The letter `r` with no `s` does not cover the search. With `user/Observation.c user/Patient.r`, a create with the reference `Patient?identifier=123` gets status 403.
+- A `patient/` scope does not count, because the search narrowing does not apply to a condition or to a reference. A token with only `patient/` scopes can make no conditional request and can send no reference in the form of a search.
+- The `s` of a `user/` or `system/` scope also counts for a write that a `patient/` scope allows. With `patient/Observation.c user/Observation.s` and the claim `123`, a conditional create that matches an Observation of a different patient gets status 200 and returns that Observation, because the `user/` scope can search it.
+- The check reads the type of the search and not its parameters, so a condition can use each search parameter that a search with `s` on that type can use.
 
-The patient limit refuses a request, and it does not filter a response. A search that names the patient in a parameter passes, for example `Observation?patient=123` or `Patient?_id=123`. A search with no parameter that names the patient gets status 403 when no `user/` or `system/` scope of the token covers its type.
+## Search narrowing
 
-The patient limit does not apply to a direct request for an operation, because such a request gets no scope check. With a `patient/` scope, `$everything` for a different patient passes.
+`PatientSearchNarrowingInterceptor` adds the patient of the `patient` claim to a type search (`GET` or `POST _search`), so the search matches only resources in the Patient compartment of that patient. For a type with no search parameter of the Patient compartment, for example Practitioner, the scope check refuses the search with status 403.
+
+HAPI narrows a Patient search by `_id` and a search of a different type by one parameter of the Patient compartment, such as `patient`.
+
+The narrowing applies when the token has all of these:
+
+- a `patient` claim that is a string with text
+- a `patient/` scope
+- no `user/` or `system/` scope with the letter `s` whose type is `*` or the type of the search. With `patient/Observation.rs user/Patient.s`, `Patient?identifier=X` returns each Patient with that identifier.
+
+When the parameter that HAPI uses has one list of values with commas, HAPI keeps only the values that name the patient of the claim. `Observation?patient=123,456` matches only the Observations of 123, and with `_summary=count` the total counts only the Observations of 123. When no value names the patient of the claim, the search gets status 403, for example `Observation?patient=456`, `Observation?subject=Patient/456`, and `Patient?_id=456`.
+
+The entries of a transaction or a batch get no narrowing. A search entry with no patient parameter, of a type that only a `patient/` scope covers, gets a 403 entry in a 200 Bundle.
+
+To narrow in a different way, change the method `buildAuthorizedList` of `PatientSearchNarrowingInterceptor`.
 
 ## The answer for a missing scope
 
-A refused request gets:
+A request that the scope check refuses, or a direct request that the operation check refuses, gets status 403, the header `WWW-Authenticate: Bearer error="insufficient_scope"` (RFC 6750), and an `OperationOutcome` with severity `error`, the code `forbidden`, and the fixed text `The token does not allow this request`. The text names no rule and no scope.
 
-- status 403
-- the header `WWW-Authenticate: Bearer error="insufficient_scope"` (RFC 6750)
-- an `OperationOutcome` with severity `error`, the code `forbidden`, and the fixed text `The token does not allow this request`
-
-The text names no rule and no scope.
+A search that the search narrowing refuses gets status 403 with no `WWW-Authenticate` header, and an `OperationOutcome` with severity `error`, the code `processing`, and the text `HAPI-2026: Value not permitted for parameter {name}`, for example `patient` or `_id`.

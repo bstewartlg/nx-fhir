@@ -81,7 +81,6 @@ public class SmartConfiguration {
 			}
 		}
 		copyList(configuration, document, "token_endpoint_auth_signing_alg_values_supported");
-		putIfPresent(configuration, "registration_endpoint", IssuerMetadata.string(document, "registration_endpoint"));
 		copyList(configuration, document, "scopes_supported");
 		copyList(configuration, document, "response_types_supported");
 		putIfPresent(configuration, "introspection_endpoint", IssuerMetadata.string(document, "introspection_endpoint"));

@@ -4,6 +4,7 @@ import {
   addProjectConfiguration,
   logger,
   readProjectConfiguration,
+  updateProjectConfiguration,
 } from '@nx/devkit';
 import { parseDocument } from 'yaml';
 
@@ -132,12 +133,18 @@ describe('auth-smart feature', () => {
   });
 
   it.each([
-    [['auth-smart']],
-    [['auth-udap', 'auth-smart']],
-    [['auth-smart', 'auth-udap']],
+    [['auth-smart'], ['auth-resource', 'auth-scopes', 'auth-smart']],
+    [
+      ['auth-udap', 'auth-smart'],
+      ['auth-resource', 'auth-udap', 'auth-scopes', 'auth-smart'],
+    ],
+    [
+      ['auth-smart', 'auth-udap'],
+      ['auth-resource', 'auth-scopes', 'auth-smart', 'auth-udap'],
+    ],
   ])(
-    'writes app.auth.smart and installs auth-resource with its defaults when not interactive (%j)',
-    async (order) => {
+    'writes app.auth.smart and installs auth-resource and auth-scopes with their defaults when not interactive (%j)',
+    async (order, manifest) => {
       tree = createServerTree(false);
 
       for (const feature of order) {
@@ -151,7 +158,9 @@ describe('auth-smart feature', () => {
       );
       expect(bypassOn.errors).toEqual([]);
       const { auth } = bypassOn.toJS().app;
+      expect(auth).toMatchObject({ enabled: true, issuer: DEFAULT_ISSUER });
       expect(auth['bypass-header']).toBe('X-Bypass-Auth');
+      expect(auth.scopes).toEqual({ enabled: true });
       expect(auth.smart).toEqual({
         enabled: true,
         capabilities: SMART_CAPABILITIES,
@@ -162,13 +171,91 @@ describe('auth-smart feature', () => {
       for (const file of [testConfigPath, testProfilePath]) {
         expect(readYaml(tree, file).app.auth.smart).toEqual({ enabled: false });
       }
-      expect(Object.keys(serverProject(tree).features ?? {})).toEqual([
-        'auth-resource',
-        ...order,
-      ]);
+      expect(Object.keys(serverProject(tree).features ?? {})).toEqual(manifest);
       expect(confirm).not.toHaveBeenCalled();
     },
   );
+
+  it('asks no question when the server has auth-resource and auth-scopes', async () => {
+    isInteractive.mockReturnValue(true);
+    const project = serverProject(tree);
+    updateProjectConfiguration(tree, 'server', {
+      ...project,
+      features: {
+        ...project.features,
+        'auth-scopes': { version: 1, options: {} },
+      },
+    } as ServerProjectConfiguration);
+
+    await runFeature(tree, { feature: 'auth-smart', project: 'server' });
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(select).not.toHaveBeenCalled();
+    expect(input).not.toHaveBeenCalled();
+    expect(Object.keys(serverProject(tree).features ?? {})).toEqual([
+      'auth-resource',
+      'auth-scopes',
+      'auth-smart',
+    ]);
+  });
+
+  describe('interactive run on a server with no auth feature', () => {
+    const askResource = {
+      message:
+        "Feature 'auth-smart' needs feature 'auth-resource'. Install 'auth-resource' first?",
+      default: true,
+    };
+    const askScopes = {
+      message:
+        "Feature 'auth-smart' needs feature 'auth-scopes'. Install 'auth-scopes' first?",
+      default: true,
+    };
+
+    beforeEach(() => {
+      tree = createServerTree(false);
+      isInteractive.mockReturnValue(true);
+      select.mockResolvedValue(DEFAULT_ISSUER);
+      input.mockResolvedValue('');
+    });
+
+    it('asks one question for each required feature, and auth-resource asks its own questions', async () => {
+      confirm.mockResolvedValue(true);
+
+      await runFeature(tree, { feature: 'auth-smart', project: 'server' });
+
+      expect(confirm.mock.calls).toEqual([[askResource], [askScopes]]);
+      expect(select).toHaveBeenCalledTimes(1);
+      expect(input).toHaveBeenCalledTimes(1);
+      expect(Object.keys(serverProject(tree).features ?? {})).toEqual([
+        'auth-resource',
+        'auth-scopes',
+        'auth-smart',
+      ]);
+    });
+
+    it('stops with no change of the tree at a no to auth-resource', async () => {
+      confirm.mockResolvedValue(false);
+      const before = treeState(tree);
+
+      await expect(
+        runFeature(tree, { feature: 'auth-smart', project: 'server' }),
+      ).rejects.toThrow(
+        "Feature 'auth-smart' needs feature 'auth-resource' on project 'server'.",
+      );
+      expect(confirm.mock.calls).toEqual([[askResource]]);
+      expect(treeState(tree)).toEqual(before);
+    });
+
+    it('stops at a no to auth-scopes', async () => {
+      confirm.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+      await expect(
+        runFeature(tree, { feature: 'auth-smart', project: 'server' }),
+      ).rejects.toThrow(
+        "Feature 'auth-smart' needs feature 'auth-scopes' on project 'server'.",
+      );
+      expect(confirm.mock.calls).toEqual([[askResource], [askScopes]]);    });
+  });
 
   it('refuses when a file exists', async () => {
     tree.write(`${javaRoot}/smart/SmartConfig.java`, 'hand written');

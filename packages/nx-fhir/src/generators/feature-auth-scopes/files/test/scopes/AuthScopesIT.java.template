@@ -15,8 +15,10 @@ import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -85,6 +87,24 @@ class AuthScopesIT {
 		expect(403, "user/Patient.u", "POST", "Patient", PATIENT);
 		expect(403, "user/Patient.u", "DELETE", patient, null);
 		expect(200, "user/Patient.d", "DELETE", patient, null);
+
+		String subject = create("Patient", identifiedPatient("letters"));
+		create("Observation", identifiedObservation(subject, "letters"));
+		String match = "identifier=" + IDENTIFIER_SYSTEM + "%7Cletters";
+		String noMatch = "identifier=" + IDENTIFIER_SYSTEM + "%7Cletters-none";
+		String matchingObservation = identifiedObservation(subject, "letters");
+		String otherObservation = identifiedObservation(subject, "letters-none");
+		expect(403, "user/Observation.c", null, "POST", "Observation", matchingObservation, "If-None-Exist", match);
+		expect(403, "user/Observation.c", null, "POST", "Observation", otherObservation, "If-None-Exist", noMatch);
+		expect(403, "user/Observation.d", "DELETE", "Observation?" + match, null);
+		expect(403, "user/Observation.d", "DELETE", "Observation?" + noMatch, null);
+		String reference = "Patient?identifier=" + IDENTIFIER_SYSTEM + "|letters";
+		expect(403, "user/Observation.c", "POST", "Observation", observation(reference));
+		expect(403, "user/Observation.c", "POST", "Observation", observation(reference + "-none"));
+		expect(201, "user/Observation.c user/Patient.s", "POST", "Observation", observation(reference));
+		expect(200, "user/Observation.cs", null, "POST", "Observation", matchingObservation, "If-None-Exist", match);
+		expect(201, "user/Observation.cs", null, "POST", "Observation", otherObservation, "If-None-Exist", noMatch);
+
 		HttpResponse<String> refused = expect(403, "user/Patient.rs", "GET", "Observation?_id=no-match", null);
 		assertEquals(Optional.of("Bearer error=\"insufficient_scope\""), refused.headers().firstValue("WWW-Authenticate"));
 		assertEquals("forbidden", JSON.readTree(refused.body()).at("/issue/0/code").asText());
@@ -131,6 +151,11 @@ class AuthScopesIT {
 
 		expect(403, "user/Patient.cruds", "POST", "", transaction);
 		assertEquals(patients, count("Patient?_summary=count"));
+		expect(403, "user/Patient.c", "POST", "", conditionalCreate("transaction", "Patient", identifiedPatient("entry"),
+				"Patient?identifier=" + IDENTIFIER_SYSTEM + "|entry"));
+		expect(403, "user/Patient.c", "POST", "", conditionalCreate("transaction", "Patient/entry",
+				identifiedPatient("entry"), "Patient?identifier=" + IDENTIFIER_SYSTEM + "|entry"));
+		assertEquals(patients, count("Patient?_summary=count"));
 
 		String patient = "Patient/" + create("Patient", PATIENT);
 		String observation = "Observation/" + create("Observation", observation(patient));
@@ -162,8 +187,8 @@ class AuthScopesIT {
 
 	@Test
 	void limitsPatientScopesToThePatientOfTheToken() throws Exception {
-		String a = create("Patient", PATIENT);
-		String b = create("Patient", PATIENT);
+		String a = create("Patient", identifiedPatient("a-and-b"));
+		String b = create("Patient", identifiedPatient("a-and-b"));
 		String observationOfA = "Observation/" + create("Observation", observation("Patient/" + a));
 		String observationOfB = "Observation/" + create("Observation", observation("Patient/" + b));
 		String scopes = "patient/Patient.rs patient/Observation.rs";
@@ -171,36 +196,80 @@ class AuthScopesIT {
 		expect(200, scopes, a, "GET", observationOfA, null);
 		expect(403, scopes, a, "GET", observationOfB, null);
 		expect(200, scopes, a, "GET", "Observation?patient=" + a, null);
-		expect(403, scopes, a, "GET", "Observation", null);
+		assertEquals(
+				Set.of(observationOfA),
+				ids(expect(200, scopes, a, "GET", "Observation", null, "Cache-Control", "no-cache")));
+		String patientsAAndB = "Patient?identifier=" + IDENTIFIER_SYSTEM + "%7Ca-and-b";
+		assertEquals(
+				Set.of("Patient/" + a),
+				ids(expect(200, "patient/Patient.rs", a, "GET", patientsAAndB, null, "Cache-Control", "no-cache")));
+		assertEquals(
+				Set.of("Patient/" + a, "Patient/" + b),
+				ids(expect(200, "patient/Observation.rs user/Patient.s", a, "GET", patientsAAndB, null,
+						"Cache-Control", "no-cache")));
+		assertEquals(
+				Set.of(observationOfA),
+				ids(expect(200, "patient/Observation.rs user/Patient.s", a, "GET", "Observation", null,
+						"Cache-Control", "no-cache")));
+		HttpResponse<String> otherPatient = expect(403, scopes, a, "GET", "Observation?patient=" + b, null);
+		assertEquals(Optional.empty(), otherPatient.headers().firstValue("WWW-Authenticate"));
+		JsonNode otherPatientIssue = JSON.readTree(otherPatient.body()).at("/issue/0");
+		assertEquals("processing", otherPatientIssue.at("/code").asText());
+		assertEquals("HAPI-2026: Value not permitted for parameter patient", otherPatientIssue.at("/diagnostics").asText());
+		create("Observation", observation("Patient/" + b));
+		int observationsOfA = count("Observation?patient=" + a + "&_summary=count");
+		HttpResponse<String> countOfAAndB = expect(200, scopes, a, "GET",
+				"Observation?patient=" + b + "," + a + "&_summary=count", null, "Cache-Control", "no-cache");
+		assertEquals(observationsOfA, JSON.readTree(countOfAAndB.body()).get("total").asInt());
+		JsonNode readOfA =
+				JSON.readTree(expect(200, "patient/Patient.rs", a, "POST", "", batchGet("Patient/" + a)).body())
+						.at("/entry/0");
+		assertEquals("200", entryStatus(readOfA));
+		assertEquals("Patient", readOfA.at("/resource/resourceType").asText());
+		assertEquals(a, readOfA.at("/resource/id").asText());
+		JsonNode searchEntry =
+				JSON.readTree(expect(200, scopes, a, "POST", "", batchGet("Observation")).body()).at("/entry/0");
+		assertEquals("403", entryStatus(searchEntry));
 		expect(200, scopes, a, "GET", "Patient/" + a, null);
 		expect(403, scopes, a, "GET", "Patient/" + b, null);
 		expect(403, scopes, null, "GET", observationOfA, null);
 		expect(200, "user/Observation.rs", a, "GET", observationOfB, null);
 		expect(403, "patient/Observation.d", a, "DELETE", observationOfB, null);
+		expect(403, "patient/Observation.d", a, "DELETE", "Encounter/scopes-it-unknown", null);
 		expect(403, "patient/Patient.rs", a, "GET", "Observation?patient=" + a, null);
 		expect(200, "patient/Observation.r patient/Observation.s", a, "GET", observationOfA, null);
 
-		expect(403, "patient/Observation.u patient/Patient.c", a, "POST", "", conditionalUpdate(a, "refused"));
+		create("Observation", identifiedObservation(a, "own"));
+		expect(403, "patient/Observation.us", a, "PUT", "Observation?identifier=" + IDENTIFIER_SYSTEM + "%7Cown",
+				identifiedObservation(a, "own"));
+		expect(403, "patient/Observation.u patient/Patient.c user/Observation.s", a, "POST", "",
+				conditionalUpdate(a, "refused"));
 		assertEquals(0, count("Observation?identifier=" + IDENTIFIER_SYSTEM + "%7Crefused&_summary=count"));
 		HttpResponse<String> created =
-				expect(200, "patient/Observation.cu", a, "POST", "", conditionalUpdate(a, "allowed"));
+				expect(200, "patient/Observation.cu user/Observation.s", a, "POST", "", conditionalUpdate(a, "allowed"));
 		assertEquals("201", entryStatus(JSON.readTree(created.body()).at("/entry/0")));
-
-		create("Observation", identifiedObservation(b, "of-b"));
-		String matchesObservationOfB = "identifier=" + IDENTIFIER_SYSTEM + "|of-b";
-		expect(403, "patient/Observation.c", a, "POST", "Observation", observation("Patient/" + a), "If-None-Exist",
-				matchesObservationOfB);
-		expect(403, "patient/Observation.c", a, "POST", "", conditionalCreate(
-				"transaction", "Observation", observation("Patient/" + a), "Observation?" + matchesObservationOfB));
-		expect(403, "patient/Observation.c", a, "POST", "", conditionalCreate(
-				"batch", "Observation", observation("Patient/" + a), "Observation?" + matchesObservationOfB));
 		expect(201, "patient/Observation.c", a, "POST", "Observation", observation("Patient/" + a));
-		String patientWithIdentifier = "{\"resourceType\":\"Patient\",\"identifier\":[{\"system\":\"" + IDENTIFIER_SYSTEM
-				+ "\",\"value\":\"no-patient\"}]}";
-		HttpResponse<String> patientCreated = expect(200, "patient/Observation.c user/Patient.c", a, "POST", "",
-				conditionalCreate("transaction", "Patient", patientWithIdentifier,
+		HttpResponse<String> patientCreated = expect(200, "patient/Observation.c user/Patient.cs", a, "POST", "",
+				conditionalCreate("transaction", "Patient", identifiedPatient("no-patient"),
 						"Patient?identifier=" + IDENTIFIER_SYSTEM + "|no-patient"));
 		assertEquals("201", entryStatus(JSON.readTree(patientCreated.body()).at("/entry/0")));
+	}
+
+	@Test
+	void limitsOperationsOfPatientScopesToThePatientOfTheToken() throws Exception {
+		String a = create("Patient", PATIENT);
+		String b = create("Patient", PATIENT);
+
+		expect(200, "patient/Patient.rs", a, "GET", "Patient/" + a + "/$everything", null);
+		HttpResponse<String> typeLevel = expect(403, "patient/Patient.rs", a, "GET", "Patient/$everything", null);
+		assertEquals(Optional.of("Bearer error=\"insufficient_scope\""), typeLevel.headers().firstValue("WWW-Authenticate"));
+		expect(403, "patient/Patient.rs", a, "GET", "Patient/" + b + "/$everything", null);
+		JsonNode entry =
+				JSON.readTree(expect(200, "patient/Patient.rs", a, "POST", "", batchGet("Patient/$everything")).body())
+						.at("/entry/0");
+		assertEquals("403", entryStatus(entry));
+		expect(200, "patient/Observation.rs user/Patient.rs", a, "GET", "Patient/$everything", null);
+		expect(403, "user/Observation.rs", "GET", "Patient/$everything", null);
 	}
 
 	/**
@@ -271,11 +340,23 @@ class AuthScopesIT {
 				+ "\"}}]}";
 	}
 
-	/** Returns a Bundle of the given type with one create of the resource, with the given ifNoneExist. */
-	private static String conditionalCreate(String bundleType, String resourceType, String resource, String ifNoneExist) {
+	/** Returns a Bundle of the given type with one create of the resource, with the given URL and ifNoneExist. */
+	private static String conditionalCreate(String bundleType, String url, String resource, String ifNoneExist) {
 		return "{\"resourceType\":\"Bundle\",\"type\":\"" + bundleType + "\",\"entry\":[{\"resource\":" + resource
-				+ ",\"request\":{\"method\":\"POST\",\"url\":\"" + resourceType + "\",\"ifNoneExist\":\"" + ifNoneExist
+				+ ",\"request\":{\"method\":\"POST\",\"url\":\"" + url + "\",\"ifNoneExist\":\"" + ifNoneExist
 				+ "\"}}]}";
+	}
+
+	/** Returns a batch with one GET entry for the URL. */
+	private static String batchGet(String url) {
+		return "{\"resourceType\":\"Bundle\",\"type\":\"batch\",\"entry\":[{\"request\":{\"method\":\"GET\",\"url\":\"" + url
+				+ "\"}}]}";
+	}
+
+	/** Returns a Patient with one identifier of the system of this test. */
+	private static String identifiedPatient(String value) {
+		return "{\"resourceType\":\"Patient\",\"identifier\":[{\"system\":\"" + IDENTIFIER_SYSTEM + "\",\"value\":\""
+				+ value + "\"}]}";
 	}
 
 	/** Returns an Observation of the patient with one identifier of the system of this test. */
@@ -283,6 +364,15 @@ class AuthScopesIT {
 		return "{\"resourceType\":\"Observation\",\"identifier\":[{\"system\":\"" + IDENTIFIER_SYSTEM + "\",\"value\":\""
 				+ value + "\"}],\"status\":\"final\",\"code\":{\"text\":\"scopes\"},"
 				+ "\"subject\":{\"reference\":\"Patient/" + patient + "\"}}";
+	}
+
+	/** Returns the type and the id of each resource of a search Bundle, for example Patient/123. */
+	private static Set<String> ids(HttpResponse<String> response) throws Exception {
+		Set<String> ids = new HashSet<>();
+		for (JsonNode entry : JSON.readTree(response.body()).path("entry")) {
+			ids.add(entry.at("/resource/resourceType").asText() + "/" + entry.at("/resource/id").asText());
+		}
+		return ids;
 	}
 
 	/** Returns the status code of a Bundle entry, for example 403 of "403 Forbidden". */

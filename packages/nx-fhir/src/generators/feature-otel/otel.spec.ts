@@ -309,7 +309,7 @@ describe('otel feature', () => {
       await otelFeature.apply(tree, serverProject(tree), resolvedOptions);
 
       const doc = tree.read(docPath, 'utf-8');
-      expect(doc).toContain('src/main/java/com/example/telemetry/FhirRouteInterceptor.java');
+      expect(doc).toContain('`FhirRouteInterceptor` and `TelemetryProperties` under `src/main/java/com/example/telemetry/`');
       expect(doc).toContain('telemetry.capture-query-strings');
       expect(doc).toContain('## Grafana dashboard');
       expect(doc).toContain('otel/grafana/dashboards/server.json');
@@ -320,7 +320,7 @@ describe('otel feature', () => {
       expect(doc).toContain('## Request metric');
       expect(doc).toContain('fhir_server_requests_total');
       expect(doc).toContain('telemetry.resource-types');
-      expect(doc).toContain('src/test/java/com/example/TelemetryConfigTest.java');
+      expect(doc).toContain('`TelemetryConfigTest` under `src/test/java/com/example/`');
       expect(doc).toContain('## Series budget');
       expect(doc).toContain('otel_metric_overflow');
       expect(doc).toContain('`http.server.request.duration`');

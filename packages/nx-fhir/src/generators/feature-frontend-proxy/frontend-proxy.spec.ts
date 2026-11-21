@@ -383,7 +383,7 @@ describe('frontend-proxy feature', () => {
 
       const doc = tree.read(docPath, 'utf-8') as string;
       expect(doc).toContain(
-        'src/main/java/com/example/proxy/FrontendProxyController.java',
+        '`PublicAddresses` under `src/main/java/com/example/proxy/`',
       );
       for (const key of [
         'app.proxy.enabled',

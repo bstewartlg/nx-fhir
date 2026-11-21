@@ -8,15 +8,15 @@ import {
   setAuthMap,
   testConfigsWithKeyOff,
 } from '../feature-auth-resource/auth-resource';
+import { AUTH_SCOPES_FEATURE } from '../feature-auth-scopes/auth-scopes';
 import {
   detectApplicationClass,
   listTemplateOutputs,
 } from '../../shared/utils/server-wiring';
 
-/** The starter capabilities, the set that the OpenID discovery document of the FAST security server supports on paper. */
+/** The starter value of app.auth.smart.capabilities. */
 export const SMART_CAPABILITIES = [
   'launch-standalone',
-  'client-public',
   'client-confidential-symmetric',
   'sso-openid-connect',
   'permission-offline',
@@ -32,7 +32,7 @@ export const authSmartFeature: FeatureDefinition = {
     'Publish the SMART configuration at /fhir/.well-known/smart-configuration',
   featureVersion: 1,
   minHapiVersion: '8.8.0',
-  requires: [AUTH_RESOURCE_FEATURE],
+  requires: [AUTH_RESOURCE_FEATURE, AUTH_SCOPES_FEATURE],
 
   async collectOptions() {
     return {};

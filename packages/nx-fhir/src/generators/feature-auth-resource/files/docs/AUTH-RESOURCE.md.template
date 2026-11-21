@@ -1,100 +1,39 @@
 <% const packagePath = packageBase.replace(/\./g, '/'); -%>
 # Bearer token check
 
-The nx-fhir `auth-resource` feature adds a bearer token check to this server. The check applies to requests under `/fhir`. When `app.auth.enabled` is `true`, a request needs a JSON Web Token (JWT) from the issuer of `app.auth.issuer`. The request rule below lists the requests that pass with no token.
+The nx-fhir `auth-resource` feature adds a bearer token check to this server. The check applies to requests under `/fhir`. When `app.auth.enabled` is `true`, a request needs a JSON Web Token (JWT) from the issuer of `app.auth.issuer`, other than the requests in [Request rule](#request-rule) that pass with no token.
 
 ## What the feature adds
 
-| File | Purpose |
-| --- | --- |
-| `src/main/java/<%= packagePath %>/auth/BearerTokenInterceptor.java` | The check. |
-| `src/main/java/<%= packagePath %>/auth/AuthResourceProperties.java` | The configuration properties under `app.auth`. |
-| `src/main/java/<%= packagePath %>/auth/AuthResourceConfig.java` | Registers the check on the FHIR server. |
-| `src/main/java/<%= packagePath %>/auth/IssuerMetadata.java` | Reads the documents under `{issuer}/.well-known/` and keeps each document after its first successful read. |
-| `src/main/java/<%= packagePath %>/auth/FhirBaseUrl.java` | Gives the base URL of the FHIR endpoint of this server. |
-| `src/main/java/<%= packagePath %>/auth/TrustAllSslContext.java` | The SSL context that accepts any certificate and any host name. The HTTP clients of the auth features use it when `app.auth.ssl-verify` is `false`. |
-| `src/main/java/<%= packagePath %>/auth/WellKnownInterceptor.java` | Answers a `GET` request for one document under `{baseURL}/.well-known/`. The auth features that publish such a document register it. |
-| `src/test/java/<%= packagePath %>/auth/BearerTokenInterceptorTest.java` | Unit test of the check with a local issuer. |
-| `src/test/java/<%= packagePath %>/auth/FhirBaseUrlTest.java` | Unit test of the base URL rule. |
-| `src/test/java/<%= packagePath %>/auth/TestCertificates.java` | Makes self-signed certificates for the unit tests with `keytool`. |
-| `src/test/java/<%= packagePath %>/auth/TestIssuer.java` | A local issuer for the integration tests. It serves its key set and signs tokens. |
-| `src/test/java/<%= packagePath %>/auth/AuthResourceIT.java` | Integration test of the registration. It runs under `mvn verify`. |
-| `src/main/resources/application.yaml` | The `app.auth` entries. |
-| `src/test/resources/config/application.yaml` | `app.auth.enabled: false` for each Spring Boot test. |
-| `src/test/resources/application-test.yaml` | `app.auth.enabled: false` for a test with the `test` profile. |
+The feature adds `BearerTokenInterceptor`, `AuthResourceProperties`, `AuthResourceConfig`, `IssuerMetadata`, `FhirBaseUrl`, `TrustAllSslContext`, and `WellKnownInterceptor` under `src/main/java/<%= packagePath %>/auth/`, and the unit tests `BearerTokenInterceptorTest` and `FhirBaseUrlTest`, the test helpers `TestCertificates` and `TestIssuer`, and the integration test `AuthResourceIT`, which runs under `mvn verify`, under `src/test/java/<%= packagePath %>/auth/`.
 
-The two test configuration files turn the check off. A test that sets `app.auth.enabled` to `true` runs with the check.
+The install writes `app.auth.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`, so a test runs with the check only when it sets `app.auth.enabled` to `true`.
 
 ## Configuration
 
-```yaml
-app:
-  auth:
-    enabled: true
-    issuer: https://issuer.example.org
-    audience: https://fhir.example.org/fhir
-    jwks-uri: https://issuer.example.org/keys
-    public-endpoints:
-      - $bulk-publish
-      - Practitioner
-      - Patient/$match
-    ssl-verify: true
-    # bypass-header: X-Bypass-Auth
-```
+The install replaces `app.auth` with one map: `enabled: true`, `issuer`, `audience` when the option has a value, `public-endpoints: []`, `ssl-verify`, and the comment line of `bypass-header`. The keys:
 
-The install replaces `app.auth` with one map. The map has `enabled: true`, `issuer`, `audience` when the option has a value, `public-endpoints: []`, `ssl-verify`, and the comment line of `bypass-header`. The default issuer of the generator is `https://udap-security.fast.hl7.org`, the public FAST security server.
+- `app.auth.enabled`: `true` makes the server check each request under `/fhir`, other than the requests in [Request rule](#request-rule) that pass with no token, and `app.auth.issuer` must then have a value, or the application stops at startup. `false` or absent: the server has no check and ignores the other `app.auth` properties.
+- `app.auth.issuer`: the `iss` claim of a token must be equal to it. The default issuer of the generator is `https://udap-security.fast.hl7.org`, the public FAST security server.
+- `app.auth.audience`: optional. When it is set, the `aud` claim must contain it.
+- `app.auth.jwks-uri`: optional. When it is set, the server reads the signing keys from this URL and reads no discovery document. Use it for an issuer whose `iss` value is not a URL that the server can reach.
+- `app.auth.public-endpoints`: a list of entries relative to the FHIR base. A request that fits an entry passes with no token, for each request method. When `app.auth.enabled` is `true`, an entry in a form other than the three below stops the application at startup.
+- `app.auth.ssl-verify`: `true` or absent makes the server check the certificate chain and the host name for each call that the auth features make. `false` turns off these checks, and with `app.auth.enabled: true` the server writes one WARN line at startup. The install writes `ssl-verify: false` when the issuer is an `https` URL with the host `localhost`, and `ssl-verify: true` for each other issuer.
+- `app.auth.bypass-header`: optional, a header name. A request that has this header, with any value, skips the check. When it is absent or empty, the server has no bypass. When it is set and `app.auth.enabled` is `true`, the server writes one WARN line at startup that names the header. The install writes the comment line `# bypass-header: X-Bypass-Auth`, and the bypass is off. To turn on the bypass, remove `# ` from that line.
 
-### `app.auth.enabled`
+The three forms of a public endpoint:
 
-- `true`: the server checks each request under `/fhir`. `app.auth.issuer` must have a value. With no value, the application stops at startup.
-- `false` or absent: the server has no check and ignores the other `app.auth` properties.
-
-### `app.auth.issuer`
-
-The `iss` claim of a token must be equal to `app.auth.issuer`.
-
-### `app.auth.audience`
-
-`audience` is optional. When it is set, the `aud` claim must contain it.
-
-### `app.auth.jwks-uri`
-
-`jwks-uri` is optional. When it is set, the server reads the signing keys from this URL and reads no discovery document. Use it for an issuer whose `iss` value is not a URL that the server can reach.
-
-When `jwks-uri` is absent, the server reads `{issuer}/.well-known/openid-configuration` and uses its `jwks_uri`. The `issuer` member of that document must be equal to `app.auth.issuer`. The server reads the document at the first token and keeps it after a successful read. After a failed read, the server reads the document again at the next token. The server starts and runs while the issuer is down.
-
-The discovery read and the key set read each have a connect timeout of 5 seconds and a read timeout of 10 seconds.
-
-### `app.auth.public-endpoints`
-
-A request that fits an entry passes with no token. Each entry is relative to the FHIR base and has one of three forms:
-
-- `Type`, for example `Practitioner`. Each request for that resource type passes. This includes a read, a search, a create, an update, a delete, and an operation on the type.
+- `Type`, for example `Practitioner`. Each request for that resource type passes, also a create, an update, a delete, and an operation on the type or on an instance of the type. Such a request can return resources of other types. With the entry `Patient`, a search with `_include` or `_revinclude` returns resources of other types, and `Patient/$everything` returns the record of each patient.
 - `$operation`, for example `$bulk-publish`. A request for that server-level operation passes.
 - `Type/$operation`, for example `Patient/$match`. A request for that operation on the type or on an instance of the type passes.
 
-A public entry applies to each request method. The server compares an entry with the resource type and the operation that HAPI FHIR reads from the request. When `app.auth.enabled` is `true`, an entry in a different form stops the application at startup.
-
-### `app.auth.ssl-verify`
-
-- `true` or absent: the server checks the certificate chain and the host name for each call that the auth features make.
-- `false`: the server does not check the certificate chain or the host name for these calls.
-- When it is `false` and `app.auth.enabled` is `true`, the server writes one WARN line at startup.
-
-The install writes `ssl-verify: false` when the issuer is an `https` URL with the host `localhost`. For each other issuer, the install writes `ssl-verify: true`.
+The server compares an entry with the resource type and the operation name that HAPI FHIR reads from the request.
 
 WARNING: With `app.auth.ssl-verify: false`, the server accepts any certificate from the hosts it calls. Use it only with a local development certificate.
 
-### `app.auth.bypass-header`
-
-- `bypass-header` is optional. Its value is a header name.
-- When it is set, a request that has this header skips the check. The header can have any value.
-- When it is absent or empty, the server has no bypass.
-- When it is set and `app.auth.enabled` is `true`, the server writes one WARN line at startup that names the header.
-
-The install writes the comment line `# bypass-header: X-Bypass-Auth`, and the bypass is off. To turn on the bypass, remove `# ` from that line.
-
 WARNING: With `app.auth.bypass-header` set, each caller that sends this header skips the token check. Remove the property for a deployment that has data that is not public.
+
+When `jwks-uri` is absent, the server reads `{issuer}/.well-known/openid-configuration` and uses its `jwks_uri`. The `issuer` member of that document must be equal to `app.auth.issuer`. The server reads the document at the first token and keeps it after a successful read. After a failed read, it reads the document again at the next token. The server starts and runs while the issuer is down. The discovery read and the key set read each have a connect timeout of 5 seconds and a read timeout of 10 seconds.
 
 ## Request rule
 
@@ -103,11 +42,13 @@ The server applies the first rule that fits. A request that passes by rules 1 to
 1. `GET` and `HEAD` requests to `/fhir/metadata` pass.
 2. A request to a path under `/fhir/.well-known/` passes.
 3. A request that fits an entry of `app.auth.public-endpoints` passes.
-4. A paging request passes with no token. A paging request has the parameter `_getpages`. HAPI FHIR sends it to its paging handler.
+4. A request for a later page of a search or of the result of an operation (`?_getpages=<id>`) passes with no token, also with an expired or a wrong token. The id is a random value that the server gives in the `next` link of the page before it. So a page link works for each caller who has it, also for a different client and after the token expired. HAPI FHIR gives a server-level request with a `_getpages` value to its paging handler, also when the path names an operation.
 5. A request that has the bypass header passes.
 6. Each other request needs the header `Authorization: Bearer <token>`.
 7. The server validates the signature, the issuer, the `exp` claim, the `nbf` claim when present, and the audience when configured. The `exp` claim is necessary. The checks of `exp` and `nbf` allow a clock difference of 60 seconds. The token must use RS256, RS384, ES256, or ES384. When the token has a `typ` header, it must be `JWT` or `at+jwt`.
 8. After a valid token, the server puts the verified claims in the user data of the request.
+
+The OpenAPI pages of the server answer with no token when `hapi.fhir.openapi_enabled` is `true`, the value in the `application.yaml` of the starter. `GET /fhir/api-docs` returns the OpenAPI document of the server as YAML, `GET /fhir/swagger-ui/` returns the Swagger UI page, and `GET /fhir/` with `Accept: text/html` redirects to `/fhir/swagger-ui/`.
 
 ## Responses
 
@@ -118,6 +59,4 @@ The server applies the first rule that fits. A request that passes by rules 1 to
 
 ## Claims in a custom interceptor
 
-The check runs at the HAPI FHIR pointcut `SERVER_INCOMING_REQUEST_PRE_HANDLER_SELECTED`. A hook at a later pointcut reads the claims from `RequestDetails`. The key is `BearerTokenInterceptor.CLAIMS_KEY`, with the value `auth.claims`.
-
-`requestDetails.getUserData().get(BearerTokenInterceptor.CLAIMS_KEY)` returns the verified claims as an unmodifiable `Map<String, Object>`. Cast the value to that type. For a request that passed with no token, the value is `null`.
+The check runs at the HAPI FHIR pointcut `SERVER_INCOMING_REQUEST_PRE_HANDLER_SELECTED`. A hook at a later pointcut reads the verified claims with `requestDetails.getUserData().get(BearerTokenInterceptor.CLAIMS_KEY)`, an unmodifiable `Map<String, Object>` under the key `auth.claims`. For a request that passed with no token, the value is `null`.

@@ -7,20 +7,7 @@ A request for this server goes directly to `/fhir`. A request for any other serv
 
 ## What the feature adds
 
-| File | Purpose |
-| --- | --- |
-| `src/main/java/<%= packagePath %>/proxy/FrontendProxyController.java` | The `/proxy` endpoint. |
-| `src/main/java/<%= packagePath %>/proxy/ProxyHttpClients.java` | The two HTTP client factories: one for listed servers and one with the guard for passthrough. |
-| `src/main/java/<%= packagePath %>/proxy/ProxyDestinations.java` | The URL rules and the classification of a destination. |
-| `src/main/java/<%= packagePath %>/proxy/PublicAddresses.java` | The address check of the guard. |
-| `src/test/java/<%= packagePath %>/proxy/PublicAddressesTest.java` | Unit test of the address check. |
-| `src/test/java/<%= packagePath %>/proxy/ProxyDestinationsTest.java` | Unit test of the URL rules and the classification. |
-| `src/test/java/<%= packagePath %>/proxy/FrontendProxyControllerTest.java` | Unit test of the responses that need no upstream server. |
-| `src/test/java/<%= packagePath %>/proxy/FhirServersTest.java` | Unit test of `FhirServers` and of the `/config.js` output. |
-| `src/test/java/<%= packagePath %>/proxy/FrontendProxyControllerIT.java` | Integration test. It runs under `mvn verify`. |
-| `pom.xml` | Dependency `org.apache.httpcomponents.client5:httpclient5`. The HAPI FHIR parent pom manages its version. |
-| `src/main/resources/application.yaml` | `app.proxy.enabled: true` and `app.proxy.passthrough` |
-| `.env.development` of each integrated frontend | `DEV_SERVER_URL=http://localhost:8080` |
+The feature adds `FrontendProxyController`, `ProxyHttpClients`, `ProxyDestinations`, and `PublicAddresses` under `src/main/java/<%= packagePath %>/proxy/`, the unit tests `PublicAddressesTest`, `ProxyDestinationsTest`, `FrontendProxyControllerTest`, and `FhirServersTest` and the integration test `FrontendProxyControllerIT`, which runs under `mvn verify`, under `src/test/java/<%= packagePath %>/proxy/`. The install also adds the dependency `org.apache.httpcomponents.client5:httpclient5` to `pom.xml`, with the version that the HAPI FHIR parent pom manages, and `DEV_SERVER_URL=http://localhost:8080` to the `.env.development` of each integrated frontend that has no `DEV_SERVER_URL` line.
 
 On HAPI 8.12, the `httpclient5` dependency makes Apache HttpClient 5 the default HTTP client of Spring Boot. The property `spring.http.client.factory=jdk` selects the JDK client for all other code.
 
@@ -28,7 +15,7 @@ On HAPI 8.12, the `httpclient5` dependency makes Apache HttpClient 5 the default
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `app.proxy.enabled` | `false` when absent | Master switch. When `false`, `/proxy` returns 404 and `/config.js` has no `proxy` object. |
+| `app.proxy.enabled` | `false` when absent. The install writes `true`. | Master switch. When `false`, `/proxy` returns 404 and `/config.js` has no `proxy` object. |
 | `app.proxy.passthrough` | `false` | Permits requests to servers that are not listed. Read the warning in the passthrough section first. |
 | `app.proxy.connect-timeout` | `5s` | Connect timeout for both HTTP clients. |
 | `app.proxy.read-timeout` | `60s` | Read timeout for both HTTP clients. |
@@ -37,43 +24,13 @@ Behind a reverse proxy that ends TLS, set `server.forward-headers-strategy`, for
 
 ### Listed servers
 
-The proxy uses `app.fhir.servers`, the property that gives the frontend its known servers. Each entry with an absolute URL is a listed server. The proxy permits each listed server, internal hosts included, for example a service name in Docker Compose.
+The proxy uses `app.fhir.servers`, the property that gives the frontend its known servers. Each entry with an absolute URL is a listed server. The proxy permits each listed server, internal hosts included, for example a service name in Docker Compose. A root-relative entry is this server, and the frontend requests it directly on the origin of the page.
 
-The property accepts two forms:
-
-- A YAML list. Each entry has a `name` and a `url`.
-- One string that holds a JSON array of `{ "name", "url" }` entries. One environment variable can set this form.
-
-Set `app.fhir.servers` in one form only. A string form in any property source has priority over a list form, even when the list is in a source with higher priority.
+The property is a YAML list of entries with a `name` and a `url`, or one string that holds a JSON array of `{ "name", "url" }` entries, which one environment variable can set. Set `app.fhir.servers` in one form only. A string form in any property source has priority over a list form, even when the list is in a source with higher priority.
 
 The `url` of each entry must be an absolute `http` or `https` URL with a host, or a root-relative path such as `/fhir`. An absolute URL must have no query, no fragment, and no user information part. A root-relative path must have at least one character after the first `/`, and no query, no fragment, and no backslash. A host name with an underscore, for example `hapi_server`, is not valid for the Java URL parser and stops the application at startup.
 
-A root-relative entry is this server. The frontend requests it directly on the origin of the page. In proxy mode the frontend lists an entry that equals "This server" once.
-
 The application also stops at startup when the string form is not valid, or when an entry has no `name` or no `url`. An empty or absent value is valid. `/config.js` sends only the `name` and the `url` of each entry to the browser.
-
-Example, list form:
-
-```yaml
-app:
-  fhir:
-    servers:
-      - name: Payer sandbox
-        url: https://payer.example.org/fhir
-      - name: EHR
-        url: http://ehr:8080/fhir
-  proxy:
-    enabled: true
-    passthrough: true
-```
-
-Example, string form:
-
-```yaml
-app:
-  fhir:
-    servers: '[{"name":"Payer sandbox","url":"https://payer.example.org/fhir"},{"name":"EHR","url":"http://ehr:8080/fhir"}]'
-```
 
 ## How the server classifies a destination
 
@@ -85,8 +42,6 @@ A destination is under a listed server when its scheme, host, and port are equal
 
 The proxy forwards the custom headers that the user sets in the settings dialog to the destination. An upstream redirect gives status 502.
 
-The settings dialog of the frontend shows the custom URL entry only when passthrough is on.
-
 ## Passthrough
 
 WARNING: With `app.proxy.passthrough: true`, anyone who can reach the application can send requests through it to any public host. Use this only for a test deployment.
@@ -95,4 +50,4 @@ The guarded client connects to the destination directly and ignores the JVM HTTP
 
 ## Development mode
 
-The Vite server of the frontend reads `DEV_SERVER_URL` from `.env.development`. It forwards `/proxy`, `/config.js`, and `/fhir` to that address, so the page sees one origin. Change the value if this server uses a port other than 8080.
+The Vite server of the frontend reads `DEV_SERVER_URL` from `.env.development` and forwards `/proxy`, `/config.js`, and `/fhir` to that address. Change the value if this server uses a port other than 8080.

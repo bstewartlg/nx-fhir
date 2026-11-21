@@ -159,6 +159,8 @@ This prompts for the server project and the feature to install, then collects th
 
 Installed features are recorded in the server's `project.json`, and installing the same feature twice is rejected. Every feature declares the range of HAPI FHIR releases its generated code is verified against, and the generator refuses to install into a server outside that range. Run `update-server` first to bring the server into range.
 
+A feature can need a different feature, for example `auth-scopes` needs `auth-resource`. When the server does not have a required feature, the generator offers to install it first. An interactive run asks one question for each required feature that the server does not have, and yes is the default. With yes, the required feature installs first and asks its own questions. With no, the generator stops and writes nothing. A run that is not interactive installs the required feature with its defaults and asks no question. For a different issuer, run `feature-auth-resource` with `--issuer` before the feature that needs it.
+
 The generated code becomes part of your server source. Treat it as a starting point: authentication, authorization, and other deployment concerns remain the responsibility of your server implementation.
 
 #### Bulk Publish
@@ -200,12 +202,12 @@ Adds OpenTelemetry route tagging and a baseline Grafana dashboard to a server:
 nx g nx-fhir:feature-otel
 ```
 
-The OpenTelemetry Java agent records the server's HTTP spans, metrics, and logs. The generated interceptor sets a bounded `http.route` on each request, such as `/fhir/{type}/{id}`, so the signals group by FHIR interaction and the route count does not grow with the resource types clients request. Search query strings stay out of spans and the request log unless `telemetry.capture-query-strings` is `true` in `application.yaml`. The generator also writes `OTEL.md` to the server root, which lists the generated files, the agent settings, and the run commands.
+The OpenTelemetry Java agent records the server's HTTP spans, metrics, and logs. The generated interceptor sets a bounded `http.route` on each FHIR request, such as `/fhir/{type}/{id}`, so the signals group by FHIR interaction and the route count does not grow with the resource types clients request. Search query strings of FHIR requests stay out of spans and the request log unless `telemetry.capture-query-strings` is `true`, in `application.yaml` or through the environment variable `TELEMETRY_CAPTURE_QUERY_STRINGS`. The generator also writes `OTEL.md` to the server root. That file names the generated classes and tests and gives the route templates, the metrics, and the agent settings, and for the options that are on, the dashboard panels and the run commands ([template](https://github.com/bstewartlg/nx-fhir/blob/main/packages/nx-fhir/src/generators/feature-otel/files/docs/OTEL.md.template)).
 
 **Options:**
 - `--project`: Name of the Nx server project to add the feature to
 - `--serviceName`: The `service.name` resource attribute and the Grafana dashboard uid; up to 40 letters, digits, `_` or `-` (default: the project name)
-- `--dashboard`: Write a baseline Grafana dashboard and its provisioning file under `otel/grafana/`; the dashboard shows request and operation totals, the last server start, and starts in the selected range, resource types, interactions, and operations from a bounded request counter, and the CPU and memory use of the JVM (default: `true`)
+- `--dashboard`: Write a baseline Grafana dashboard and its provisioning file under `otel/grafana/` (default: `true`)
 - `--compose`: Write `docker-compose.otel.yml`, which runs the server next to a local `grafana/otel-lgtm` stack (default: `true`)
 - `--serve`: Enable `nx serve <project-name> --otel`, which runs the server with the OpenTelemetry Java agent attached (default: `true`)
 
@@ -214,7 +216,7 @@ The OpenTelemetry Java agent records the server's HTTP spans, metrics, and logs.
 nx g nx-fhir:feature-otel --project=my-fhir-server --compose=false
 ```
 
-`nx serve <project-name> --otel` downloads the agent with `mvn dependency:copy` and attaches it to the server. The agent sends OTLP over HTTP to `http://localhost:4318`, so run a collector there or set `OTEL_EXPORTER_OTLP_ENDPOINT`. The serve executor accepts `--otel` only on a server that has this feature installed with the `serve` option.
+With `nx serve <project-name> --otel`, the agent sends OTLP over HTTP to `http://localhost:4318`, so run a collector there or set `OTEL_EXPORTER_OTLP_ENDPOINT`. The serve executor accepts `--otel` only on a server that has this feature installed with the `serve` option.
 
 Requires HAPI FHIR 8.0.0 or later.
 
@@ -226,7 +228,7 @@ Adds a same-origin proxy that the integrated frontend uses for requests to other
 nx g nx-fhir:feature-frontend-proxy
 ```
 
-The server gets the endpoint `/proxy`. The frontend sends a request for the bundled server to `/fhir` and a request for any other server to `/proxy?url=<destination>`, so the browser needs no CORS permission from the other servers. The proxy forwards each destination under a listed server of `app.fhir.servers`, internal hosts included. With passthrough on, it also forwards any other destination through a guard that permits public addresses only. It refuses all other destinations with status 403. The install needs a frontend that is integrated with the server. Run `update-frontend` first if the frontend or the server integration files have no proxy support. The generator also writes `FRONTEND-PROXY.md` to the server root, which gives the configuration and the classification rules.
+The server gets the endpoint `/proxy`. The frontend sends a request for the bundled server to `/fhir` and a request for any other server to `/proxy?url=<destination>`, so the browser needs no CORS permission from the other servers. The proxy forwards each destination under a listed server of `app.fhir.servers`, internal hosts included. With passthrough on, it also forwards any other destination through a guard that permits public addresses only. The install needs a frontend that is integrated with the server. Run `update-frontend` first if the frontend or the server integration files have no proxy support. The generator also writes `FRONTEND-PROXY.md` to the server root. That file lists the generated files and gives the configuration keys, the forms and rules of `app.fhir.servers`, the classification of a destination, and the development mode ([template](https://github.com/bstewartlg/nx-fhir/blob/main/packages/nx-fhir/src/generators/feature-frontend-proxy/files/docs/FRONTEND-PROXY.md.template)).
 
 **Options:**
 - `--project`: Name of the Nx server project to add the feature to
@@ -250,9 +252,7 @@ app:
 
 WARNING: With `app.proxy.passthrough: true`, anyone who can reach the application can send requests through it to any public host. Use this only for a test deployment.
 
-Each entry in `app.fhir.servers` needs a `name` and a `url`. The `url` is an absolute `http` or `https` URL with a host and no user information, query, or fragment, or a root-relative path such as `/fhir`. A value that is not valid stops the server at startup. This check is in the integration files of the frontend generator, so it also applies to a server with no proxy feature after `update-frontend`. Set `app.fhir.servers` in one form only, either a YAML list as above or one string that holds a JSON array of `name` and `url` entries.
-
-A root-relative entry is the server itself. The frontend requests it directly on the origin of the page. The proxy does not use it as a listed server. In proxy mode the frontend does not list an entry that equals "This server" a second time.
+The server checks `app.fhir.servers` at startup, and a value that is not valid stops the server. This check is in the integration files of the frontend generator, so it also applies to a server with no proxy feature after `update-frontend`.
 
 The proxy cannot forward a form-encoded `PUT`, `PATCH`, or `DELETE` body or a multipart body. Spring reads these bodies before the proxy runs, and the proxy answers 400. A form-encoded `POST` passes.
 
@@ -268,9 +268,9 @@ Adds a bearer token check to the FHIR endpoint of a server:
 nx g nx-fhir:feature-auth-resource
 ```
 
-The check applies to each request under `/fhir`. A request needs the header `Authorization: Bearer <token>` with a JSON Web Token (JWT) from the issuer of `app.auth.issuer`. When `app.auth.jwks-uri` is absent, the server reads `{issuer}/.well-known/openid-configuration` at the first token and keeps the document after a successful read. After a valid token, `RequestDetails.getUserData()` holds the verified claims under the key `BearerTokenInterceptor.CLAIMS_KEY`. The generator also writes `AUTH-RESOURCE.md` to the server root, which gives the configuration and the request rule.
+When `app.auth.enabled` is `true`, each request under `/fhir` needs the header `Authorization: Bearer <token>` with a JSON Web Token (JWT) from the issuer of `app.auth.issuer`, other than the requests below that pass with no token. With `app.auth.enabled: false`, the server has no check. The generator also writes `AUTH-RESOURCE.md` to the server root. That file lists the generated files and gives the configuration that the install writes, each `app.auth` property, the request rule, the responses, and the use of the verified claims in a custom interceptor ([template](https://github.com/bstewartlg/nx-fhir/blob/main/packages/nx-fhir/src/generators/feature-auth-resource/files/docs/AUTH-RESOURCE.md.template)).
 
-`GET` and `HEAD` requests to `/fhir/metadata` pass with no token. Each request under `/fhir/.well-known/` passes with no token. A paging request (`_getpages`) that HAPI FHIR gives to its paging handler passes with no token. An entry of `app.auth.public-endpoints` names a resource type (`Practitioner`), a server-level operation (`$bulk-publish`), or an operation on a type (`Patient/$match`). A request that fits an entry passes with no token, for each request method. When `app.auth.enabled` is `true`, an entry in a different form stops the server at startup.
+`GET` and `HEAD` requests to `/fhir/metadata` pass with no token. Each request under `/fhir/.well-known/` passes with no token. A request that fits an entry of `app.auth.public-endpoints` passes with no token, for each request method. A public resource type also makes its operations public, for example `Patient/$everything`. A request for a later page of a search or of the result of an operation (`_getpages`) passes with no token, so a page link works for each caller who has it.
 
 **Options:**
 - `--project`: Name of the Nx server project to add the feature to
@@ -282,27 +282,9 @@ The check applies to each request under `/fhir`. A request needs the header `Aut
 nx g nx-fhir:feature-auth-resource --project=my-fhir-server
 ```
 
-The install writes this configuration to `application.yaml`:
-
-```yaml
-app:
-  auth:
-    enabled: true
-    issuer: https://udap-security.fast.hl7.org
-    public-endpoints: []
-    ssl-verify: true
-    # bypass-header: X-Bypass-Auth
-```
-
-The install replaces `app.auth` with this map. With `--audience`, the map also has `audience`. The optional key `app.auth.jwks-uri` gives the key set URL. With that key, the server reads no discovery document. The discovery read and the key set read each have a connect timeout of 5 seconds and a read timeout of 10 seconds.
-
 WARNING: With `app.auth.bypass-header` set, each caller that sends this header skips the token check. Remove the property for a deployment that has data that is not public.
 
-A request that has the header that `app.auth.bypass-header` names passes with no token. The install writes the comment line `# bypass-header: X-Bypass-Auth`, and the bypass is off. To turn on the bypass, remove `# ` from that line.
-
-With `app.auth.enabled: false`, the server has no check. With `app.auth.enabled: true` and no `app.auth.issuer`, the server stops at startup. The install writes `app.auth.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`. A test that does not set `app.auth.enabled` to `true` runs with no check.
-
-The install writes `ssl-verify: false` when the issuer is an `https` URL with the host `localhost`, and `ssl-verify: true` for each other issuer. With `app.auth.ssl-verify: false`, the server does not check the certificate chain or the host name for the calls of the auth features. With this value and `app.auth.enabled: true`, the server writes one WARN line at startup.
+The install writes the comment line `# bypass-header: X-Bypass-Auth`, and the bypass is off. The install writes `ssl-verify: false` when the issuer is an `https` URL with the host `localhost`, and `ssl-verify: true` for each other issuer.
 
 WARNING: With `app.auth.ssl-verify: false`, the server accepts any certificate from the hosts it calls. Use it only with a local development certificate.
 
@@ -316,67 +298,22 @@ Adds signed UDAP metadata at `/fhir/.well-known/udap` to a server:
 nx g nx-fhir:feature-auth-udap
 ```
 
-The feature needs the `auth-resource` feature. When the server has no `auth-resource`, the generator offers to install it first. An interactive run asks one question, and yes is the default. With yes, `auth-resource` installs first and asks its own questions. With no, the generator stops and writes nothing. A run that is not interactive installs `auth-resource` with its defaults and asks no question. For a different issuer, run `feature-auth-resource` with `--issuer` first.
+The feature needs the `auth-resource` feature.
 
-The server answers `GET {baseURL}/.well-known/udap` with the UDAP metadata of the HL7 FAST security IG (STU2 2.0.0). The metadata gives a client the endpoints of the authorization server of `app.auth.issuer`. That server registers clients, authorizes them, and issues tokens. The server reads the UDAP metadata of the issuer at `{issuer}/.well-known/udap` for each endpoint, for the scope list, and for each UDAP list that no property sets. It reads the document at the first metadata request that needs it and keeps the document after a successful read.
-
-The server publishes the metadata only when `app.auth.enabled` and `app.auth.udap.enabled` are both `true`. The request needs no token, and each `community` value gets the same metadata. The generator also writes `AUTH-UDAP.md` to the server root. That file gives the configuration, the source of each metadata value, the IG rules for the lists, and the cases that stop startup.
+When `app.auth.enabled` and `app.auth.udap.enabled` are both `true`, the server answers `GET {baseURL}/.well-known/udap` with the UDAP metadata of the HL7 FAST security IG (STU2 2.0.0). The metadata gives a client the endpoints of the authorization server of `app.auth.issuer`. The request needs no token. The generator also writes `AUTH-UDAP.md` to the server root. That file lists the generated files and gives the configuration that the install writes, the certificate routes, the source of each metadata value, the IG rules for the lists, and the cases that stop startup ([template](https://github.com/bstewartlg/nx-fhir/blob/main/packages/nx-fhir/src/generators/feature-auth-udap/files/docs/AUTH-UDAP.md.template)).
 
 **Options:**
 - `--project`: Name of the Nx server project to add the feature to
-- `--certFile`: Path of a PKCS#12 certificate file. With no value, the server fetches a test certificate from the issuer.
+- `--certFile`: Path of a PKCS#12 certificate file. With no value, an interactive run asks for the path, and an empty path turns on the fetch of a test certificate from the issuer.
 
 **Example:**
 ```sh
 nx g nx-fhir:feature-auth-udap --project=my-fhir-server
 ```
 
-On a server with no `auth-resource`, this command with the defaults of the two features writes this configuration to `application.yaml`:
+With no certificate file path, the install writes `fetch-cert: true`. At startup, the server then loads `generated-cert.pfx` from its working directory. When that file is absent, the server sends `POST {issuer}/api/cert/generate` with its base URL and a password and writes the response of a successful try to `generated-cert.pfx`. The file `generated-cert.pfx` holds a private key. The generator adds this file name to the `.gitignore` of the server project.
 
-```yaml
-app:
-  auth:
-    enabled: true
-    issuer: https://udap-security.fast.hl7.org
-    public-endpoints: []
-    ssl-verify: true
-    # bypass-header: X-Bypass-Auth
-    udap:
-      enabled: true
-      fetch-cert: true
-      profiles-supported:
-        - udap_dcr
-        - udap_authn
-        - udap_authz
-        - udap_to
-      grant-types-supported:
-        - authorization_code
-        - refresh_token
-        - client_credentials
-      authorization-extensions-supported:
-        - hl7-b2b
-      authorization-extensions-required: []
-      certifications-supported: []
-      token-endpoint-auth-signing-alg-values-supported:
-        - RS256
-        - RS384
-        - ES256
-        - ES384
-      registration-endpoint-jwt-signing-alg-values-supported:
-        - RS256
-        - RS384
-        - ES256
-        - ES384
-```
-
-The `auth-udap` install writes the `udap` map. The `auth-resource` install writes the other keys of `app.auth`.
-
-At startup, the server gets its certificate by one of two routes:
-
-1. With `cert-file` set, the server loads that PKCS#12 file with `cert-password`.
-2. With no `cert-file` and with `fetch-cert: true`, the server loads `generated-cert.pfx` from its working directory. When that file is absent, the server sends `POST {issuer}/api/cert/generate` with its base URL and a password. Each try has a connect timeout of 5 seconds and a limit of 30 seconds for the complete response. After a try succeeds, the server writes the response to `generated-cert.pfx` one time, and an error of that write stops startup with no new try. By default, the fetch makes up to 10 tries, 5000 milliseconds apart. With no `cert-password`, the fetch sends the password `udap-test`.
-
-The server fetches a certificate only at startup. The file `generated-cert.pfx` holds a private key. The generator adds this file name to the `.gitignore` of the server project.
+WARNING: A fetched certificate comes from a test authority, and its private key is made by a different server. Use the fetch only for development.
 
 To use a certificate file of your own, give its path with `--certFile`:
 
@@ -384,17 +321,11 @@ To use a certificate file of your own, give its path with `--certFile`:
 nx g nx-fhir:feature-auth-udap --project=my-fhir-server --certFile=certs/udap.p12
 ```
 
-The generator then writes `cert-file` and no `fetch-cert`. The generator does not write `cert-password`. Before you start the server, set `cert-password` in `application.yaml` or with the environment variable `APP_AUTH_UDAP_CERTPASSWORD`. With `cert-file` set and no `cert-password`, the server stops at startup.
+The generator does not write `cert-password`. Before you start the server, set `cert-password` in `application.yaml` or with the environment variable `APP_AUTH_UDAP_CERTPASSWORD`.
 
-The class `FhirBaseUrl` of the `auth-resource` feature gives the base URL. The base URL is the value of `hapi.fhir.server_address` with one trailing `/` removed. When that property is empty, the base URL is `http://localhost:`, then the value of `server.port` (`8080` when absent), then the servlet context path with one trailing `/` removed, then `/fhir`. The fetch sends the base URL as the name of the certificate. When you change the base URL or `app.auth.issuer`, delete `generated-cert.pfx`. The next start fetches a new certificate.
-
-WARNING: A fetched certificate comes from a test authority, and its private key is made by a different server. Use the fetch only for development.
-
-`app.auth.ssl-verify` of the `auth-resource` feature also applies to the certificate fetch and to the read of the UDAP metadata of the issuer. With `app.auth.ssl-verify: false`, the server does not check the certificate chain or the host name for these calls.
+`app.auth.ssl-verify` of the `auth-resource` feature also applies to the certificate fetch and to the read of the UDAP metadata of the issuer.
 
 WARNING: With `app.auth.ssl-verify: false`, the server accepts any certificate from the hosts it calls. Use it only with a local development certificate.
-
-With `app.auth.enabled: false` or `app.auth.udap.enabled: false`, the feature registers nothing. The install writes `app.auth.udap.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`. A test runs with the feature on only when it sets `app.auth.enabled` and `app.auth.udap.enabled` to `true`.
 
 Requires HAPI FHIR 8.8.0 or later.
 
@@ -406,11 +337,9 @@ Adds the SMART configuration at `/fhir/.well-known/smart-configuration` to a ser
 nx g nx-fhir:feature-auth-smart
 ```
 
-The feature needs the `auth-resource` feature. When the server has no `auth-resource`, the generator offers to install it first. An interactive run asks one question, and yes is the default. With yes, `auth-resource` installs first and asks its own questions. With no, the generator stops and writes nothing. A run that is not interactive installs `auth-resource` with its defaults and asks no question. For a different issuer, run `feature-auth-resource` with `--issuer` first.
+The feature needs the `auth-resource` and `auth-scopes` features.
 
-The server answers `GET {baseURL}/.well-known/smart-configuration` with the SMART configuration document that SMART App Launch 2.2.0 defines. A SMART client reads the document to find the endpoints of the authorization server of `app.auth.issuer`. The server builds the document from the list `app.auth.smart.capabilities` and from the OpenID discovery document of the issuer at `{issuer}/.well-known/openid-configuration`. It reads the issuer document at the first request that needs it and keeps the document after a successful read. `grant_types_supported` and `token_endpoint_auth_methods_supported` keep only the values that SMART App Launch lists, and `code_challenge_methods_supported` loses `plain`. The server copies the other members as the issuer publishes them. `grant_types_supported` keeps `client_credentials` only when the issuer lists `private_key_jwt`.
-
-The server publishes the document only when `app.auth.enabled` and `app.auth.smart.enabled` are both `true`. The request needs no token, and the response is `application/json` for each `Accept` header. When the issuer document has no value that the document must have, the response has status 503. The generator also writes `AUTH-SMART.md` to the server root. That file gives the configuration, the source of each member, and the cases of status 503.
+When `app.auth.enabled` and `app.auth.smart.enabled` are both `true`, the server answers `GET {baseURL}/.well-known/smart-configuration` with the SMART configuration document that SMART App Launch 2.2.0 defines. A SMART client reads the document to find the endpoints of the authorization server of `app.auth.issuer`. The server builds the document from the list `app.auth.smart.capabilities` and from the OpenID discovery document of the issuer at `{issuer}/.well-known/openid-configuration`. The request needs no token. The generator also writes `AUTH-SMART.md` to the server root. That file names the generated classes and tests and gives the configuration that the install writes, the source of each member, and the cases of status 503 ([template](https://github.com/bstewartlg/nx-fhir/blob/main/packages/nx-fhir/src/generators/feature-auth-smart/files/docs/AUTH-SMART.md.template)).
 
 **Options:**
 - `--project`: Name of the Nx server project to add the feature to
@@ -420,33 +349,7 @@ The server publishes the document only when `app.auth.enabled` and `app.auth.sma
 nx g nx-fhir:feature-auth-smart --project=my-fhir-server
 ```
 
-On a server with no `auth-resource`, this command with the defaults of the two features writes this configuration to `application.yaml`:
-
-```yaml
-app:
-  auth:
-    enabled: true
-    issuer: https://udap-security.fast.hl7.org
-    public-endpoints: []
-    ssl-verify: true
-    # bypass-header: X-Bypass-Auth
-    smart:
-      enabled: true
-      capabilities:
-        - launch-standalone
-        - client-public
-        - client-confidential-symmetric
-        - sso-openid-connect
-        - permission-offline
-        - permission-patient
-        - permission-user
-        - permission-v1
-        - permission-v2
-```
-
-The `auth-smart` install writes the `smart` map. The `auth-resource` install writes the other keys of `app.auth`. The generated `capabilities` list is the starter list, the set that the OpenID discovery document of the FAST security server supports on paper. For a different authorization server, write the capabilities of that server.
-
-With `app.auth.enabled: false` or `app.auth.smart.enabled: false`, the feature registers nothing. The install writes `app.auth.smart.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`. A test runs with the feature on only when it sets `app.auth.enabled` and `app.auth.smart.enabled` to `true`.
+The generated `capabilities` list holds eight starter capabilities. The capabilities `permission-patient`, `permission-user`, `permission-v1`, and `permission-v2` are true only while `app.auth.scopes.enabled` is `true`. Write only the capabilities that your authorization server and this server both support.
 
 Requires HAPI FHIR 8.8.0 or later.
 
@@ -458,11 +361,13 @@ Adds a token scope check to the FHIR endpoint of a server:
 nx g nx-fhir:feature-auth-scopes
 ```
 
-The feature needs the `auth-resource` feature. When the server has no `auth-resource`, the generator offers to install it first. An interactive run asks one question, and yes is the default. With yes, `auth-resource` installs first and asks its own questions. With no, the generator stops and writes nothing. A run that is not interactive installs `auth-resource` with its defaults and asks no question. For a different issuer, run `feature-auth-resource` with `--issuer` first.
+The feature needs the `auth-resource` feature.
 
-The server reads the `scope` claim of the verified token of a FHIR request. A request gets status 403 when no scope of the token covers its resource type and its action. The check applies to each verified token and does not need the `auth-smart` feature or the `auth-udap` feature. A resource scope has the SMART App Launch 2.2.0 form `(patient|user|system)/(Type|*).(permissions)`, with the letters `cruds` or the v1 forms `read`, `write`, and `*`. The server ignores each other scope. A resource scope in a different form, for example with a `?` suffix, grants nothing. The check also applies to each resource in the response of a read, a search, or a history, to each resource that `_include` or `_revinclude` adds, and to each entry of a transaction or a batch. A request with no verified claims, for example `metadata` or a request with the bypass header, passes with no check. A direct request for an operation gets no scope check, also for the reads and writes that the operation makes.
+The server reads the `scope` claim of the verified token of a FHIR request, and a request gets status 403 when no scope of the token covers its resource type and its action. A resource scope has the SMART App Launch 2.2.0 form `(patient|user|system)/(Type|*).(permissions)`, and a scope in a different form, for example with a `?` suffix, grants nothing. `user/` and `system/` scopes cover each resource of their type, and a `patient/` scope covers the resources of its type in the Patient compartment of the patient that the `patient` claim of the token names. With a `patient/` scope, the server adds the patient of the claim to a type search, so the search matches only resources in the Patient compartment of that patient. A type that a `user/` or `system/` scope of the token with `s` covers gets no narrowing, and neither do the entries of a transaction or a batch.
 
-`user/` and `system/` scopes cover each resource of their type. A `patient/` scope covers the resources of its type in the Patient compartment of the patient that the `patient` claim of the token names. The claim value is a resource id with no type. With no `patient` claim that is a string with text, a `patient/` scope grants nothing. A `patient/` scope on a type with no resource in the Patient compartment allows no read, search, create, update, or delete, and a conditional delete that matches no resource gets status 200 and deletes nothing. With a `patient/` scope, `r` covers read, vread, and the instance history of the Patient of the claim, `u` covers update and the patch of the Patient of the claim, and `s` covers a type search that names the patient and not a system history. A search with no parameter that names the patient gets status 403 when no `user/` or `system/` scope of the token covers its type. With a `patient/` scope, a count search that names the patient of the claim and a different patient in one parameter returns a total for the two, and a conditional delete gets status 403 for a match with a resource of a different patient and status 200 for no match. With a `patient/` scope, `c` does not cover a conditional create: a `POST` with `If-None-Exist`, and a transaction or a batch with a create entry that has `ifNoneExist`, get status 403 when only a `patient/` create scope of the token covers the type. A create or an update with a reference in the form of a search, for example `Encounter?identifier=123`, gets the id of the resource that matches, also for a type or a patient that the token does not cover. The method `limit` of `ScopeAuthorizationInterceptor` returns the resources that one scope covers and is the place to change these limits. The patient limit does not apply to a direct request for an operation. A refused request gets status 403, the header `WWW-Authenticate: Bearer error="insufficient_scope"`, and an `OperationOutcome` with the code `forbidden`. The generator also writes `AUTH-SCOPES.md` to the server root. That file gives the scope forms, the requests that each letter allows, the rules for transactions and batches, and the body of `limit`.
+A request with no verified claims, for example `metadata` or a request with the bypass header, passes with no check. A request for an operation gets status 403 unless a scope of the token, with any letters, has the type `*` or the type of the operation. When GraphQL is on, a request for `$graphql` gets status 403 for each token. A `user/` or `system/` scope covers the operation at each level, and a `patient/` scope covers only an operation at instance level on the Patient of the `patient` claim. A direct request for an operation that the token can call gets no scope check, also for the reads and writes that the operation makes. A later page (`_getpages`) of a search or of the result of an operation gets no scope check, so a resource that `_include` or `_revinclude` puts on a later page needs no scope. A conditional create, update, patch, or delete, and a write with a reference in the form of a search, for example `Encounter?identifier=123`, also need a `user/` or `system/` scope with `s` on the type that the search reads. A token with only `patient/` scopes can make no such request.
+
+The generator also writes `AUTH-SCOPES.md` to the server root. That file lists the generated files and gives the configuration that the install writes, the scope forms, the requests that each letter allows, the rules for transactions and batches, the search narrowing, the answers to a refused request, and the methods to change for different rules ([template](https://github.com/bstewartlg/nx-fhir/blob/main/packages/nx-fhir/src/generators/feature-auth-scopes/files/docs/AUTH-SCOPES.md.template)).
 
 **Options:**
 - `--project`: Name of the Nx server project to add the feature to
@@ -471,24 +376,6 @@ The server reads the `scope` claim of the verified token of a FHIR request. A re
 ```sh
 nx g nx-fhir:feature-auth-scopes --project=my-fhir-server
 ```
-
-On a server with no `auth-resource`, this command with the defaults of the two features writes this configuration to `application.yaml`:
-
-```yaml
-app:
-  auth:
-    enabled: true
-    issuer: https://udap-security.fast.hl7.org
-    public-endpoints: []
-    ssl-verify: true
-    # bypass-header: X-Bypass-Auth
-    scopes:
-      enabled: true
-```
-
-The `auth-scopes` install writes the `scopes` map. The `auth-resource` install writes the other keys of `app.auth`.
-
-With `app.auth.enabled: false` or `app.auth.scopes.enabled: false`, the feature registers nothing. The install writes `app.auth.scopes.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`. A test runs with the feature on only when it sets `app.auth.enabled` and `app.auth.scopes.enabled` to `true`.
 
 Requires HAPI FHIR 8.8.0 or later.
 

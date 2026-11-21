@@ -13,8 +13,10 @@ import {
   listTemplateOutputs,
 } from '../../shared/utils/server-wiring';
 
+export const AUTH_SCOPES_FEATURE = 'auth-scopes';
+
 export const authScopesFeature: FeatureDefinition = {
-  name: 'auth-scopes',
+  name: AUTH_SCOPES_FEATURE,
   description:
     'Check the scopes of a token against the resource type and the action of each request',
   featureVersion: 1,

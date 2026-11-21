@@ -108,6 +108,7 @@ describe('auth-scopes feature', () => {
     );
 
     const main = [
+      'PatientSearchNarrowingInterceptor',
       'ScopeAuthorizationInterceptor',
       'ScopeConfig',
       'ScopeProperties',
@@ -142,8 +143,8 @@ describe('auth-scopes feature', () => {
 
   it.each([
     [['auth-scopes']],
-    [['auth-udap', 'auth-smart', 'auth-scopes']],
-    [['auth-smart', 'auth-udap', 'auth-scopes']],
+    [['auth-udap', 'auth-scopes', 'auth-smart']],
+    [['auth-scopes', 'auth-smart', 'auth-udap']],
     [['auth-scopes', 'auth-udap', 'auth-smart']],
   ])(
     'keeps one bypass-header line that is a key of app.auth (%j)',

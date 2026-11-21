@@ -1,44 +1,27 @@
 <% const packagePath = packageBase.replace(/\./g, '/'); -%>
 # SMART configuration
 
-The nx-fhir `auth-smart` feature makes this server publish its SMART configuration at `{baseURL}/.well-known/smart-configuration`, for example `http://localhost:8080/fhir/.well-known/smart-configuration`. A SMART App Launch client reads this document to find the endpoints of the authorization server of `app.auth.issuer`. That server authorizes clients and issues tokens.
+The nx-fhir `auth-smart` feature makes this server publish its SMART configuration at `{baseURL}/.well-known/smart-configuration`. A SMART App Launch client reads this document to find the endpoints of the authorization server of `app.auth.issuer`.
 
-The document follows SMART App Launch 2.2.0.
-
-The feature needs the `auth-resource` feature. It uses `app.auth.enabled`, the issuer, and the shared classes of the `auth` package of that feature. When the server has no `auth-resource`, the install offers to install it first. In an interactive run, the install asks one question, and yes is the default. With yes, `auth-resource` installs first and asks its own questions. In a run that is not interactive, `auth-resource` installs with its defaults, and the install asks no question.
+The member rules of the document follow SMART App Launch 2.2.0. The feature needs the `auth-resource` and `auth-scopes` features.
 
 ## What the feature adds
 
-| File | Purpose |
-| --- | --- |
-| `src/main/java/<%= packagePath %>/smart/SmartConfig.java` | Registers the SMART configuration on the FHIR server. |
-| `src/main/java/<%= packagePath %>/smart/SmartProperties.java` | The configuration properties under `app.auth.smart`. |
-| `src/main/java/<%= packagePath %>/smart/SmartConfiguration.java` | Builds the document from the OpenID discovery document of the issuer. |
-| `src/test/java/<%= packagePath %>/smart/SmartConfigurationTest.java` | Unit test of the document and of each value that the document must have. |
-| `src/test/java/<%= packagePath %>/smart/AuthSmartIT.java` | Integration test of the request with the token check on. It runs under `mvn verify`. |
-| `src/main/resources/application.yaml` | The `app.auth.smart` entries. |
-| `src/test/resources/config/application.yaml` | `app.auth.smart.enabled: false` for each Spring Boot test. |
-| `src/test/resources/application-test.yaml` | `app.auth.smart.enabled: false` for a test with the `test` profile. |
+The feature adds `SmartConfig`, `SmartProperties`, and `SmartConfiguration` under `src/main/java/<%= packagePath %>/smart/`, and the unit test `SmartConfigurationTest` and the integration test `AuthSmartIT`, which runs under `mvn verify`, under `src/test/java/<%= packagePath %>/smart/`.
 
-The two test configuration files turn the feature off. A test that sets `app.auth.enabled` and `app.auth.smart.enabled` to `true` runs with the feature.
+The install writes `app.auth.smart.enabled: false` to `src/test/resources/config/application.yaml` and to `src/test/resources/application-test.yaml`, so a test runs with the feature only when it sets `app.auth.enabled` and `app.auth.smart.enabled` to `true`.
 
 ## Configuration
 
-With the defaults of the two features, the install writes this configuration:
+The install writes the configuration below, the `smart` map of `app.auth`. `AUTH-RESOURCE.md` gives the other keys of `app.auth`, and `AUTH-SCOPES.md` gives `app.auth.scopes`.
 
 ```yaml
 app:
   auth:
-    enabled: true
-    issuer: https://udap-security.fast.hl7.org
-    public-endpoints: []
-    ssl-verify: true
-    # bypass-header: X-Bypass-Auth
     smart:
       enabled: true
       capabilities:
         - launch-standalone
-        - client-public
         - client-confidential-symmetric
         - sso-openid-connect
         - permission-offline
@@ -48,53 +31,28 @@ app:
         - permission-v2
 ```
 
-The `auth-smart` install writes the `smart` map. The `auth-resource` install writes the other keys of `app.auth`.
+- `enabled`: when it and `app.auth.enabled` are both `true`, the server publishes the document. When one of the two is `false` or absent, the feature registers no interceptor, and the server does not publish the document.
+- `capabilities`: the document publishes this list as it is written, with no check. The list above is the starter value that the install writes. Write only the capabilities that your authorization server and this server both support.
 
-### `app.auth.smart.enabled`
+The capabilities `permission-patient`, `permission-user`, `permission-v1`, and `permission-v2` are true only while `app.auth.scopes.enabled` is `true`, because the scope check of the `auth-scopes` feature enforces them. When you set `app.auth.scopes.enabled` to `false`, remove these four capabilities from `app.auth.smart.capabilities`.
 
-- `app.auth.enabled` and `app.auth.smart.enabled` are both `true`: the server publishes the document.
-- One of the two is `false` or absent: the feature registers no interceptor, and the server does not publish the document.
-
-### `app.auth.smart.capabilities`
-
-The document publishes this list as it is written. The list in the configuration above is the starter value that the install writes. Write the capabilities of your authorization server.
-
-### `app.auth.issuer`
-
-`app.auth.issuer` of the `auth-resource` feature is the URL of the authorization server. The server reads the OpenID discovery document of the issuer at `{issuer}/.well-known/openid-configuration`.
-
-- The class `IssuerMetadata` of the `auth-resource` feature reads the document at the first request that needs it and keeps it after a successful read.
-- The read has a connect timeout of 5 seconds and a read timeout of 10 seconds.
-- `app.auth.ssl-verify` of the `auth-resource` feature also applies to this read.
+The server reads the OpenID discovery document of the issuer at `{issuer}/.well-known/openid-configuration`. The class `IssuerMetadata` of the `auth-resource` feature reads it at the first request that needs it and keeps it after a successful read, with a connect timeout of 5 seconds and a read timeout of 10 seconds. `app.auth.ssl-verify` of the `auth-resource` feature also applies to this read.
 
 ## Where each member comes from
 
-| Member | Value |
-| --- | --- |
-| `issuer` | `issuer` of the issuer document. It is present only when `capabilities` has `sso-openid-connect`. |
-| `jwks_uri` | `jwks_uri` of the issuer document, when present |
-| `authorization_endpoint` | `authorization_endpoint` of the issuer document, when present |
-| `grant_types_supported` | The entries `authorization_code` and `client_credentials` of `grant_types_supported` of the issuer document. `client_credentials` stays only when `token_endpoint_auth_methods_supported` of the issuer document has `private_key_jwt`. With no `grant_types_supported` in the issuer document, the value is `["authorization_code"]`. |
-| `token_endpoint` | `token_endpoint` of the issuer document |
-| `token_endpoint_auth_methods_supported` | The entries `client_secret_post`, `client_secret_basic`, and `private_key_jwt` of `token_endpoint_auth_methods_supported` of the issuer document. It is present when one or more entries are left. |
-| `token_endpoint_auth_signing_alg_values_supported` | `token_endpoint_auth_signing_alg_values_supported` of the issuer document, when present |
-| `registration_endpoint` | `registration_endpoint` of the issuer document, when present |
-| `scopes_supported` | `scopes_supported` of the issuer document, when present |
-| `response_types_supported` | `response_types_supported` of the issuer document, when present |
-| `introspection_endpoint` | `introspection_endpoint` of the issuer document, when present |
-| `revocation_endpoint` | `revocation_endpoint` of the issuer document, when present |
-| `capabilities` | `app.auth.smart.capabilities` |
-| `code_challenge_methods_supported` | `code_challenge_methods_supported` of the issuer document with `plain` removed |
+The document copies `token_endpoint` from the issuer document, and each of these members when the issuer document has it: `jwks_uri`, `authorization_endpoint`, `token_endpoint_auth_signing_alg_values_supported`, `scopes_supported`, `response_types_supported`, `introspection_endpoint`, and `revocation_endpoint`. These members differ:
 
-Each list keeps the order of the issuer document. A member of the issuer document with a wrong JSON type, for example a string where a list belongs, counts as absent. A string that is empty or holds only spaces also counts as absent.
+- `issuer`: the `issuer` of the issuer document, only when `capabilities` has `sso-openid-connect`.
+- `grant_types_supported`: `authorization_code` of the issuer list, and `client_credentials` only when the issuer lists `private_key_jwt` in `token_endpoint_auth_methods_supported`. With no `grant_types_supported` in the issuer document, the value is `["authorization_code"]`.
+- `token_endpoint_auth_methods_supported`: the entries `client_secret_post`, `client_secret_basic`, and `private_key_jwt` of the issuer list, present when one or more entries are left.
+- `code_challenge_methods_supported`: the issuer list with `plain` removed.
+- `capabilities`: `app.auth.smart.capabilities`.
+
+Each list that the server takes from the issuer document keeps the order of that document. A member of the issuer document with a wrong JSON type, or a string that is empty or holds only spaces, counts as absent.
 
 ## Request
 
-The class `WellKnownInterceptor` of the `auth-resource` feature answers the request.
-
-- `GET {baseURL}/.well-known/smart-configuration` gets the document as one JSON object with status 200 and `Content-Type: application/json`. The `Accept` header of the request does not change the answer.
-- The request needs no token. The `auth-resource` feature lets each request under `/fhir/.well-known/` pass.
-- Only `GET` gets the document. A request with a different method goes on to HAPI FHIR.
+The class `WellKnownInterceptor` of the `auth-resource` feature answers `GET {baseURL}/.well-known/smart-configuration` with the document as one JSON object, status 200, and `Content-Type: application/json`, for each `Accept` header. The request needs no token, because the `auth-resource` feature lets each request under `/fhir/.well-known/` pass. A request with a different method goes on to HAPI FHIR.
 
 The response has status 503 in each of these cases, and the log has one ERROR line with the reason:
 
