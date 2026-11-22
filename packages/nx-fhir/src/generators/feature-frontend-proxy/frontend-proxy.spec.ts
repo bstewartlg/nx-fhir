@@ -434,6 +434,9 @@ describe('frontend-proxy feature', () => {
         expect(readYaml(tree).app).toEqual({
           proxy: { enabled: true, passthrough },
         });
+        expect(readYaml(tree).server).toEqual({
+          'forward-headers-strategy': 'native',
+        });
       },
     );
 
@@ -462,7 +465,7 @@ describe('frontend-proxy feature', () => {
       });
 
       expect(tree.read(yamlPath, 'utf-8')).toBe(
-        `${before}app:\n  proxy:\n    enabled: true\n    passthrough: false\n`,
+        `${before}app:\n  proxy:\n    enabled: true\n    passthrough: false\nserver:\n  forward-headers-strategy: native\n`,
       );
     });
 
@@ -565,6 +568,27 @@ describe('frontend-proxy feature', () => {
       expect(tree.exists(`${javaRoot}/proxy`)).toBe(false);
       expect(tree.exists(docPath)).toBe(false);
       expect(tree.exists('frontend/.env.development')).toBe(false);
+    });
+
+    it('puts back the pom and the yaml when a later yaml edit refuses', async () => {
+      // A server key with only a commented child has a null value, so the third edit,
+      // server.forward-headers-strategy, refuses after the two app.proxy keys are written.
+      tree.write(
+        yamlPath,
+        'hapi:\n  fhir:\n    fhir_version: R4\nserver:\n  # port: 8080\n',
+      );
+      const pomBefore = tree.read(pomPath, 'utf-8');
+      const yamlBefore = tree.read(yamlPath, 'utf-8');
+
+      await expect(
+        frontendProxyFeature.apply(tree, serverProject(tree), {
+          passthrough: false,
+        }),
+      ).rejects.toThrow('Expected YAML collection');
+      expect(tree.read(pomPath, 'utf-8')).toBe(pomBefore);
+      expect(tree.read(yamlPath, 'utf-8')).toBe(yamlBefore);
+      expect(tree.exists(`${javaRoot}/proxy`)).toBe(false);
+      expect(tree.exists(docPath)).toBe(false);
     });
   });
 

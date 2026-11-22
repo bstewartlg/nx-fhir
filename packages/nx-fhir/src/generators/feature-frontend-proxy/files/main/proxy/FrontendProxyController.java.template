@@ -28,7 +28,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.util.UriUtils;
 
 /**
  * The same-origin proxy endpoint /proxy?url=destination. A destination under a server of app.fhir.servers
@@ -50,10 +49,11 @@ public class FrontendProxyController {
 	private static final Set<String> FORWARDED_METHODS = Set.of("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE");
 
 	// Hop-by-hop headers, the cookies and origin of this application, and headers that a browser can forge.
+	// X-App-Request shows this application that its own app sent the request.
 	// The X-Forwarded- and Sec- prefixes are checked separately.
 	private static final Set<String> DENIED_REQUEST_HEADERS = Set.of("host", "cookie", "origin", "referer",
 			"connection", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade", "proxy-authorization",
-			"proxy-connection", "forwarded");
+			"proxy-connection", "forwarded", "x-app-request");
 
 	// Each other upstream header is removed. Set-Cookie, Access-Control-*, and WWW-Authenticate would act on
 	// the origin of this application.
@@ -104,7 +104,7 @@ public class FrontendProxyController {
 		}
 		ProxyDestinations.Decision decision;
 		try {
-			URI destination = ProxyDestinations.parse(urlValue(request.getQueryString()));
+			URI destination = ProxyDestinations.parse(ProxyDestinations.urlValue(request.getQueryString()));
 			decision = ProxyDestinations.classify(destination, listedBases, passthrough);
 		} catch (IllegalArgumentException e) {
 			refuse(response, 400, e.getMessage());
@@ -176,23 +176,6 @@ public class FrontendProxyController {
 			}
 		}
 		return false;
-	}
-
-	// The value comes from the query string only. getParameter would read a form body.
-	private static String urlValue(String query) {
-		if (query == null) {
-			return null;
-		}
-		for (String pair : query.split("&")) {
-			if (pair.startsWith("url=")) {
-				try {
-					return UriUtils.decode(pair.substring(4), StandardCharsets.UTF_8);
-				} catch (IllegalArgumentException e) {
-					throw new IllegalArgumentException("The url value has an invalid percent-encoding");
-				}
-			}
-		}
-		return null;
 	}
 
 	private static void forward(RestClient client, URI upstream, HttpServletRequest request, HttpServletResponse response)

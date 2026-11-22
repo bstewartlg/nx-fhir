@@ -9,7 +9,7 @@ An Nx plugin for building FHIR servers and frontends.
 - Scaffold TanStack Router-based React frontend SPAs with browser or clinical templates
 - Generate custom FHIR operations from OperationDefinition resources
 - Add FHIR Implementation Guides to your server
-- Add packaged server features such as scheduled `$bulk-publish` bulk data publication, OpenTelemetry instrumentation, a same-origin proxy for frontend requests to other FHIR servers, a bearer token check on the FHIR endpoint, signed UDAP metadata for an external authorization server, the SMART configuration of that server, and a token scope check on the FHIR endpoint
+- Add packaged server features such as scheduled `$bulk-publish` bulk data publication, OpenTelemetry instrumentation, a same-origin proxy for frontend requests to other FHIR servers, a bearer token check on the FHIR endpoint, signed UDAP metadata for an external authorization server, the SMART configuration of that server, a token scope check on the FHIR endpoint, and sign-in from the integrated frontend at the authorization server of a FHIR server
 - Keep your HAPI FHIR server and frontend up to date with newer releases via `nx migrate`
 
 ## Installation
@@ -252,6 +252,8 @@ app:
 
 WARNING: With `app.proxy.passthrough: true`, anyone who can reach the application can send requests through it to any public host. Use this only for a test deployment.
 
+The install also writes `server.forward-headers-strategy: native`. Behind a reverse proxy that ends TLS, the server then sees the `https` origin of the page. The key applies to each request of the server, and Tomcat takes the forwarded headers only from a trusted proxy address.
+
 The server checks `app.fhir.servers` at startup, and a value that is not valid stops the server. This check is in the integration files of the frontend generator, so it also applies to a server with no proxy feature after `update-frontend`.
 
 The proxy cannot forward a form-encoded `PUT`, `PATCH`, or `DELETE` body or a multipart body. Spring reads these bodies before the proxy runs, and the proxy answers 400. A form-encoded `POST` passes.
@@ -376,6 +378,50 @@ The generator also writes `AUTH-SCOPES.md` to the server root. That file lists t
 ```sh
 nx g nx-fhir:feature-auth-scopes --project=my-fhir-server
 ```
+
+Requires HAPI FHIR 8.8.0 or later.
+
+#### Auth login (auth-login)
+
+Adds sign-in at the authorization server of a FHIR server to the integrated frontend:
+
+```sh
+nx g nx-fhir:feature-auth-login
+```
+
+The feature needs the `frontend-proxy` feature and a frontend that is integrated with the server. When a frontend or the server integration files need `update-frontend`, the install refuses and names the command.
+
+A tester saves the client id, the client secret, and the scopes in the settings dialog of the frontend. This server keeps these client values in the session of the tester until the session ends or a save for the same FHIR server replaces them. The tester then signs in at the authorization server of the selected FHIR server from the dialog, or from the sign-in page that a `clinical` frontend shows when the FHIR server answers 401. The sign-in is a SMART standalone launch with PKCE. This server is the OAuth client and keeps the access token in the session of the tester. It adds the token to the requests of the frontend for the signed-in server. The generator also writes `AUTH-LOGIN.md` to the server root, with the configuration and the behavior of the feature ([template](https://github.com/bstewartlg/nx-fhir/blob/main/packages/nx-fhir/src/generators/feature-auth-login/files/docs/AUTH-LOGIN.md.template)).
+
+Register the callback URL `{origin}/auth/callback` at the authorization server, where `{origin}` is the origin of the page. This server offers sign-in for itself only when it serves a document at `/fhir/.well-known/smart-configuration`, for example with the `auth-smart` feature. Sign-in at a server that the tester types as a custom URL needs `app.proxy.passthrough: true`.
+
+**Options:**
+- `--project`: Name of the Nx server project to add the feature to
+
+The install writes these values to `application.yaml`:
+
+```yaml
+app:
+  login:
+    enabled: true
+    ssl-verify: true
+server:
+  servlet:
+    session:
+      cookie:
+        same-site: lax
+      tracking-modes: cookie
+```
+
+The sign-in accepts plain `http` only for `localhost`, names that end in `.localhost`, and loopback addresses. On a different host, the address of the app, each listed or typed FHIR server, and each authorization server must use `https`.
+
+WARNING: On plain `http`, the client secret, the authorization code, and the access token travel in clear text.
+
+WARNING: With `app.login.ssl-verify: false`, the sign-in trusts each certificate and each host name of this server, the listed servers, and their authorization servers. The signature check of an ID token then proves nothing, because a different host can answer the request for the key set. Use this only for a test deployment.
+
+WARNING: `X-App-Request` or `*` in `hapi.fhir.cors.allowed_headers`, or in the allowed headers of `GlobalCorsConfiguration`, lets a page of another origin send the header. The request proof then rests on `Sec-Fetch-Site` alone.
+
+Behind a reverse proxy that ends TLS, the cookie has the `Secure` attribute, because the `frontend-proxy` install writes `server.forward-headers-strategy: native`.
 
 Requires HAPI FHIR 8.8.0 or later.
 

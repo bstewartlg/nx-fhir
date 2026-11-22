@@ -6,6 +6,7 @@ import { authResourceFeature } from '../feature-auth-resource/auth-resource';
 import { authUdapFeature } from '../feature-auth-udap/auth-udap';
 import { authSmartFeature } from '../feature-auth-smart/auth-smart';
 import { authScopesFeature } from '../feature-auth-scopes/auth-scopes';
+import { authLoginFeature } from '../feature-auth-login/auth-login';
 
 export const FEATURES: FeatureDefinition[] = [
   bulkPublishFeature,
@@ -15,4 +16,5 @@ export const FEATURES: FeatureDefinition[] = [
   authUdapFeature,
   authSmartFeature,
   authScopesFeature,
+  authLoginFeature,
 ];

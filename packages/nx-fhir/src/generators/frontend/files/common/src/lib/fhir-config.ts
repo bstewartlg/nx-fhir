@@ -17,7 +17,15 @@ interface AppConfig {
   fhirServers?: FhirServer[];
   cdsServers?: CdsServer[];
   proxy?: ProxyConfig;
+  /** Present when this server offers sign-in at the authorization servers. */
+  login?: Record<string, never>;
 }
+
+/**
+ * Marks a request that the app itself sends. A page of another origin cannot
+ * set this header without a CORS preflight.
+ */
+export const APP_REQUEST_HEADER = "X-App-Request";
 
 declare global {
   interface Window {
@@ -126,6 +134,8 @@ export function isCustomServerAllowed(): boolean {
   return window.APP_CONFIG?.proxy?.passthrough !== false;
 }
 
+const URL_SCHEME = /^[a-z][a-z\d+.-]*:/i;
+
 /**
  * The URL to request for `url`. In proxy mode a URL of another origin goes
  * through the proxy of this server, which decides if the destination is
@@ -140,8 +150,31 @@ export function toRequestUrl(url: string): string {
     return url;
   }
   // A URL with no scheme, such as "//host/fhir", takes the scheme of the page
-  const destination = /^[a-z][a-z\d+.-]*:/i.test(url) ? url : resolved.href;
+  const destination = URL_SCHEME.test(url) ? url : resolved.href;
   return `/proxy?url=${encodeURIComponent(destination)}`;
+}
+
+/**
+ * The `server` value of the `/auth` requests for `url`: `/fhir` for This
+ * server and the absolute URL for a server of another origin. Another path of
+ * the page origin has no sign-in.
+ */
+export function toAuthServer(url: string): string | undefined {
+  const { origin } = window.location;
+  if (url === `${origin}/fhir`) {
+    return "/fhir";
+  }
+  try {
+    const resolved = new URL(url, origin);
+    if (resolved.origin === origin) {
+      return undefined;
+    }
+    // A URL with no scheme, such as "//host/fhir", takes the scheme of the page
+    return URL_SCHEME.test(url) ? url : resolved.href;
+  } catch {
+    // A malformed custom URL has no sign-in
+    return undefined;
+  }
 }
 
 export interface CustomHeader {
@@ -206,11 +239,10 @@ export function sanitizeCustomHeaders(value: unknown): CustomHeader[] {
 
 const SERVER_HEADERS_STORAGE_KEY = "fhir-server-headers";
 
-function readStoredServerHeadersRecord(): Record<string, unknown> {
+/** The object stored as JSON under `key`, with one entry for each server. */
+export function readStoredRecord(key: string): Record<string, unknown> {
   try {
-    const parsed = JSON.parse(
-      localStorage.getItem(SERVER_HEADERS_STORAGE_KEY) ?? "{}",
-    );
+    const parsed = JSON.parse(localStorage.getItem(key) ?? "{}");
     if (typeof parsed === "object" && parsed !== null) {
       return parsed as Record<string, unknown>;
     }
@@ -225,7 +257,9 @@ export function getStoredServerHeaders(url: string): CustomHeader[] {
   if (typeof window === "undefined") {
     return [];
   }
-  return sanitizeCustomHeaders(readStoredServerHeadersRecord()[url]);
+  return sanitizeCustomHeaders(
+    readStoredRecord(SERVER_HEADERS_STORAGE_KEY)[url],
+  );
 }
 
 /** Stores the headers for `url` and reports whether the stored value changed. */
@@ -239,7 +273,7 @@ export function setStoredServerHeaders(
   if (JSON.stringify(headers) === JSON.stringify(getStoredServerHeaders(url))) {
     return false;
   }
-  const record = readStoredServerHeadersRecord();
+  const record = readStoredRecord(SERVER_HEADERS_STORAGE_KEY);
   if (headers.length > 0) {
     record[url] = headers;
   } else {

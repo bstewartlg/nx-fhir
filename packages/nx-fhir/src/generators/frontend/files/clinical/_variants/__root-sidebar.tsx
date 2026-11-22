@@ -6,6 +6,7 @@ import { useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ServerStatus } from "@/components/server-status";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { SignedInUser, SignInGate } from "@/components/sign-in-gate";
 import { Button } from "@/components/ui/button";
 import {
   SidebarInset,
@@ -34,6 +35,7 @@ function RootComponent() {
             </div>
 
             <div className="flex items-center gap-3">
+              <SignedInUser />
               <ServerStatus showLatency />
 
               <Button
@@ -49,7 +51,9 @@ function RootComponent() {
           </header>
 
           <main className="flex-1 overflow-auto bg-background">
-            <Outlet />
+            <SignInGate onOpenSettings={() => setSettingsOpen(true)}>
+              <Outlet />
+            </SignInGate>
           </main>
         </SidebarInset>
       </SidebarProvider>

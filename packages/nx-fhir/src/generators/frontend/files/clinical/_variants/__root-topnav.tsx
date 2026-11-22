@@ -5,6 +5,7 @@ import { Settings, Users } from "lucide-react";
 import { useState } from "react";
 import { ServerStatus } from "@/components/server-status";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { SignedInUser, SignInGate } from "@/components/sign-in-gate";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -52,6 +53,7 @@ function RootComponent() {
           </div>
 
           <div className="flex items-center gap-3">
+            <SignedInUser />
             <ServerStatus showLatency />
             <ThemeToggle />
 
@@ -68,7 +70,9 @@ function RootComponent() {
         </header>
 
         <main className="flex-1 overflow-auto bg-background">
-          <Outlet />
+          <SignInGate onOpenSettings={() => setSettingsOpen(true)}>
+            <Outlet />
+          </SignInGate>
         </main>
       </div>
 

@@ -29,6 +29,7 @@ export default defineConfig({
           '/proxy': { target: devServerUrl },
           '/config.js': { target: devServerUrl },
           '/fhir': { target: devServerUrl },
+          '/auth': { target: devServerUrl },
         },
       }
     : undefined,

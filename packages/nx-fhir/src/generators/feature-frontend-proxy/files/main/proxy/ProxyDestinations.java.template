@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.web.util.UriUtils;
 
 /**
  * The URL rules of the proxy and the classification of a destination against the listed servers.
@@ -79,13 +80,30 @@ public final class ProxyDestinations {
 
 	// Raw paths are compared, and parse returns the ASCII form, so the check sees the same bytes that the
 	// upstream receives.
-	private static boolean isUnder(URI target, URI base) {
+	public static boolean isUnder(URI target, URI base) {
 		String basePath = StringUtils.stripEnd(base.normalize().getRawPath(), "/");
 		String path = target.getRawPath();
 		return target.getScheme().equalsIgnoreCase(base.getScheme())
 				&& target.getHost().equalsIgnoreCase(base.getHost())
 				&& effectivePort(target) == effectivePort(base)
 				&& (path.equals(basePath) || path.startsWith(basePath + "/"));
+	}
+
+	// The value comes from the query string only. getParameter would read a form body.
+	public static String urlValue(String query) {
+		if (query == null) {
+			return null;
+		}
+		for (String pair : query.split("&")) {
+			if (pair.startsWith("url=")) {
+				try {
+					return UriUtils.decode(pair.substring(4), StandardCharsets.UTF_8);
+				} catch (IllegalArgumentException e) {
+					throw new IllegalArgumentException("The url value has an invalid percent-encoding");
+				}
+			}
+		}
+		return null;
 	}
 
 	private static int effectivePort(URI uri) {

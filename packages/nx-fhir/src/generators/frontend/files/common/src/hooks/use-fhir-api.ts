@@ -9,6 +9,7 @@ import type {
 } from "fhir/r4";
 import { useMemo } from "react";
 import {
+  APP_REQUEST_HEADER,
   getStoredServerHeaders,
   getStoredServerUrl,
   toRequestUrl,
@@ -44,6 +45,11 @@ export function retryOnceUnlessClientError(
 /** Request headers for `url`, with the active server's custom headers. */
 export function fhirRequestHeaders(url: string): Headers {
   const headers = new Headers({ Accept: "application/fhir+json" });
+  // A custom header to another origin needs a CORS preflight, which that server can refuse
+  const { origin } = window.location;
+  if (new URL(toRequestUrl(url), origin).origin === origin) {
+    headers.set(APP_REQUEST_HEADER, "1");
+  }
   // A page link can point at another host, which must not see the headers
   const serverUrl = getStoredServerUrl();
   const base = serverUrl.replace(/\/+$/, "");

@@ -61,6 +61,11 @@
       "schema": "./src/generators/feature-auth-scopes/schema.json",
       "description": "Add a token scope check to the FHIR endpoint of an existing server project"
     },
+    "feature-auth-login": {
+      "factory": "./src/generators/feature-auth-login/feature-auth-login",
+      "schema": "./src/generators/feature-auth-login/schema.json",
+      "description": "Add sign-in at the authorization server of a FHIR server to the integrated frontend of an existing server project"
+    },
     "preset": {
       "factory": "./src/generators/preset/generator",
       "schema": "./src/generators/preset/schema.json",

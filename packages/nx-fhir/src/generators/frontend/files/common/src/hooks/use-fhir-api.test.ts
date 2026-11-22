@@ -78,6 +78,12 @@ describe("fhirRequestHeaders", () => {
     );
     expect(fhirRequestHeaders(`${server}/metadata`).get("X-Api-Key")).toBe("k");
   });
+
+  it("sends no X-App-Request to another origin in thin mode", () => {
+    expect(fhirRequestHeaders(`${server}/metadata`).has("X-App-Request")).toBe(
+      false,
+    );
+  });
 });
 
 describe("metadata query", () => {
@@ -160,6 +166,18 @@ describe("fhirFetch in proxy mode", () => {
     expect(requestUrl).toBe(`/proxy?url=${encodeURIComponent(url)}`);
     expect(init.headers.get("X-Api-Key")).toBe("k");
     expect(otherInit.headers.get("X-Api-Key")).toBeNull();
+  });
+
+  it("sends X-App-Request to the page origin, through the proxy too", async () => {
+    const { fhirFetch } = await loadApi();
+
+    await fhirFetch(`${thisServer}/Patient`);
+    await fhirFetch(`${payer}/Patient`);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init.headers.get("X-App-Request")).toBe("1");
+    }
   });
 
   it("attaches stored headers to a paging link of This server", async () => {

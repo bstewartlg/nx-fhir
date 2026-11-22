@@ -16,11 +16,15 @@ public class ConfigController {
   public ConfigController(
       FhirServers fhirServers,
       @Value("${app.proxy.enabled:false}") boolean proxyEnabled,
-      @Value("${app.proxy.passthrough:false}") boolean passthrough) throws JsonProcessingException {
+      @Value("${app.proxy.passthrough:false}") boolean passthrough,
+      @Value("${app.login.enabled:false}") boolean loginEnabled) throws JsonProcessingException {
     Map<String, Object> config = new LinkedHashMap<>();
     config.put("fhirServers", fhirServers.entries());
     if (proxyEnabled) {
       config.put("proxy", Map.of("passthrough", passthrough));
+    }
+    if (loginEnabled) {
+      config.put("login", Map.of());
     }
     this.script = "window.APP_CONFIG = " + new JsonMapper().writeValueAsString(config) + ";";
   }

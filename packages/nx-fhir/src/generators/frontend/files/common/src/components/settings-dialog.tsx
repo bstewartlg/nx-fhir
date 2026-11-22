@@ -6,6 +6,7 @@ import {
   headerEditorError,
   validCustomHeaders,
 } from "@/components/header-editor";
+import { SignInSection } from "@/components/sign-in-section";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -90,7 +91,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Server className="h-5 w-5" />
@@ -156,6 +157,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               headersChanged.current = true;
             }}
           />
+
+          <SignInSection key={`sign-in ${serverUrl}`} serverUrl={serverUrl} />
 
           <Separator />
 

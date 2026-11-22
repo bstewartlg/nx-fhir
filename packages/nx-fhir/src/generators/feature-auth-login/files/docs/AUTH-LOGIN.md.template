@@ -1,0 +1,140 @@
+<% const packagePath = packageBase.replace(/\./g, '/'); -%>
+# Auth login
+
+The nx-fhir `auth-login` feature lets a tester sign in at the authorization server of the selected FHIR server. The tester saves the client values in the settings dialog of the integrated frontend, and then signs in from the dialog or from the sign-in page of a `clinical` frontend. The sign-in is a SMART standalone launch with an authorization code and PKCE. This server is the OAuth client. It keeps the client values and the access token in the session of the tester and adds the access token to the requests of the frontend for the signed-in FHIR server.
+
+The feature needs the `frontend-proxy` feature. The sign-in uses the HTTP clients and the `app.proxy` settings of that feature, and the list of FHIR servers in `app.fhir.servers`.
+
+## What the feature adds
+
+The feature adds `LoginController`, `LoginFilter`, `LoginClients`, `IdTokenCheck`, and `LoginSession` under `src/main/java/<%= packagePath %>/login/`. It adds the unit tests `LoginClientsTest`, `LoginFilterTest`, and `LoginControllerTest` and the integration test `AuthLoginIT` under `src/test/java/<%= packagePath %>/login/`. `AuthLoginIT` runs under `mvn verify`. The install also adds the dependency `com.nimbusds:oauth2-oidc-sdk` with version 11.26 to `pom.xml`, and writes each key of the configuration table that has an install value to `application.yaml`.
+
+`LoginController` answers the client call `POST /auth/client`, the status call `GET /auth/status`, the sign-in call `POST /auth/login`, the callback `GET /auth/callback`, and the sign-out call `POST /auth/logout`. The settings dialog sends the client call, the status call, the sign-in call, and the sign-out call. The sign-in page and the header of a `clinical` frontend send the status call, the sign-in call, and the sign-out call. The authorization server sends the browser to the callback.
+
+## Configuration
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `app.login.enabled` | `false` when absent. The install writes `true`. | Master switch. When `false`, the five `/auth` endpoints return 404, `LoginFilter` adds no token to a request, and `/config.js` has no `login` object. |
+| `app.login.ssl-verify` | `true`. The install writes `true`. | When `false`, the calls for this server, the listed servers, and their authorization servers accept each certificate and each host name. With `app.login.enabled: true`, this server then writes one WARN line at startup. Read the warning in the section "Which servers". |
+| `server.servlet.session.cookie.same-site` | The install writes `lax`. | The browser sends the session cookie with the return from the authorization server, which comes from a different site. |
+| `server.servlet.session.tracking-modes` | The install writes `cookie`. | This server reads the session id from the cookie only. A session id in the URL has no effect. |
+| `app.proxy.passthrough` | `false` | Permits sign-in at a server that the tester types as a custom URL. |
+| `app.proxy.connect-timeout` | `5s` | Connect timeout for each call of the sign-in. |
+| `app.proxy.read-timeout` | `60s` | Read timeout for each call of the sign-in. |
+
+## Sign-in
+
+The settings dialog has a sign-in section for the selected FHIR server when `/config.js` has the `proxy` object and the `login` object. The section appears when the FHIR server offers sign-in, when the tester is signed in at that FHIR server, when a sign-in error is present, or when this server refuses the sign-in because of the `http` rule in "Which servers". For that refusal, the section shows the reason. On a page that is not a secure context, for example an `http` page on a host that is not local, the section shows a sentence that the sign-in needs `https` in place of the sign-in form. The page then has no field for the client secret.
+
+A FHIR server offers sign-in when `GET {fhirBase}/.well-known/smart-configuration` answers with status 200 and a SMART configuration in JSON that has an `authorization_endpoint` and a `token_endpoint`. The URL has one slash before `.well-known` also for a base that ends in a slash. Each endpoint must be an absolute URL that obeys the `http` rule in "Which servers" after this server resolves it. When the SMART configuration has an `issuer` or a `jwks_uri`, the same rule applies to that value. This server offers sign-in for itself only when it serves `/fhir/.well-known/smart-configuration`, for example with the `auth-smart` feature.
+
+Before the sign-in, the section shows these items and a Save button:
+
+- The authorization endpoint and the token endpoint, as this server resolved them.
+- The client id.
+- The client secret. When the saved client values have a secret and the client id field has the saved client id, the empty field shows "Empty keeps the saved secret". Else it shows "Empty for a public client".
+- The scopes, with the start value `openid fhirUser launch/patient patient/*.rs`.
+- The callback URL `{origin}/auth/callback`, where `{origin}` is the origin of the page. Register this URL at the authorization server.
+
+The Save button sends the client call with `server`, `clientId`, `clientSecret`, and `scope` in JSON. The client id and the scopes must not be empty, else this server answers 400. When `clientSecret` is empty or absent and the session holds client values for that FHIR server with the same client id, this server keeps the saved secret. In each other case, an empty or absent `clientSecret` makes a public client. A `clientSecret` with a value replaces the saved secret. The `server` value has the rules of "Which servers", and this server refuses a value that breaks them with status 400 or 403. The client call reads no SMART configuration and sends no request to another server. It starts the session when there is none, changes the session id, and keeps the client values for that FHIR server in the session. The session holds one set of client values for each FHIR server, and a second save for the same FHIR server replaces the first. The answer is 204.
+
+The frontend keeps the client id and the scopes in the browser storage for each FHIR server. It does not keep the client secret. After the save, the secret field is empty.
+
+When the session holds client values for the FHIR server, the status call answers with `client`, which has `clientId`, `scope`, and `hasSecret`, and never the secret. `hasSecret` is true when the saved client values have a client secret. The section then shows the saved client id, the line "Saved client secret:" with "yes" or "none", the saved scopes, and a Sign in button.
+
+The Sign in button sends the sign-in call, with the authorization endpoint and the token endpoint that the section shows. The sign-in uses the client values that the session holds for that FHIR server. The sign-in call takes no client values. When the session holds none, this server answers 400 with the reason. When this server reads other endpoints at the sign-in call, it answers with status 409 and starts no sign-in. After each failed sign-in call, the frontend shows the reason and sends the status call. The section and the sign-in page then show the state of that answer. With equal endpoints, the browser goes to the authorization endpoint. The request has `response_type=code`, the client id, the callback URL, the scopes, a `state` value, `aud` with the FHIR base URL, and a PKCE `code_challenge` with the method `S256`.
+
+At the callback, this server checks the `state` value. A callback with a different `state` gets status 400 and leaves the pending sign-in in the session. A callback with no pending sign-in also gets status 400. When the callback has a code, this server sends the code to the token endpoint. With a client secret, the token call uses HTTP Basic. With an empty secret, the token call sends `client_id` in the form body and has no `Authorization` header. The token type must be `bearer`. After the token call, or after an error from the authorization server, this server sends the browser to `/`. When the sign-in fails, the frontend shows the reason one time. A `browser` frontend shows it in the section. A `clinical` frontend shows it on the sign-in page, or in one line above the app content when the FHIR server does not answer 401 to the count request.
+
+After the sign-in, the section shows the user, the patient, the granted scopes, and the expiry time, each when this server knows it. When the token response has no `scope`, the granted scopes are the requested scopes. When the token response has no `expires_in`, the access token stays until sign-out or the end of the session, and the section shows no expiry time.
+
+The Sign out button removes the access token of that FHIR server from the session and keeps the client values, so a later sign-in needs no secret from the tester. This server sends no request to the authorization server at sign-out.
+
+## Sign-in page of the `clinical` template
+
+A `clinical` frontend sends `GET {fhirBase}/Patient?_summary=count` for the selected FHIR server. When the answer is 401, the frontend shows the sign-in page in place of the app content. The header and the navigation stay. While the first answer is pending, the content area is empty. Each other answer shows the app content.
+
+The page has the heading "Sign in" and the sentence "This FHIR server requires authorization." The page then shows one of these items:
+
+- When the FHIR server offers sign-in and the session holds client values: the authorization endpoint, the token endpoint, the saved client id, and a Sign in button. On a page that is not a secure context, the sentence that the sign-in needs `https` replaces the button.
+- When the FHIR server offers sign-in and the session holds no client values: the sentence "Save a client id and scopes for this server in the settings." and an Open settings button, which opens the settings dialog. On a page that is not a secure context, the sentence that the sign-in needs `https` replaces the sentence and the button, because the settings dialog then has no form.
+- When the FHIR server offers no sign-in, or `/config.js` has no `login` object: the sentence "The app found no sign-in for this server." When this server refuses the sign-in because of the `http` rule in "Which servers", the page also shows the reason.
+
+The callback sends the browser to `/`. After a failed sign-in, the page shows the reason one time. When the count request does not answer 401, the reason shows one time in one line above the app content.
+
+When a later FHIR request answers 401, for example after the access token expired, the frontend repeats the count request. A 401 answer then shows the page.
+
+After a sign-in, the header shows "Signed in as" with the `fhirUser` value, or "Signed in" when the user is not known, and a Sign out button. After a sign-out, and when the access token expires, the frontend repeats the count request and the status call.
+
+The `browser` template has no sign-in page.
+
+## Which servers
+
+The sign-in works for three kinds of FHIR server:
+
+1. This server. It reads `http://127.0.0.1:{port}/fhir/.well-known/smart-configuration` through the loopback address, where `{port}` is the local port of the request. A relative `token_endpoint` or `jwks_uri` resolves against `http://127.0.0.1:{port}/fhir`. A relative `authorization_endpoint` resolves against `{origin}/fhir`, which is also the FHIR base URL and the `aud` value. The authorization server can be an internal host.
+2. A listed server, which is an absolute URL under an entry of `app.fhir.servers`. A listed server and its authorization server can be internal hosts, as for the proxy.
+3. A typed server, which the tester types as a custom URL. A typed server needs `app.proxy.passthrough: true`. Each call for a typed server goes through the guard of the proxy. The FHIR server, the token endpoint, the OpenID document, and the key set must then have public addresses.
+
+This server refuses each other absolute URL with status 403. It refuses a value that is not an absolute `http` or `https` URL with status 400. A URL with a query or a fragment also gets status 400. A root-relative entry of `app.fhir.servers` other than `/fhir` has no sign-in.
+
+A relative endpoint of a listed or a typed server resolves with the rule of RFC 3986 against the server URL as the frontend sends it, with its trailing slash if it has one. `oauth/token` against `https://ehr.example.org/fhir/` gives `https://ehr.example.org/fhir/oauth/token`, and against `https://ehr.example.org/fhir` gives `https://ehr.example.org/oauth/token`. The discovery URL and the token set in the session use the URL with no trailing slash, so `https://ehr.example.org/fhir` and `https://ehr.example.org/fhir/` share one sign-in.
+
+This server accepts plain `http` only when the host is `localhost`, a name that ends in `.localhost`, or a loopback IP address (`127.0.0.0/8` or `::1`). The host check does no DNS lookup. A URL on a different host must use `https`. The rule applies to the URL of a listed or a typed FHIR server and to the `Origin` header of the sign-in call. It also applies to each endpoint, OpenID document, and key set URL after this server resolves it. For a server URL that breaks the rule, the status call answers 200 with `offered: false`, the reason, and `plainHttp: true`. The client call, the sign-in call, and the sign-out call answer 400 for that URL. For an endpoint that breaks the rule, the status call answers with `offered: false`, the reason, and `plainHttp: true`. An `Origin` header that breaks the rule gets status 400 with the reason. This server refuses an endpoint that breaks the rule, and all other schemes, before the browser goes to the authorization server.
+
+The sign-in reads at most 1 MiB of each response. A larger response fails the read.
+
+WARNING: On plain `http`, the client secret, the authorization code, and the access token travel in clear text.
+
+WARNING: With `app.login.ssl-verify: false`, the sign-in trusts each certificate and each host name of this server, the listed servers, and their authorization servers. The calls for a typed server always check the certificate and the host name. The signature check of an ID token then proves nothing, because a different host can answer the request for the key set. Use this only for a test deployment.
+
+## Token use
+
+`LoginFilter` runs on `/fhir/*` and `/proxy`. It adds `Authorization: Bearer <token>` to a request that has a session, has the request proof, and has no `Authorization` header of its own:
+
+- A request for `/fhir/*` gets the access token of this server.
+- A request for `/proxy` gets the access token of the signed-in FHIR server that the destination is under, with the rule of the proxy for a listed server. When more than one signed-in FHIR server matches, the FHIR server with the longest base path gives the access token. A destination under no signed-in FHIR server gets no access token.
+
+An `Authorization` header that the tester types in the custom headers of the settings dialog wins over the access token of the session. `LoginFilter` runs before HAPI FHIR, so the token check of the `auth-resource` feature sees a normal bearer request.
+
+When the access token expires, this server removes it at the next use. Requests then go without the access token, and the section shows the sign-in form when the FHIR server offers sign-in.
+
+## Identity
+
+The section shows the `fhirUser` claim of the ID token as the user, and the `patient` value of the token response as the patient. When the granted scopes have a `patient/` scope and the token response has no `patient`, the section shows a warning.
+
+This server validates an ID token only when the SMART configuration has an `issuer`. With no `issuer`, this server drops the ID token, and the section shows no user. The validation checks these items:
+
+- `iss` is equal to the `issuer` of the SMART configuration.
+- `aud` has exactly one value, the client id.
+- The ID token has not expired.
+- The signature uses an RSA or an EC algorithm and matches a key of the key set. This server refuses `none` and each HMAC algorithm.
+
+The key set comes from the `jwks_uri` of the SMART configuration. When there is none, it comes from the `jwks_uri` of the OpenID document `{issuer}/.well-known/openid-configuration`, and the `issuer` of the OpenID document must be equal to the expected issuer. This server removes one trailing slash from the issuer before it adds `/.well-known/openid-configuration`. An ID token that fails a check fails the sign-in.
+
+A relative `fhirUser`, such as `Patient/123`, goes under the FHIR base URL: `{fhirBase}/Patient/123`, with one slash also for a base that ends in a slash.
+
+## Session and cookie
+
+This server keeps the sign-in state in the servlet session, in memory. A restart of this server signs each tester out and removes the client values. The session starts at the client call. The status call, the sign-in call, the callback, the sign-out call, and `LoginFilter` create no session.
+
+The session holds one set of client values for each FHIR server, one pending sign-in, and one token set for each FHIR server. The client values stay in the session until a save for the same FHIR server or the end of the session. The client secret stays until a save for the same FHIR server with a different client id or with a secret, or until the end of the session. The client secret is in server memory only. It is in no answer and no log line. When the tester starts a second sign-in in the same session, it replaces the pending sign-in. The pending sign-in holds its own copy of the client values and leaves the session at the callback that has its `state`. A token set holds the access token, the expiry time, the granted scopes, the patient, and the user. This server does not keep a refresh token.
+
+The session id changes at the client call, when a sign-in starts, and after a successful token call.
+
+The session cookie of the servlet container holds the session id only. It has the `HttpOnly` and `SameSite=Lax` attributes. Behind a reverse proxy that ends TLS, the cookie has the `Secure` attribute, because the `frontend-proxy` install writes `server.forward-headers-strategy: native`.
+
+## Request proof
+
+The client call, the status call, the sign-in call, the sign-out call, and `LoginFilter` each need proof that the frontend sent the request. A request has this proof when it has the header `X-App-Request`, and its `Sec-Fetch-Site` header, when present, has the value `same-origin`. A browser sends `Sec-Fetch-Site` only to `https` addresses, to `localhost`, and to loopback IP addresses.
+
+The frontend sends `X-App-Request: 1` with each of its requests to the origin of the page. It sends the header to no other origin. The proxy does not forward the header to another server.
+
+Without the proof, the client call, the status call, the sign-in call, and the sign-out call return 403, and `LoginFilter` adds no access token. The callback needs no proof. This server checks its `state` value.
+
+WARNING: `X-App-Request` or `*` in `hapi.fhir.cors.allowed_headers`, or in the allowed headers of `GlobalCorsConfiguration`, lets a page of another origin send the header. The request proof then rests on `Sec-Fetch-Site` alone.
+
+## Development mode
+
+The Vite server of the frontend forwards `/auth` to `DEV_SERVER_URL`, together with `/proxy`, `/config.js`, and `/fhir`. The session cookie and the callback then stay on the Vite origin. The callback URL that the settings dialog shows has the Vite origin, so register that URL at the authorization server too.

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "FeatureAuthLogin",
+  "title": "auth-login Feature Generator",
+  "description": "Adds sign-in at the authorization server of a FHIR server to the integrated frontend of an existing HAPI FHIR server",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Name of the Nx server project to add the feature to"
+    }
+  }
+}

@@ -178,10 +178,18 @@ export const frontendProxyFeature: FeatureDefinition = {
     }
 
     // The pom and yaml edits come before the other writes, because each of them can refuse.
-    // Each refuses before its own write. A yaml refusal puts back the pom bytes, so a refusal
-    // leaves the tree unchanged.
+    // Each refuses before its own write. A yaml refusal puts back the pom bytes and the yaml
+    // bytes, so a refusal leaves the tree unchanged.
     const pomPath = path.join(project.root, 'pom.xml');
+    const yamlPath = path.join(
+      project.root,
+      'src',
+      'main',
+      'resources',
+      'application.yaml',
+    );
     const pomBefore = tree.read(pomPath) as Buffer;
+    const yamlBefore = tree.read(yamlPath);
     addPomDependency(tree, pomPath, DEPENDENCY_XML);
     try {
       updateServerYaml(project.root, tree, 'app.proxy.enabled', true);
@@ -191,8 +199,19 @@ export const frontendProxyFeature: FeatureDefinition = {
         'app.proxy.passthrough',
         options.passthrough,
       );
+      // Behind a proxy that ends TLS, the server then sees the https origin of the page, and the
+      // CORS check of /proxy accepts its Origin header.
+      updateServerYaml(
+        project.root,
+        tree,
+        'server.forward-headers-strategy',
+        'native',
+      );
     } catch (error) {
       tree.write(pomPath, pomBefore);
+      if (yamlBefore !== null) {
+        tree.write(yamlPath, yamlBefore);
+      }
       throw error;
     }
 

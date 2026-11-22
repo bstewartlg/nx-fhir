@@ -7,6 +7,7 @@ import {
   getStoredServerHeaders,
   sanitizeCustomHeaders,
   setStoredServerHeaders,
+  toAuthServer,
 } from "./fhir-config";
 
 const origin = window.location.origin;
@@ -70,6 +71,19 @@ describe("toRequestUrl", () => {
       );
     } finally {
       jsdom.reconfigure({ url: `${origin}/` });
+    }
+  });
+});
+
+describe("toAuthServer", () => {
+  it("sends /fhir for This server, the URL for another origin, and nothing for another path of the page origin", () => {
+    expect(toAuthServer(`${origin}/fhir`)).toBe("/fhir");
+    expect(toAuthServer(payer)).toBe(payer);
+    expect(toAuthServer("//payer.example.org/fhir")).toBe(
+      `${window.location.protocol}//payer.example.org/fhir`,
+    );
+    for (const url of [`${origin}/other/fhir`, "/other/fhir", "http://["]) {
+      expect(toAuthServer(url)).toBeUndefined();
     }
   });
 });

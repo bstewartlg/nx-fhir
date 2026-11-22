@@ -19,8 +19,11 @@ On HAPI 8.12, the `httpclient5` dependency makes Apache HttpClient 5 the default
 | `app.proxy.passthrough` | `false` | Permits requests to servers that are not listed. Read the warning in the passthrough section first. |
 | `app.proxy.connect-timeout` | `5s` | Connect timeout for both HTTP clients. |
 | `app.proxy.read-timeout` | `60s` | Read timeout for both HTTP clients. |
+| `server.forward-headers-strategy` | The install writes `native`. | Tomcat reads the `X-Forwarded-*` headers of a request from a trusted proxy. |
 
-Behind a reverse proxy that ends TLS, set `server.forward-headers-strategy`, for example to `framework`. The application then sees the scheme that the browser sent, and `/proxy` accepts the `Origin` header of the page.
+The install writes `server.forward-headers-strategy: native`. Behind a reverse proxy that ends TLS, Tomcat then takes the scheme, the host, the port, and the remote address of a request from the `X-Forwarded-*` headers that the proxy sends. The application sees the `https` origin of the page, and `/proxy` accepts the `Origin` header of the page. A request with no forwarded headers is unchanged.
+
+The key applies to each request of the server. The links and the `Location` header that HAPI writes carry the public `https` base. When `hapi.fhir.server_address` is set, that value decides the URLs that HAPI writes. Tomcat takes the forwarded headers only from a trusted proxy address. By default, the trusted addresses are the private, loopback, and link-local ranges. The property `server.tomcat.remoteip.internal-proxies` changes this list.
 
 ### Listed servers
 
@@ -50,4 +53,4 @@ The guarded client connects to the destination directly and ignores the JVM HTTP
 
 ## Development mode
 
-The Vite server of the frontend reads `DEV_SERVER_URL` from `.env.development` and forwards `/proxy`, `/config.js`, and `/fhir` to that address. Change the value if this server uses a port other than 8080.
+The Vite server of the frontend reads `DEV_SERVER_URL` from `.env.development` and forwards `/proxy`, `/config.js`, `/fhir`, and `/auth` to that address. Change the value if this server uses a port other than 8080.

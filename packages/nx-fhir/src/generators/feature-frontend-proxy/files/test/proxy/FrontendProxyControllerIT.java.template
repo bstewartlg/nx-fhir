@@ -179,15 +179,17 @@ class FrontendProxyControllerIT {
 				.header("Origin", origin())
 				.header("Referer", origin() + "/patients")
 				.header("X-Forwarded-For", "203.0.113.7")
-				.header("X-Forwarded-Host", "evil.example")
+				// Tomcat takes a forwarded host from a loopback address, and the CORS mapping of /proxy compares it with Origin.
+				.header("X-Forwarded-Host", "localhost:" + port)
 				.header("Forwarded", "for=203.0.113.7")
 				.header("Sec-Fetch-Site", "same-origin")
 				.header("Sec-Ch-Ua", "\"Chromium\";v=\"140\"")
+				.header("X-App-Request", "1")
 				.header("Authorization", "Bearer browser-token"));
 		assertEquals(200, response.statusCode());
 		Headers headers = LISTED.only().headers();
 		for (String name : List.of("Cookie", "Origin", "Referer", "X-Forwarded-For", "X-Forwarded-Host", "Forwarded",
-				"Sec-Fetch-Site", "Sec-Ch-Ua")) {
+				"Sec-Fetch-Site", "Sec-Ch-Ua", "X-App-Request")) {
 			assertFalse(headers.containsKey(name), name);
 		}
 		assertEquals("Bearer browser-token", headers.getFirst("Authorization"));

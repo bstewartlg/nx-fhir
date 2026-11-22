@@ -52,7 +52,8 @@ public final class ProxyHttpClients {
 
 	// A retry of a 429 or 503 response waits for the Retry-After value of the upstream. Authentication with
 	// system properties can send credentials of a JVM Authenticator to the upstream.
-	private static HttpComponentsClientHttpRequestFactoryBuilder base() {
+	/** The builder of both clients. */
+	public static HttpComponentsClientHttpRequestFactoryBuilder base() {
 		return ClientHttpRequestFactoryBuilder.httpComponents()
 				.withHttpClientCustomizer(client -> client
 						.disableCookieManagement()

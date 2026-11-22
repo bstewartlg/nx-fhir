@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Bundle, Condition, MedicationRequest, Patient } from "fhir/r4";
-import { fhirFetch } from "./use-fhir-api";
+import { type FhirError, fhirFetch } from "./use-fhir-api";
 import { useFhirServer } from "./use-fhir-server";
 
 interface PatientSearchParams {
@@ -8,6 +8,30 @@ interface PatientSearchParams {
   given?: string;
   birthdate?: string;
   identifier?: string;
+}
+
+// A FHIR id cannot hold "=", so this key never matches the key of a Patient read
+export function patientCountKey(serverUrl: string) {
+  return ["fhir", "Patient", "_summary=count", serverUrl];
+}
+
+/**
+ * True when the server answers 401 to a small Patient count request. Each
+ * other outcome gives false. The query never fails, so its data stays during
+ * a refetch.
+ */
+export function useRequiresAuthorization() {
+  const { serverUrl } = useFhirServer();
+
+  return useQuery({
+    queryKey: patientCountKey(serverUrl),
+    queryFn: () =>
+      fhirFetch<Bundle>(`${serverUrl}/Patient?_summary=count`).then(
+        () => false,
+        (error: FhirError) => error.status === 401,
+      ),
+    enabled: !!serverUrl,
+  });
 }
 
 export function usePatientSearch(params: PatientSearchParams) {
