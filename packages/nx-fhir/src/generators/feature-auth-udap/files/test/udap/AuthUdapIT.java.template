@@ -1,6 +1,8 @@
 package <%= packageBase %>.udap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import <%= applicationClassFqn %>;
 import <%= packageBase %>.auth.TestCertificates;
@@ -14,6 +16,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.nio.file.Path;
+import java.security.KeyStore;
+import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,6 +25,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.ActiveProfiles;
@@ -79,6 +85,9 @@ class AuthUdapIT {
 	@LocalServerPort
 	private int port;
 
+	@Autowired
+	private ObjectProvider<KeyStore.PrivateKeyEntry> udapCertificate;
+
 	@DynamicPropertySource
 	static void issuerAndCertificate(DynamicPropertyRegistry registry) throws Exception {
 		registry.add("app.auth.issuer", ISSUER::url);
@@ -108,6 +117,9 @@ class AuthUdapIT {
 		assertEquals(200, community.statusCode(), community.body());
 		assertEquals(metadata.keySet(), JSON.readValue(community.body(), MAP).keySet());
 		assertEquals(1, ISSUER_UDAP_READS.get());
+		KeyStore.PrivateKeyEntry entry = udapCertificate.getIfAvailable();
+		assertNotNull(entry);
+		assertTrue(((X509Certificate) entry.getCertificate()).getSubjectAlternativeNames().contains(List.of(6, BASE_URL)));
 	}
 
 	private HttpRequest.Builder udap(String suffix) {

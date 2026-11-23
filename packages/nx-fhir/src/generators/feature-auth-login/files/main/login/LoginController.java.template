@@ -2,6 +2,7 @@ package <%= packageBase %>.login;
 
 import <%= packageBase %>.login.IdTokenCheck.RejectedException;
 import <%= packageBase %>.login.LoginClients.Discovery;
+import <%= packageBase %>.login.LoginClients.IssuerKeys;
 import <%= packageBase %>.login.LoginClients.PlainHttpException;
 import <%= packageBase %>.login.LoginClients.RefusedServerException;
 import <%= packageBase %>.login.LoginClients.Target;
@@ -9,6 +10,9 @@ import <%= packageBase %>.login.LoginSession.Client;
 import <%= packageBase %>.login.LoginSession.ClientAuth;
 import <%= packageBase %>.login.LoginSession.Pending;
 import <%= packageBase %>.login.LoginSession.TokenSet;
+import <%= packageBase %>.login.UdapClient.Endpoints;
+import <%= packageBase %>.login.UdapClient.Offer;
+import <%= packageBase %>.login.UdapClient.RefusedException;
 import <%= packageBase %>.proxy.PublicAddresses.BlockedAddressException;
 import com.nimbusds.oauth2.sdk.AccessTokenResponse;
 import com.nimbusds.oauth2.sdk.AuthorizationCode;
@@ -36,7 +40,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -73,6 +79,9 @@ public class LoginController {
 	static final String NOT_ENABLED = "Sign-in is not enabled";
 	static final String NO_PROOF = "The request does not show that the app sent it";
 
+	private static final String ENDPOINTS_CHANGED =
+			"The endpoints of the authorization server changed. Read the endpoints and sign in again.";
+
 	private static final MediaType PLAIN_TEXT = new MediaType("text", "plain", StandardCharsets.UTF_8);
 
 	// RFC 6454: a scheme, a host, and an optional port. A path, a query, or user information would go into the
@@ -84,14 +93,17 @@ public class LoginController {
 
 	private final LoginClients clients;
 	private final IdTokenCheck idTokens;
+	private final UdapClient udap;
 	private final boolean enabled;
 
 	public LoginController(
 			LoginClients clients,
 			IdTokenCheck idTokens,
+			UdapClient udap,
 			@Value("${app.login.enabled:false}") boolean enabled) {
 		this.clients = clients;
 		this.idTokens = idTokens;
+		this.udap = udap;
 		this.enabled = enabled;
 	}
 
@@ -128,6 +140,17 @@ public class LoginController {
 				out.put("plainHttp", true);
 			}
 		}
+		if (udap.certificate().isPresent()) {
+			try {
+				udap.offer(target).ifPresent(offer -> out.put("udap", Map.of("offered", true,
+						"authorizationEndpoint", offer.endpoints().authorization(),
+						"tokenEndpoint", offer.endpoints().token(),
+						"registrationEndpoint", offer.endpoints().registration(),
+						"clientUri", offer.clientUri())));
+			} catch (RefusedException e) {
+				out.put("udap", Map.of("offered", false, "reason", e.getMessage()));
+			}
+		}
 		Optional<LoginSession> login = LoginSession.find(request.getSession(false));
 		Optional<TokenSet> tokens = login.flatMap(session -> session.forTarget(target));
 		out.put("signedIn", tokens.isPresent());
@@ -139,15 +162,18 @@ public class LoginController {
 			out.put("patientMissing", set.patientMissing());
 		});
 		// Only these values go into the answer, so the secret never leaves the session.
-		login.flatMap(session -> session.client(target)).ifPresent(client -> out.put("client", Map.of("clientId",
-				client.clientId(), "scope", client.scope(), "hasSecret", client.clientAuth() == ClientAuth.BASIC)));
+		login.flatMap(session -> session.client(target)).ifPresent(client -> out.put("client", client.udap()
+				? Map.of("method", "udap", "scope", client.scope())
+				: Map.of("method", "client", "clientId", client.clientId(), "scope", client.scope(), "hasSecret",
+						client.clientAuth() == ClientAuth.BASIC)));
 		login.map(session -> session.takeError(server)).ifPresent(error -> out.put("error", error));
 		return ResponseEntity.ok(out);
 	}
 
 	/**
 	 * Keeps the client values for the server in the session. An empty secret keeps the saved secret when the saved
-	 * client id is equal, else it saves a public client. Reads no discovery document and calls no server.
+	 * client id is equal, else it saves a public client. A save of method udap sets the method and the scope and
+	 * keeps the saved client id and secret. Reads no discovery document and calls no server.
 	 */
 	@PostMapping("/auth/client")
 	public ResponseEntity<Object> saveClient(HttpServletRequest request, @RequestBody Map<String, String> body) {
@@ -157,10 +183,16 @@ public class LoginController {
 		if (!LoginFilter.hasProof(request)) {
 			return refuse(403, NO_PROOF);
 		}
+		// An absent method is the method client.
+		String method = Objects.requireNonNullElse(body.get("method"), "client");
+		if (!method.equals("client") && !method.equals("udap")) {
+			return refuse(400, "The method must be client or udap");
+		}
+		boolean udapMethod = method.equals("udap");
 		String clientId = body.get("clientId");
 		String scope = body.get("scope");
-		if (clientId == null || clientId.isBlank() || scope == null || scope.isBlank()) {
-			return refuse(400, "The client id and the scope must not be empty");
+		if (!udapMethod && (clientId == null || clientId.isBlank()) || scope == null || scope.isBlank()) {
+			return refuse(400, udapMethod ? "The scope must not be empty" : "The client id and the scope must not be empty");
 		}
 		Target target;
 		try {
@@ -174,11 +206,17 @@ public class LoginController {
 		HttpSession session = request.getSession(true);
 		request.changeSessionId();
 		LoginSession login = LoginSession.of(session);
+		Optional<Client> saved = login.client(target);
+		if (udapMethod) {
+			login.putClient(new Client(target.kind(), target.fhirBaseWithoutSlash(), saved.map(Client::clientId).orElse(""),
+					saved.map(Client::secret).orElse(""), scope, true));
+			return ResponseEntity.noContent().build();
+		}
 		// The browser does not hold the saved secret, so it cannot send that secret with a second save.
 		if (secret == null || secret.isEmpty()) {
-			secret = login.client(target).filter(saved -> saved.clientId().equals(clientId)).map(Client::secret).orElse("");
+			secret = saved.filter(client -> client.clientId().equals(clientId)).map(Client::secret).orElse("");
 		}
-		login.putClient(new Client(target.kind(), target.fhirBaseWithoutSlash(), clientId, secret, scope));
+		login.putClient(new Client(target.kind(), target.fhirBaseWithoutSlash(), clientId, secret, scope, false));
 		return ResponseEntity.noContent().build();
 	}
 
@@ -213,22 +251,58 @@ public class LoginController {
 		if (client == null) {
 			return refuse(400, "The session has no client values for this server. Save them first.");
 		}
-		Discovery discovery;
-		try {
-			discovery = clients.discover(target);
-		} catch (Exception e) {
-			return refuse(502, discoveryFailure(e));
-		}
-		// The sign-in and the client secret go only to the endpoints that the dialog showed. A server can name
-		// other endpoints in this read than in the read of the status call.
-		if (!discovery.authorize().toString().equals(body.get("authorizationEndpoint"))
-				|| !discovery.token().toString().equals(body.get("tokenEndpoint"))) {
-			return refuse(409, "The endpoints of the authorization server changed. Read the endpoints and sign in again.");
-		}
 		URI redirectUri = URI.create(origin + "/auth/callback");
+		String clientId;
+		Discovery discovery;
+		if (client.udap()) {
+			Offer offer;
+			try {
+				offer = udap.offer(target).orElse(null);
+			} catch (RefusedException e) {
+				return refuse(502, e.getMessage());
+			}
+			if (offer == null) {
+				return refuse(400, "No UDAP sign-in is offered for this server");
+			}
+			// The registration, the sign-in, and the client assertion go only to the endpoints that the dialog showed.
+			Endpoints endpoints = offer.endpoints();
+			if (!endpoints.authorization().equals(body.get("authorizationEndpoint"))
+					|| !endpoints.token().equals(body.get("tokenEndpoint"))
+					|| !endpoints.registration().equals(body.get("registrationEndpoint"))) {
+				return refuse(409, ENDPOINTS_CHANGED);
+			}
+			Optional<IssuerKeys> issuer;
+			try {
+				issuer = clients.issuer(target);
+			} catch (IllegalArgumentException e) {
+				return refuse(502, "The issuer or the jwks_uri of the SMART configuration of the server is not an https"
+						+ " URL, or an http URL on localhost or a loopback address");
+			}
+			try {
+				clientId = udap.register(target, offer, redirectUri, client.scope());
+			} catch (RefusedException e) {
+				return refuse(502, e.getMessage());
+			}
+			discovery = new Discovery(URI.create(endpoints.authorization()), endpoints.authorization(),
+					URI.create(endpoints.token()), endpoints.token(), List.of(),
+					issuer.map(IssuerKeys::issuer).orElse(null), issuer.map(IssuerKeys::jwksUri).orElse(null));
+		} else {
+			try {
+				discovery = clients.discover(target);
+			} catch (Exception e) {
+				return refuse(502, discoveryFailure(e));
+			}
+			// The sign-in and the client secret go only to the endpoints that the dialog showed. A server can name
+			// other endpoints in this read than in the read of the status call.
+			if (!discovery.authorize().toString().equals(body.get("authorizationEndpoint"))
+					|| !discovery.token().toString().equals(body.get("tokenEndpoint"))) {
+				return refuse(409, ENDPOINTS_CHANGED);
+			}
+			clientId = client.clientId();
+		}
 		State state = new State();
 		CodeVerifier verifier = new CodeVerifier();
-		URI authorizeUrl = new AuthorizationRequest.Builder(ResponseType.CODE, new ClientID(client.clientId()))
+		URI authorizeUrl = new AuthorizationRequest.Builder(ResponseType.CODE, new ClientID(clientId))
 				.endpointURI(discovery.authorize())
 				.redirectionURI(redirectUri)
 				.scope(Scope.parse(client.scope()))
@@ -240,8 +314,8 @@ public class LoginController {
 		// A session id that a different site planted in the browser must never hold a sign-in, so the id changes.
 		HttpSession session = request.getSession(true);
 		request.changeSessionId();
-		LoginSession.of(session).start(new Pending(body.get("server"), target, client.clientId(), client.clientAuth(),
-				client.secret(), client.scope(), redirectUri, state, verifier, discovery));
+		LoginSession.of(session).start(new Pending(body.get("server"), target, clientId, client.clientAuth(),
+				client.udap() ? null : client.secret(), client.scope(), redirectUri, state, verifier, discovery));
 		return ResponseEntity.ok(Map.of("authorizeUrl", authorizeUrl.toString()));
 	}
 
@@ -360,15 +434,21 @@ public class LoginController {
 	}
 
 	// Method basic sends the client id and the secret in HTTP Basic. Method none is a public client and sends
-	// the client id in the body.
-	private static TokenRequest tokenRequest(Pending pending, String code) {
+	// the client id in the body. Method udap sends a client assertion that the certificate of this app signs, with
+	// the signed token_endpoint as published for aud, and udap=1.
+	private TokenRequest tokenRequest(Pending pending, String code) {
 		AuthorizationCodeGrant grant = new AuthorizationCodeGrant(new AuthorizationCode(code), pending.redirectUri(),
 				pending.verifier());
 		ClientID clientId = new ClientID(pending.clientId());
 		URI endpoint = pending.discovery().token();
-		return pending.clientAuth() == ClientAuth.BASIC
-				? new TokenRequest(endpoint, new ClientSecretBasic(clientId, new Secret(pending.secret())), grant, null)
-				: new TokenRequest(endpoint, clientId, grant, null);
+		return switch (pending.clientAuth()) {
+			case BASIC -> new TokenRequest(endpoint, new ClientSecretBasic(clientId, new Secret(pending.secret())), grant, null);
+			case NONE -> new TokenRequest(endpoint, clientId, grant, null);
+			case UDAP -> new TokenRequest.Builder(endpoint,
+					udap.assertion(pending.clientId(), pending.discovery().tokenPublished()), grant)
+					.customParameter("udap", "1")
+					.build();
+		};
 	}
 
 	// A same-origin GET has no Origin header, so the origin then comes from the request URL. Only the own server
@@ -420,7 +500,7 @@ public class LoginController {
 		return "The server URL uses plain http. " + e.getMessage();
 	}
 
-	private static String errorCode(String code) {
+	static String errorCode(String code) {
 		return code != null && ERROR_CODE.matcher(code).matches() ? ": " + code : "";
 	}
 

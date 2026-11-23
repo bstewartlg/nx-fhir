@@ -9,12 +9,20 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { toAuthServer } from "@/lib/fhir-config";
 import {
   getSignInStatus,
   getStoredSignInFields,
   isSignInAvailable,
+  type SignInMethod,
   type SignInStatus,
   saveClient,
   setStoredSignInFields,
@@ -99,18 +107,32 @@ interface SignInPartProps {
 
 /**
  * Starts the sign-in with the client values that the session holds for
- * `server`. A page that is not a secure context shows a sentence in place of
- * the button.
+ * `server`. With `udapScope`, the button first saves the UDAP values with that
+ * scope. A page that is not a secure context shows a sentence in place of the
+ * button.
  */
-export function SignInButton({ server, status }: SignInPartProps) {
+export function SignInButton({
+  server,
+  status,
+  udapScope,
+}: SignInPartProps & { udapScope?: string }) {
   const queryClient = useQueryClient();
   const signIn = useMutation({
-    mutationFn: () =>
-      startSignIn({
+    mutationFn: async () => {
+      if (udapScope !== undefined) {
+        await saveClient({ server, method: "udap", scope: udapScope });
+      }
+      const udap = udapScope !== undefined || status.client?.method === "udap";
+      const endpoints = udap ? status.udap : status;
+      return startSignIn({
         server,
-        authorizationEndpoint: status.authorizationEndpoint ?? "",
-        tokenEndpoint: status.tokenEndpoint ?? "",
-      }),
+        authorizationEndpoint: endpoints?.authorizationEndpoint ?? "",
+        tokenEndpoint: endpoints?.tokenEndpoint ?? "",
+        ...(udap && {
+          registrationEndpoint: status.udap?.registrationEndpoint ?? "",
+        }),
+      });
+    },
     onSuccess: (authorizeUrl) => window.location.assign(authorizeUrl),
     // The status can differ after a failed start, for example other endpoints
     // after a 409 or no client values after a restart of the server
@@ -164,22 +186,129 @@ export function SignOutButton({ server }: { server: string }) {
   );
 }
 
+/**
+ * The select of the method shows when the server offers both sign-ins. Its
+ * start value is the stored method, else UDAP.
+ */
 function SignInForm({ server, status }: SignInPartProps) {
+  const [method, setMethod] = useState<SignInMethod>(
+    () => getStoredSignInFields(server).method ?? "udap",
+  );
+  const both = status.offered && status.udap?.offered;
+  const shown = both ? method : status.udap?.offered ? "udap" : "client";
+
+  return (
+    <>
+      {both && (
+        <div className="space-y-1">
+          <Label htmlFor="sign-in-method">Sign in with</Label>
+          <Select
+            value={method}
+            onValueChange={(value) => setMethod(value as SignInMethod)}
+          >
+            <SelectTrigger id="sign-in-method" size="sm" className="text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="udap">
+                Certificate of this app (UDAP)
+              </SelectItem>
+              <SelectItem value="client">Client id and secret</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      {shown === "udap" ? (
+        <UdapForm server={server} status={status} />
+      ) : (
+        <ClientForm server={server} status={status} />
+      )}
+    </>
+  );
+}
+
+/** The UDAP sign-in needs no client id and no secret, only the scope. */
+function UdapForm({ server, status }: SignInPartProps) {
   const queryClient = useQueryClient();
-  const [fields, setFields] = useState(() => getStoredSignInFields(server));
+  const [scope, setScope] = useState(() => getStoredSignInFields(server).scope);
+  const save = useMutation({
+    mutationFn: () => saveClient({ server, method: "udap", scope }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: statusKey(server) }),
+  });
+  const handleSave = () => {
+    const { clientId } = getStoredSignInFields(server);
+    setStoredSignInFields(server, { clientId, scope, method: "udap" });
+    save.mutate();
+  };
+
+  return (
+    <>
+      <Value
+        label="Authorization endpoint"
+        value={status.udap?.authorizationEndpoint ?? ""}
+      />
+      <Value label="Token endpoint" value={status.udap?.tokenEndpoint ?? ""} />
+      <Value
+        label="Registration endpoint"
+        value={status.udap?.registrationEndpoint ?? ""}
+      />
+      <Value label="Client URI" value={status.udap?.clientUri ?? ""} />
+      <Value
+        label="Callback URL"
+        value={`${window.location.origin}/auth/callback`}
+      />
+      <div className="space-y-1">
+        <Label htmlFor="sign-in-scope">Scopes</Label>
+        <Input
+          id="sign-in-scope"
+          value={scope}
+          onChange={(e) => setScope(e.target.value)}
+          className="h-8 text-xs"
+        />
+      </div>
+      {save.error && (
+        <p className="text-xs text-destructive">{save.error.message}</p>
+      )}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleSave}
+        disabled={save.isPending}
+      >
+        Save
+      </Button>
+      {status.client?.method === "udap" && (
+        <>
+          <Value label="Saved scopes" value={status.client.scope} />
+          <SignInButton server={server} status={status} />
+        </>
+      )}
+    </>
+  );
+}
+
+function ClientForm({ server, status }: SignInPartProps) {
+  const queryClient = useQueryClient();
+  const [fields, setFields] = useState(() => {
+    const { clientId, scope } = getStoredSignInFields(server);
+    return { clientId, scope };
+  });
   // The secret stays in this state until the save. This app never stores it.
   const [clientSecret, setClientSecret] = useState("");
   const save = useMutation({
-    mutationFn: () => saveClient({ server, ...fields, clientSecret }),
+    mutationFn: () =>
+      saveClient({ server, method: "client", ...fields, clientSecret }),
     onSuccess: () => {
       setClientSecret("");
       queryClient.invalidateQueries({ queryKey: statusKey(server) });
     },
   });
   const handleSave = () => {
-    setStoredSignInFields(server, fields);
+    setStoredSignInFields(server, { ...fields, method: "client" });
     save.mutate();
   };
+  const saved = status.client?.method === "client" ? status.client : undefined;
 
   return (
     <>
@@ -205,8 +334,7 @@ function SignInForm({ server, status }: SignInPartProps) {
           type="password"
           autoComplete="new-password"
           placeholder={
-            status.client?.hasSecret &&
-            fields.clientId === status.client.clientId
+            saved?.hasSecret && fields.clientId === saved.clientId
               ? "Empty keeps the saved secret"
               : "Empty for a public client"
           }
@@ -242,14 +370,14 @@ function SignInForm({ server, status }: SignInPartProps) {
       >
         Save
       </Button>
-      {status.client && (
+      {saved && (
         <>
-          <Value label="Saved client id" value={status.client.clientId} />
+          <Value label="Saved client id" value={saved.clientId} />
           <Value
             label="Saved client secret"
-            value={status.client.hasSecret ? "yes" : "none"}
+            value={saved.hasSecret ? "yes" : "none"}
           />
-          <Value label="Saved scopes" value={status.client.scope} />
+          <Value label="Saved scopes" value={saved.scope} />
           <SignInButton server={server} status={status} />
         </>
       )}
@@ -294,7 +422,13 @@ export function SignInSection({ serverUrl }: { serverUrl: string }) {
   if (
     server === undefined ||
     !status ||
-    !(status.offered || status.signedIn || status.error || status.plainHttp)
+    !(
+      status.udap ||
+      status.offered ||
+      status.signedIn ||
+      status.error ||
+      status.plainHttp
+    )
   ) {
     return null;
   }
@@ -306,7 +440,7 @@ export function SignInSection({ serverUrl }: { serverUrl: string }) {
         {status.signedIn ? (
           <SignedIn server={server} status={status} />
         ) : (
-          status.offered &&
+          (status.offered || status.udap?.offered) &&
           (isInsecurePage() ? (
             <p className="text-xs text-destructive">{INSECURE_PAGE}</p>
           ) : (
@@ -315,6 +449,9 @@ export function SignInSection({ serverUrl }: { serverUrl: string }) {
         )}
         {status.plainHttp && (
           <p className="text-xs text-destructive">{status.reason}</p>
+        )}
+        {status.udap?.offered === false && (
+          <p className="text-xs text-destructive">{status.udap.reason}</p>
         )}
         {status.error && (
           <p className="text-xs text-destructive">{status.error}</p>

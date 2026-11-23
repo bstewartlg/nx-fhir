@@ -1,7 +1,9 @@
 import { generateFiles, OverwriteStrategy, Tree } from '@nx/devkit';
 import * as path from 'path';
+import { YAMLMap } from 'yaml';
 
 import { FeatureDefinition } from '../feature/types';
+import { parseYaml } from '../feature-auth-resource/auth-resource';
 import { FRONTEND_PROXY_FEATURE } from '../feature-frontend-proxy/frontend-proxy';
 import { ServerProjectConfiguration } from '../../shared/models';
 import { updateServerYaml } from '../../shared/utils';
@@ -149,6 +151,30 @@ export const authLoginFeature: FeatureDefinition = {
     try {
       updateServerYaml(project.root, tree, 'app.login.enabled', true);
       updateServerYaml(project.root, tree, 'app.login.ssl-verify', true);
+      updateServerYaml(
+        project.root,
+        tree,
+        'app.login.udap.client-name',
+        project.name,
+      );
+      updateServerYaml(
+        project.root,
+        tree,
+        'app.login.udap.contact',
+        'mailto:admin@localhost',
+      );
+      updateServerYaml(
+        project.root,
+        tree,
+        'app.login.udap.logo-uri',
+        'https://build.fhir.org/icon-fhir-16.png',
+      );
+      const config = parseYaml(yamlPath, tree.read(yamlPath, 'utf-8') as string);
+      // The comment follows the last key at the indentation of the app.login.udap keys, so the removal of "# " gives
+      // app.login.udap.scope.
+      (config.getIn(['app', 'login', 'udap'], true) as YAMLMap).comment =
+        ' scope: openid fhirUser launch/patient patient/*.rs user/*.rs';
+      tree.write(yamlPath, config.toString());
       updateServerYaml(
         project.root,
         tree,

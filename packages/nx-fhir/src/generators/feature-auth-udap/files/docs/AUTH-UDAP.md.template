@@ -88,6 +88,8 @@ The server fetches a certificate only at startup.
 
 The server uses the first key entry of the file. The key must be an RSA key of 2048 bits or more. The `x5c` header of the signed metadata has the certificate chain of that entry, leaf first. When the leaf certificate is not valid or has no URI alternative name equal to the base URL, startup continues with one WARN line, and a UDAP client rejects the signed metadata.
 
+With `app.auth.enabled` and `app.auth.udap.enabled` both `true`, the server also publishes the loaded key and its certificate chain, leaf first, as the Spring bean `udapCertificate` of the type `java.security.KeyStore.PrivateKeyEntry`. The `auth-login` feature signs its UDAP sign-in with this bean.
+
 The file `generated-cert.pfx` holds a private key. The generator adds the file name to the `.gitignore` of the server project. When you change the base URL or `app.auth.issuer`, delete `generated-cert.pfx`, and the next start fetches a new certificate.
 
 WARNING: A fetched certificate comes from a test authority, and its private key is made by a different server. Use the fetch only for development.

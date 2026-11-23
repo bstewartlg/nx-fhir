@@ -15,6 +15,7 @@ import {
   useRequiresAuthorization,
 } from "@/hooks/use-clinical-api";
 import { useFhirServer } from "@/hooks/use-fhir-server";
+import { getStoredSignInFields, type SignInStatus } from "@/lib/sign-in";
 
 interface SignInGateProps {
   children: ReactNode;
@@ -71,22 +72,54 @@ export function SignInGate({ children, onOpenSettings }: SignInGateProps) {
   }
 
   const status = statusQuery.data;
+  const client = status && offeredClient(status);
+  // With no saved values, the one Sign in button saves the UDAP values with
+  // this scope first
+  const udapScope =
+    server !== undefined && !client
+      ? getStoredSignInFields(server).scope
+      : undefined;
   return (
     <div className="p-6 space-y-3 max-w-xl">
       <h2 className="text-base font-semibold">Sign in</h2>
       <p className="text-sm text-muted-foreground">
         This FHIR server requires authorization.
       </p>
-      {server !== undefined && status?.offered ? (
-        status.client ? (
+      {server !== undefined && (status?.offered || status?.udap?.offered) ? (
+        client?.method === "client" ? (
           <>
             <Value
               label="Authorization endpoint"
               value={status.authorizationEndpoint ?? ""}
             />
             <Value label="Token endpoint" value={status.tokenEndpoint ?? ""} />
-            <Value label="Client id" value={status.client.clientId} />
+            <Value label="Client id" value={client.clientId} />
             <SignInButton server={server} status={status} />
+          </>
+        ) : status.udap?.offered ? (
+          // One branch for the saved UDAP values and for no saved values, so a
+          // failed start after the save keeps the button and its reason
+          <>
+            <Value
+              label="Authorization endpoint"
+              value={status.udap.authorizationEndpoint ?? ""}
+            />
+            <Value
+              label="Token endpoint"
+              value={status.udap.tokenEndpoint ?? ""}
+            />
+            <Value
+              label="Registration endpoint"
+              value={status.udap.registrationEndpoint ?? ""}
+            />
+            {udapScope !== undefined && (
+              <Value label="Scopes" value={udapScope} />
+            )}
+            <SignInButton
+              server={server}
+              status={status}
+              udapScope={udapScope}
+            />
           </>
         ) : isInsecurePage() ? (
           // The settings dialog has no form on this page, so it cannot save
@@ -109,11 +142,22 @@ export function SignInGate({ children, onOpenSettings }: SignInGateProps) {
           )}
         </>
       )}
+      {status?.udap?.offered === false && (
+        <p className="text-sm text-destructive">{status.udap.reason}</p>
+      )}
       {status?.error && (
         <p className="text-sm text-destructive">{status.error}</p>
       )}
     </div>
   );
+}
+
+// A saved method counts only while the server offers it. Else the page shows
+// the sign-in for no saved values.
+function offeredClient(status: SignInStatus) {
+  const offered =
+    status.client?.method === "udap" ? status.udap?.offered : status.offered;
+  return offered ? status.client : undefined;
 }
 
 /** Shows who is signed in at the selected server, with a Sign out button. */

@@ -52,7 +52,6 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -519,7 +518,7 @@ class FrontendProxyControllerIT {
 	 * A filter that exists only in this test. For a request with the marker header, the body stream ends after half
 	 * of the declared bytes and reports that it is not finished before the read.
 	 */
-	@TestConfiguration(proxyBeanMethods = false)
+	// No @TestConfiguration: the component scan of the server would add this class to the context of each test.
 	static class ShortBodyFilterConfiguration {
 
 		@Bean

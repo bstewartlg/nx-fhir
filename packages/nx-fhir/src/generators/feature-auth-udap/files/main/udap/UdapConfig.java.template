@@ -10,6 +10,7 @@ import jakarta.annotation.PostConstruct;
 import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyStore;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
@@ -19,12 +20,15 @@ import java.util.Objects;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 /**
  * Registers the UDAP metadata of GET {baseURL}/.well-known/udap on the FHIR server when app.auth.enabled and
- * app.auth.udap.enabled are true.
+ * app.auth.udap.enabled are true. When both are true, it also publishes the loaded RSA key and its certificate
+ * chain, leaf first, as the bean udapCertificate.
  */
 @Component
 public class UdapConfig {
@@ -42,6 +46,7 @@ public class UdapConfig {
 	private final AuthResourceProperties authProperties;
 	private final IssuerMetadata issuerMetadata;
 	private final Environment environment;
+	private UdapCertificate signingCertificate;
 
 	/** The folder of the saved certificate. A test sets a temporary folder. */
 	Path savedCertificateDirectory = Path.of("");
@@ -66,6 +71,7 @@ public class UdapConfig {
 		}
 		String baseUrl = FhirBaseUrl.resolve(environment);
 		LoadedCertificate loaded = certificate(baseUrl);
+		signingCertificate = loaded.certificate();
 		String problem = certificateProblem(loaded.certificate().chain().get(0), baseUrl);
 		if (problem != null) {
 			String remedy = StringUtils.isBlank(properties.getCertFile())
@@ -83,6 +89,13 @@ public class UdapConfig {
 					loaded.source() + " has a key that cannot sign the UDAP metadata. " + e.getMessage(), e);
 		}
 		restfulServer.registerInterceptor(new WellKnownInterceptor("/.well-known/udap", metadata::build));
+	}
+
+	@Bean("udapCertificate")
+	@ConditionalOnProperty(name = {"app.auth.enabled", "app.auth.udap.enabled"}, havingValue = "true")
+	KeyStore.PrivateKeyEntry udapCertificate() {
+		return new KeyStore.PrivateKeyEntry(
+				signingCertificate.key(), signingCertificate.chain().toArray(new X509Certificate[0]));
 	}
 
 	/** Returns why a UDAP client rejects the metadata that the leaf certificate signs for the base URL, or null. */

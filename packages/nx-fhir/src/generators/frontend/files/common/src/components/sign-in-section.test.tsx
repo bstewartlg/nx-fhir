@@ -108,6 +108,7 @@ describe("SignInSection", () => {
     status = {
       ...offered,
       client: {
+        method: "client",
         clientId: "app-1",
         scope: DEFAULT_SIGN_IN_SCOPE,
         hasSecret: true,
@@ -122,6 +123,7 @@ describe("SignInSection", () => {
     expect(new Headers(save.headers).get("X-App-Request")).toBe("1");
     expect(JSON.parse(String(save.body))).toEqual({
       server: "/fhir",
+      method: "client",
       clientId: "app-1",
       clientSecret: secret,
       scope: DEFAULT_SIGN_IN_SCOPE,
@@ -137,6 +139,7 @@ describe("SignInSection", () => {
     expect(getStoredSignInFields("/fhir")).toEqual({
       clientId: "app-1",
       scope: DEFAULT_SIGN_IN_SCOPE,
+      method: "client",
     });
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i) ?? "";
@@ -148,6 +151,7 @@ describe("SignInSection", () => {
     status = {
       ...offered,
       client: {
+        method: "client",
         clientId: "app-1",
         scope: DEFAULT_SIGN_IN_SCOPE,
         hasSecret: true,
@@ -166,6 +170,52 @@ describe("SignInSection", () => {
       "placeholder",
       "Empty keeps the saved secret",
     );
+  });
+
+  it("offers the UDAP sign-in as the start value of the select, saves the method and the scope, and signs in with the three endpoints", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    const udap = {
+      offered: true,
+      authorizationEndpoint: "https://as.example/udap/authorize",
+      tokenEndpoint: "https://as.example/udap/token",
+      registrationEndpoint: "https://as.example/udap/register",
+      clientUri: "https://app.example/fhir",
+    };
+    status = { ...offered, udap };
+    renderSection();
+
+    expect(await screen.findByLabelText("Sign in with")).toHaveTextContent(
+      "Certificate of this app (UDAP)",
+    );
+    expect(screen.getByText(udap.registrationEndpoint)).toBeInTheDocument();
+    expect(screen.getByText(udap.clientUri)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Client id")).toBeNull();
+    status = {
+      ...offered,
+      udap,
+      client: { method: "udap", scope: DEFAULT_SIGN_IN_SCOPE },
+    };
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(authorizeUrl));
+    expect(JSON.parse(String(requestTo("/auth/client").body))).toEqual({
+      server: "/fhir",
+      method: "udap",
+      scope: DEFAULT_SIGN_IN_SCOPE,
+    });
+    expect(JSON.parse(String(requestTo("/auth/login").body))).toEqual({
+      server: "/fhir",
+      authorizationEndpoint: udap.authorizationEndpoint,
+      tokenEndpoint: udap.tokenEndpoint,
+      registrationEndpoint: udap.registrationEndpoint,
+    });
+    expect(getStoredSignInFields("/fhir")).toEqual({
+      clientId: "",
+      scope: DEFAULT_SIGN_IN_SCOPE,
+      method: "udap",
+    });
   });
 
   it("shows the reason when the server refuses plain http", async () => {

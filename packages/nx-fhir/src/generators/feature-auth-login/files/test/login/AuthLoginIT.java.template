@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import <%= applicationClassFqn %>;
@@ -18,9 +19,11 @@ import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
+import com.nimbusds.jose.util.X509CertUtils;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.nimbusds.oauth2.sdk.pkce.CodeChallenge;
@@ -31,6 +34,7 @@ import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import jakarta.servlet.Filter;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
@@ -42,6 +46,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
+import java.security.KeyStore;
+import java.security.cert.CertificateEncodingException;
+import java.security.interfaces.RSAPublicKey;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -50,12 +57,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -66,11 +74,13 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 /**
- * Boots the full server with the sign-in and the proxy on, and runs a SMART standalone launch for the own
- * server and for a listed server. A JDK HTTP stub on 127.0.0.1 is the authorization server. Three paths of the
- * stub are listed FHIR servers. One publishes a SMART configuration, and two publish none. A test filter serves
- * the SMART configuration of the own server, and a HAPI interceptor records the Authorization header that HAPI
- * sees.
+ * Boots the full server with the sign-in and the proxy on. It runs a SMART standalone launch for the own server
+ * and for a listed server, and a UDAP sign-in for a listed server. A JDK HTTP stub on 127.0.0.1 is the
+ * authorization server. Four paths of the stub are listed FHIR servers. One publishes a SMART configuration, one
+ * publishes signed UDAP metadata and a SMART configuration with only an issuer, and two publish neither. A test
+ * filter serves the SMART configuration of the own server, a second filter answers 404 for its UDAP metadata, and
+ * a HAPI interceptor records the Authorization header that HAPI sees. A LoginTestKeys key is the udapCertificate
+ * bean and also signs the UDAP metadata of the stub.
  *
  * <p>The requests use java.net.http.HttpClient with no cookie handler and no redirects, so each test sends the
  * session cookie itself and sees each 302. The test sets no session property, so the cookie and the session
@@ -104,12 +114,19 @@ class AuthLoginIT {
 	private static final String ACCESS_TOKEN = "at-5d1e9b77c0a4";
 	// Differs from ACCESS_TOKEN, so each request shows which token set the filter chose.
 	private static final String LISTED_ACCESS_TOKEN = "at-8c2f61a9d3e7";
+	private static final String UDAP_ACCESS_TOKEN = "at-3a7f0c9e5b21";
+	private static final String UDAP_CLIENT_ID = "udap-client-1";
 	private static final String NO_PENDING = "No sign-in is pending for this state";
 	private static final String NO_HEADER = "<none>";
 
 	private static final ObjectMapper JSON = new ObjectMapper();
 	private static final RSAKey KEY = rsaKey();
+	// No key set of the stub holds this key.
+	private static final RSAKey UNKNOWN_KEY = rsaKey();
 	private static final Stub STUB = new Stub();
+	// The URI subject alternative name is the FHIR base URL of the UDAP entry, so the key of this app also passes
+	// the metadata checks of that entry.
+	private static final KeyStore.PrivateKeyEntry UDAP_KEY = LoginTestKeys.create("uri:" + STUB.base() + "/udap/fhir");
 	private static final List<String> HAPI_AUTHORIZATION = new CopyOnWriteArrayList<>();
 
 	private static final HttpClient HTTP = HttpClient.newBuilder()
@@ -124,7 +141,8 @@ class AuthLoginIT {
 	static void fhirServers(DynamicPropertyRegistry registry) {
 		registry.add("app.fhir.servers", () -> "[{\"name\":\"Listed\",\"url\":\"" + STUB.base() + "/listed/fhir\"},"
 				+ "{\"name\":\"No discovery\",\"url\":\"" + STUB.base() + "/no-discovery/fhir\"},"
-				+ "{\"name\":\"HTML page\",\"url\":\"" + STUB.base() + "/html/fhir\"}]");
+				+ "{\"name\":\"HTML page\",\"url\":\"" + STUB.base() + "/html/fhir\"},"
+				+ "{\"name\":\"UDAP\",\"url\":\"" + STUB.base() + "/udap/fhir\"}]");
 	}
 
 	@BeforeEach
@@ -226,6 +244,7 @@ class AuthLoginIT {
 				sessionId(sessionCookie(listedLogin)), false));
 		assertEquals(302, listedCallback.statusCode(), listedCallback.body());
 		session = sessionId(sessionCookie(listedCallback));
+		assertEquals(listed + "/Patient/456", json(status(listed, session, true)).get("fhirUser").asText());
 		String proxyTarget = "/proxy?url=" + enc(listed + "/Patient");
 		assertEquals(200, send(request(proxyTarget, session, true)).statusCode());
 		assertEquals(200, send(request(proxyTarget, session, false)).statusCode());
@@ -249,6 +268,97 @@ class AuthLoginIT {
 	}
 
 	@Test
+	void udapSignInRegistersAtEachStartAndSignsTheTokenCall() throws Exception {
+		String server = STUB.base() + "/udap/fhir";
+		JsonNode status = json(status(server, null, true));
+		// The SMART configuration of this server has no endpoints, so only the UDAP sign-in is offered.
+		assertFalse(status.get("offered").asBoolean());
+		JsonNode udap = status.get("udap");
+		assertTrue(udap.get("offered").asBoolean(), status.toString());
+		assertEquals(STUB.base() + "/udap/authorize", udap.get("authorizationEndpoint").asText());
+		assertEquals(STUB.base() + "/udap/token", udap.get("tokenEndpoint").asText());
+		assertEquals(STUB.base() + "/udap/register", udap.get("registrationEndpoint").asText());
+		assertEquals(server, udap.get("clientUri").asText());
+
+		HttpResponse<String> saved = post("/auth/client", null, Map.of("server", server, "method", "udap", "scope", SCOPE));
+		assertEquals(204, saved.statusCode(), saved.body());
+		String session = sessionId(sessionCookie(saved));
+		assertEquals(JSON.valueToTree(Map.of("method", "udap", "scope", SCOPE)),
+				json(status(server, session, true)).get("client"));
+
+		HttpResponse<String> login = udapLogin(server, session);
+		assertEquals(200, login.statusCode(), login.body());
+		String authorizeUrl = json(login).get("authorizeUrl").asText();
+		assertTrue(authorizeUrl.startsWith(STUB.base() + "/udap/authorize?"), authorizeUrl);
+		Map<String, String> authorize = parameters(URI.create(authorizeUrl).getRawQuery());
+		assertEquals(UDAP_CLIENT_ID, authorize.get("client_id"));
+		assertEquals(origin() + "/auth/callback", authorize.get("redirect_uri"));
+		assertEquals(server, authorize.get("aud"));
+		assertEquals("S256", authorize.get("code_challenge_method"));
+		assertEquals(SCOPE, authorize.get("scope"));
+
+		List<Received> registrations = STUB.at("/udap/register");
+		assertEquals(1, registrations.size());
+		assertNull(registrations.get(0).headers().getFirst("Authorization"));
+		Map<?, ?> registration = JSON.readValue(registrations.get(0).body(), Map.class);
+		assertEquals(Set.of("software_statement", "udap"), registration.keySet());
+		assertEquals("1", registration.get("udap"));
+		JWTClaimsSet statement = signedByUdapKey((String) registration.get("software_statement"));
+		assertEquals(server, statement.getIssuer());
+		assertEquals(server, statement.getSubject());
+		assertEquals(List.of(STUB.base() + "/udap/register"), statement.getAudience());
+		assertEquals(List.of(origin() + "/auth/callback"), statement.getStringListClaim("redirect_uris"));
+		// The scopes_supported values of the metadata with no system/ value. SCOPE has no value outside that list.
+		String registeredScope = "openid fhirUser launch/patient patient/*.rs user/*.rs";
+		assertEquals(registeredScope, statement.getStringClaim("scope"));
+		assertEquals(List.of("authorization_code"), statement.getStringListClaim("grant_types"));
+		assertEquals("private_key_jwt", statement.getStringClaim("token_endpoint_auth_method"));
+		// The installed application.yaml gives these three values.
+		assertEquals(List.of("mailto:admin@localhost"), statement.getStringListClaim("contacts"));
+		assertEquals("https://build.fhir.org/icon-fhir-16.png", statement.getStringClaim("logo_uri"));
+		assertFalse(statement.getStringClaim("client_name").isBlank());
+
+		HttpResponse<String> callback = send(request("/auth/callback?code=code-9d4c1e7a20&state="
+				+ enc(authorize.get("state")), sessionId(sessionCookie(login)), false));
+		assertEquals(302, callback.statusCode(), callback.body());
+		assertEquals(Optional.of("/"), callback.headers().firstValue("Location"));
+		session = sessionId(sessionCookie(callback));
+
+		List<Received> tokenCalls = STUB.at("/udap/token");
+		assertEquals(1, tokenCalls.size());
+		assertNull(tokenCalls.get(0).headers().getFirst("Authorization"));
+		Map<String, String> form = parameters(tokenCalls.get(0).body());
+		assertEquals("authorization_code", form.get("grant_type"));
+		assertEquals("code-9d4c1e7a20", form.get("code"));
+		assertEquals(origin() + "/auth/callback", form.get("redirect_uri"));
+		assertEquals(authorize.get("code_challenge"),
+				CodeChallenge.compute(CodeChallengeMethod.S256, new CodeVerifier(form.get("code_verifier"))).getValue());
+		assertEquals("urn:ietf:params:oauth:client-assertion-type:jwt-bearer", form.get("client_assertion_type"));
+		assertEquals("1", form.get("udap"));
+		JWTClaimsSet assertion = signedByUdapKey(form.get("client_assertion"));
+		assertEquals(UDAP_CLIENT_ID, assertion.getIssuer());
+		assertEquals(UDAP_CLIENT_ID, assertion.getSubject());
+		assertEquals(List.of(STUB.base() + "/udap/token"), assertion.getAudience());
+
+		JsonNode signedIn = json(status(server, session, true));
+		assertTrue(signedIn.get("signedIn").asBoolean());
+		assertEquals(server + "/Patient/123", signedIn.get("fhirUser").asText());
+
+		assertEquals(200, send(request("/proxy?url=" + enc(server + "/Patient"), session, true)).statusCode());
+		assertEquals(List.of("Bearer " + UDAP_ACCESS_TOKEN), STUB.at("/udap/fhir/Patient").stream()
+				.map(received -> received.headers().getFirst("Authorization"))
+				.toList());
+
+		HttpResponse<String> second = udapLogin(server, session);
+		assertEquals(200, second.statusCode(), second.body());
+		registrations = STUB.at("/udap/register");
+		assertEquals(2, registrations.size());
+		Map<?, ?> secondRegistration = JSON.readValue(registrations.get(1).body(), Map.class);
+		assertEquals(registeredScope,
+				signedByUdapKey((String) secondRegistration.get("software_statement")).getStringClaim("scope"));
+	}
+
+	@Test
 	void serverWithNoDiscoveryIsNotOffered() throws Exception {
 		for (String server : List.of("/no-discovery/fhir", "/html/fhir")) {
 			HttpResponse<String> status = status(STUB.base() + server, null, true);
@@ -256,6 +366,7 @@ class AuthLoginIT {
 			JsonNode body = json(status);
 			assertFalse(body.get("offered").asBoolean(), server);
 			assertFalse(body.get("reason").asText().isBlank(), server);
+			assertFalse(body.has("udap"), server);
 			// The stub got the discovery read, so the answer comes from the 404 or the HTML page.
 			assertEquals(1, STUB.at(server + "/.well-known/smart-configuration").size(), server);
 		}
@@ -291,12 +402,8 @@ class AuthLoginIT {
 
 	// The save changes the session id, so the caller continues with the id that this method returns.
 	private String save(String server, String session) throws Exception {
-		String body = JSON.writeValueAsString(Map.of("server", server, "clientId", CLIENT_ID, "clientSecret", CLIENT_SECRET,
-				"scope", SCOPE));
-		HttpResponse<String> response = send(request("/auth/client", session, true)
-				.header("Origin", origin())
-				.header("Content-Type", "application/json")
-				.POST(BodyPublishers.ofString(body)));
+		HttpResponse<String> response = post("/auth/client", session, Map.of("server", server, "clientId", CLIENT_ID,
+				"clientSecret", CLIENT_SECRET, "scope", SCOPE));
 		assertEquals(204, response.statusCode(), response.body());
 		return sessionId(sessionCookie(response));
 	}
@@ -309,12 +416,26 @@ class AuthLoginIT {
 
 	private HttpResponse<String> login(String server, String session, String authorizationEndpoint, String tokenEndpoint)
 			throws Exception {
-		String body = JSON.writeValueAsString(Map.of("server", server, "authorizationEndpoint", authorizationEndpoint,
+		return post("/auth/login", session, Map.of("server", server, "authorizationEndpoint", authorizationEndpoint,
 				"tokenEndpoint", tokenEndpoint));
-		return send(request("/auth/login", session, true)
+	}
+
+	// The app sends the UDAP endpoints of the status that the dialog shows.
+	private HttpResponse<String> udapLogin(String server, String session) throws Exception {
+		HttpResponse<String> status = status(server, session, true);
+		assertEquals(200, status.statusCode(), status.body());
+		JsonNode udap = json(status).get("udap");
+		return post("/auth/login", session, Map.of("server", server,
+				"authorizationEndpoint", udap.get("authorizationEndpoint").asText(),
+				"tokenEndpoint", udap.get("tokenEndpoint").asText(),
+				"registrationEndpoint", udap.get("registrationEndpoint").asText()));
+	}
+
+	private HttpResponse<String> post(String target, String session, Map<String, String> body) throws Exception {
+		return send(request(target, session, true)
 				.header("Origin", origin())
 				.header("Content-Type", "application/json")
-				.POST(BodyPublishers.ofString(body)));
+				.POST(BodyPublishers.ofString(JSON.writeValueAsString(body))));
 	}
 
 	// The proof headers are the headers that the app sends to its own origin.
@@ -371,38 +492,96 @@ class AuthLoginIT {
 				+ "\"client-confidential-symmetric\"]}";
 	}
 
-	// With no issuer in this document, the server drops an ID token unread, so the token response has none.
+	// This document has no issuer, so the server reads the fhirUser claim of the ID token with no signature check.
+	// The token response has an ID token that no key set of the stub verifies.
 	private static String listedDiscovery() {
 		String as = STUB.base();
 		return "{\"authorization_endpoint\":\"" + as + "/authorize\",\"token_endpoint\":\"" + as + "/listed-token\"}";
 	}
 
 	private static String listedTokenResponse() {
-		return "{\"access_token\":\"" + LISTED_ACCESS_TOKEN + "\",\"token_type\":\"Bearer\",\"expires_in\":3600}";
+		return "{\"access_token\":\"" + LISTED_ACCESS_TOKEN + "\",\"token_type\":\"Bearer\",\"expires_in\":3600,"
+				+ "\"id_token\":\"" + idToken(UNKNOWN_KEY, "https://unknown.example", CLIENT_ID, "Patient/456") + "\"}";
 	}
 
 	private static String tokenResponse() {
 		return "{\"access_token\":\"" + ACCESS_TOKEN + "\",\"token_type\":\"Bearer\",\"expires_in\":3600,\"scope\":\""
-				+ GRANTED_SCOPE + "\",\"patient\":\"123\",\"id_token\":\"" + idToken() + "\"}";
+				+ GRANTED_SCOPE + "\",\"patient\":\"123\",\"id_token\":\"" + idToken(KEY, STUB.base(), CLIENT_ID, "Patient/123")
+				+ "\"}";
 	}
 
-	private static String idToken() {
+	// The signed claims have the three endpoints of the plain JSON, and iss is the FHIR base URL of the entry.
+	private static String udapMetadata() {
+		String udap = STUB.base() + "/udap";
 		Instant now = Instant.now();
 		JWTClaimsSet claims = new JWTClaimsSet.Builder()
-				.issuer(STUB.base())
-				.audience(CLIENT_ID)
+				.issuer(udap + "/fhir")
+				.subject(udap + "/fhir")
+				.issueTime(Date.from(now))
+				.expirationTime(Date.from(now.plusSeconds(60)))
+				.jwtID(UUID.randomUUID().toString())
+				.claim("authorization_endpoint", udap + "/authorize")
+				.claim("token_endpoint", udap + "/token")
+				.claim("registration_endpoint", udap + "/register")
+				.build();
+		try {
+			SignedJWT signed = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256)
+					.x509CertChain(List.of(com.nimbusds.jose.util.Base64.encode(UDAP_KEY.getCertificate().getEncoded())))
+					.build(), claims);
+			signed.sign(new RSASSASigner(UDAP_KEY.getPrivateKey()));
+			return "{\"authorization_endpoint\":\"" + udap + "/authorize\",\"token_endpoint\":\"" + udap
+					+ "/token\",\"registration_endpoint\":\"" + udap + "/register\",\"grant_types_supported\":"
+					+ "[\"authorization_code\"],\"scopes_supported\":[\"openid\",\"fhirUser\",\"launch/patient\","
+					+ "\"patient/*.rs\",\"system/*.rs\",\"user/*.rs\"],\"signed_metadata\":\"" + signed.serialize() + "\"}";
+		} catch (JOSEException | CertificateEncodingException e) {
+			throw new IllegalStateException(e);
+		}
+	}
+
+	// An issuer and a key set, and no endpoints.
+	private static String udapDiscovery() {
+		return "{\"issuer\":\"" + STUB.base() + "\",\"jwks_uri\":\"" + STUB.base() + "/jwks\"}";
+	}
+
+	// The scope is longer than the scope of the software statement and in a different order, and the answer has no
+	// redirect_uris.
+	private static String udapRegistration() {
+		return "{\"client_id\":\"" + UDAP_CLIENT_ID + "\",\"scope\":\"patient/Observation.rs user/*.rs patient/*.rs"
+				+ " launch/patient fhirUser openid\"}";
+	}
+
+	private static String udapTokenResponse() {
+		return "{\"access_token\":\"" + UDAP_ACCESS_TOKEN + "\",\"token_type\":\"Bearer\",\"expires_in\":3600,\"scope\":\""
+				+ SCOPE + "\",\"patient\":\"123\",\"id_token\":\"" + idToken(KEY, STUB.base(), UDAP_CLIENT_ID, "Patient/123")
+				+ "\"}";
+	}
+
+	private static String idToken(RSAKey key, String issuer, String audience, String fhirUser) {
+		Instant now = Instant.now();
+		JWTClaimsSet claims = new JWTClaimsSet.Builder()
+				.issuer(issuer)
+				.audience(audience)
 				.subject("tester")
 				.issueTime(Date.from(now))
 				.expirationTime(Date.from(now.plusSeconds(300)))
-				.claim("fhirUser", "Patient/123")
+				.claim("fhirUser", fhirUser)
 				.build();
-		SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(KEY.getKeyID()).build(), claims);
+		SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(key.getKeyID()).build(), claims);
 		try {
-			jwt.sign(new RSASSASigner(KEY));
+			jwt.sign(new RSASSASigner(key));
 		} catch (JOSEException e) {
 			throw new IllegalStateException(e);
 		}
 		return jwt.serialize();
+	}
+
+	/** Checks that the key of UDAP_KEY signs the JWT and that the first x5c entry is the certificate of UDAP_KEY. */
+	private static JWTClaimsSet signedByUdapKey(String jwt) throws Exception {
+		SignedJWT signed = SignedJWT.parse(jwt);
+		assertTrue(signed.verify(new RSASSAVerifier((RSAPublicKey) UDAP_KEY.getCertificate().getPublicKey())));
+		assertEquals(UDAP_KEY.getCertificate(),
+				X509CertUtils.parse(signed.getHeader().getX509CertChain().get(0).decode()));
+		return signed.getJWTClaimsSet();
 	}
 
 	private static RSAKey rsaKey() {
@@ -413,7 +592,7 @@ class AuthLoginIT {
 		}
 	}
 
-	@TestConfiguration(proxyBeanMethods = false)
+	// No @TestConfiguration: the component scan of the server would add this class to the context of each test.
 	static class TestBeans {
 
 		// Only the auth-smart feature serves this document, and this feature does not require auth-smart.
@@ -426,6 +605,23 @@ class AuthLoginIT {
 			registration.addUrlPatterns("/fhir/.well-known/smart-configuration");
 			registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
 			return registration;
+		}
+
+		// auth-udap serves this document. This feature does not require auth-udap, so the read of the own server
+		// gets 404 here and does not reach HAPI.
+		@Bean
+		FilterRegistrationBean<Filter> ownUdapMetadata() {
+			FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>(
+					(request, response, chain) -> ((HttpServletResponse) response).setStatus(404));
+			registration.addUrlPatterns("/fhir/.well-known/udap");
+			registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+			return registration;
+		}
+
+		// The bean that auth-udap publishes, with the key of this test.
+		@Bean("udapCertificate")
+		KeyStore.PrivateKeyEntry udapCertificate() {
+			return UDAP_KEY;
 		}
 
 		@Bean
@@ -451,7 +647,8 @@ class AuthLoginIT {
 	/**
 	 * A local HTTP server on 127.0.0.1 that records each request. The path selects the answer: the two token
 	 * endpoints and the key set of the authorization server, the SMART configuration and a search of the listed
-	 * server, an HTML page with status 200, and 404 for each other path.
+	 * server, the UDAP metadata, the SMART configuration, the registration, the token endpoint, and a search of
+	 * the UDAP server, an HTML page with status 200, and 404 for each other path.
 	 */
 	private static final class Stub {
 
@@ -491,6 +688,11 @@ class AuthLoginIT {
 					case "/listed/fhir/.well-known/smart-configuration" -> respond(exchange, 200, "application/json", listedDiscovery());
 					case "/listed/fhir/Patient" -> respond(exchange, 200, "application/fhir+json", "{\"resourceType\":\"Bundle\"}");
 					case "/jwks" -> respond(exchange, 200, "application/json", new JWKSet(KEY.toPublicJWK()).toString());
+					case "/udap/fhir/.well-known/udap" -> respond(exchange, 200, "application/json", udapMetadata());
+					case "/udap/fhir/.well-known/smart-configuration" -> respond(exchange, 200, "application/json", udapDiscovery());
+					case "/udap/register" -> respond(exchange, 201, "application/json", udapRegistration());
+					case "/udap/token" -> respond(exchange, 200, "application/json", udapTokenResponse());
+					case "/udap/fhir/Patient" -> respond(exchange, 200, "application/fhir+json", "{\"resourceType\":\"Bundle\"}");
 					case "/html/fhir/.well-known/smart-configuration" ->
 							respond(exchange, 200, "text/html", "<!doctype html><html><body>FHIR server</body></html>");
 					default -> respond(exchange, 404, "application/json", "{}");

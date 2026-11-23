@@ -393,7 +393,9 @@ The feature needs the `frontend-proxy` feature and a frontend that is integrated
 
 A tester saves the client id, the client secret, and the scopes in the settings dialog of the frontend. This server keeps these client values in the session of the tester until the session ends or a save for the same FHIR server replaces them. The tester then signs in at the authorization server of the selected FHIR server from the dialog, or from the sign-in page that a `clinical` frontend shows when the FHIR server answers 401. The sign-in is a SMART standalone launch with PKCE. This server is the OAuth client and keeps the access token in the session of the tester. It adds the token to the requests of the frontend for the signed-in server. The generator also writes `AUTH-LOGIN.md` to the server root, with the configuration and the behavior of the feature ([template](https://github.com/bstewartlg/nx-fhir/blob/main/packages/nx-fhir/src/generators/feature-auth-login/files/docs/AUTH-LOGIN.md.template)).
 
-Register the callback URL `{origin}/auth/callback` at the authorization server, where `{origin}` is the origin of the page. This server offers sign-in for itself only when it serves a document at `/fhir/.well-known/smart-configuration`, for example with the `auth-smart` feature. Sign-in at a server that the tester types as a custom URL needs `app.proxy.passthrough: true`.
+With the `auth-udap` feature installed and `app.auth.enabled` and `app.auth.udap.enabled` both `true`, the tester can also sign in with UDAP and types no client id and no secret. This server then registers at the authorization server at each sign-in start, with a software statement that the certificate of `auth-udap` signs, and signs the token call with the same certificate. The sign-in page of a `clinical` frontend then shows one Sign in button.
+
+Register the callback URL `{origin}/auth/callback` at the authorization server, where `{origin}` is the origin of the page. A UDAP registration sends that URL itself. This server offers sign-in for itself only when it serves a document at `/fhir/.well-known/smart-configuration`, for example with the `auth-smart` feature, or at `/fhir/.well-known/udap` with the `auth-udap` feature. Sign-in at a server that the tester types as a custom URL needs `app.proxy.passthrough: true`.
 
 **Options:**
 - `--project`: Name of the Nx server project to add the feature to
@@ -405,6 +407,11 @@ app:
   login:
     enabled: true
     ssl-verify: true
+    udap:
+      client-name: <name of the server project>
+      contact: mailto:admin@localhost
+      logo-uri: https://build.fhir.org/icon-fhir-16.png
+      # scope: openid fhirUser launch/patient patient/*.rs user/*.rs
 server:
   servlet:
     session:
@@ -413,11 +420,15 @@ server:
       tracking-modes: cookie
 ```
 
+The `udap` keys go into the software statement of a UDAP registration. Remove `# ` from the `scope` line to set the scope of the registration.
+
 The sign-in accepts plain `http` only for `localhost`, names that end in `.localhost`, and loopback addresses. On a different host, the address of the app, each listed or typed FHIR server, and each authorization server must use `https`.
 
 WARNING: On plain `http`, the client secret, the authorization code, and the access token travel in clear text.
 
 WARNING: With `app.login.ssl-verify: false`, the sign-in trusts each certificate and each host name of this server, the listed servers, and their authorization servers. The signature check of an ID token then proves nothing, because a different host can answer the request for the key set. Use this only for a test deployment.
+
+WARNING: For a FHIR server with no `issuer` in its SMART configuration, the user that this server shows has no signature check. On plain `http` or with `app.login.ssl-verify: false`, no TLS check stands behind that value.
 
 WARNING: `X-App-Request` or `*` in `hapi.fhir.cors.allowed_headers`, or in the allowed headers of `GlobalCorsConfiguration`, lets a page of another origin send the header. The request proof then rests on `Sec-Fetch-Site` alone.
 

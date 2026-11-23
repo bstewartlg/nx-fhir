@@ -4,6 +4,21 @@ import { APP_REQUEST_HEADER, readStoredRecord } from "@/lib/fhir-config";
 export const DEFAULT_SIGN_IN_SCOPE =
   "openid fhirUser launch/patient patient/*.rs";
 
+/** `client` uses a typed client id and secret. `udap` uses the certificate of this app. */
+export type SignInMethod = "client" | "udap";
+
+/** The UDAP sign-in of the FHIR server. The endpoints are the signed values of its UDAP metadata. */
+export interface UdapStatus {
+  offered: boolean;
+  /** Why the server offers no UDAP sign-in. */
+  reason?: string;
+  authorizationEndpoint?: string;
+  tokenEndpoint?: string;
+  registrationEndpoint?: string;
+  /** The URI of this app in its certificate. */
+  clientUri?: string;
+}
+
 /** The answer of `GET /auth/status`. It never holds a token, a code, or a secret. */
 export interface SignInStatus {
   offered: boolean;
@@ -23,11 +38,21 @@ export interface SignInStatus {
   expiresAt?: string;
   /** True when a `patient/` scope is granted and the token response names no patient. */
   patientMissing?: boolean;
+  /**
+   * Present when this app has a certificate and the server answers the UDAP
+   * metadata request with a status other than 404 or 204.
+   */
+  udap?: UdapStatus;
   /** The client values that the session holds for this server. It never has the secret. */
-  client?: SignInFields & {
-    /** True when the saved client values have a client secret. */
-    hasSecret: boolean;
-  };
+  client?:
+    | {
+        method: "client";
+        clientId: string;
+        scope: string;
+        /** True when the saved client values have a client secret. */
+        hasSecret: boolean;
+      }
+    | { method: "udap"; scope: string };
   /** Why the last sign-in failed. The server sends it one time. */
   error?: string;
 }
@@ -35,12 +60,23 @@ export interface SignInStatus {
 /** The client values that the server keeps in the session for `server`. */
 export interface ClientValues {
   server: string;
+  method: "client";
   clientId: string;
   /**
    * Empty keeps the saved secret when the saved client id is equal. Else empty
    * saves a public client.
    */
   clientSecret: string;
+  scope: string;
+}
+
+/**
+ * The UDAP values for `server`. A save of these values keeps the client id and
+ * the secret that the session holds for `server`.
+ */
+export interface UdapValues {
+  server: string;
+  method: "udap";
   scope: string;
 }
 
@@ -53,9 +89,15 @@ export interface SignInRequest {
    */
   authorizationEndpoint: string;
   tokenEndpoint: string;
+  /** Only for a UDAP sign-in. */
+  registrationEndpoint?: string;
 }
 
-type SignInFields = Pick<ClientValues, "clientId" | "scope">;
+interface StoredSignInFields {
+  clientId: string;
+  scope: string;
+  method?: SignInMethod;
+}
 
 /** The server of this app offers sign-in only together with its proxy. */
 export function isSignInAvailable(): boolean {
@@ -94,7 +136,9 @@ export async function getSignInStatus(server: string): Promise<SignInStatus> {
 }
 
 /** Sends the client values to the server, which keeps them in the session. */
-export async function saveClient(values: ClientValues): Promise<void> {
+export async function saveClient(
+  values: ClientValues | UdapValues,
+): Promise<void> {
   await authFetch("/auth/client", values);
 }
 
@@ -111,10 +155,10 @@ export async function signOut(server: string): Promise<void> {
 
 const SIGN_IN_STORAGE_KEY = "fhir-sign-in";
 
-/** The client id and the scope last used for `server`. */
-export function getStoredSignInFields(server: string): SignInFields {
+/** The client id, the scope, and the method last used for `server`. */
+export function getStoredSignInFields(server: string): StoredSignInFields {
   const entry = readStoredRecord(SIGN_IN_STORAGE_KEY)[server] as
-    | { clientId?: unknown; scope?: unknown }
+    | { clientId?: unknown; scope?: unknown; method?: unknown }
     | null
     | undefined;
   return {
@@ -123,18 +167,22 @@ export function getStoredSignInFields(server: string): SignInFields {
       typeof entry?.scope === "string" && entry.scope
         ? entry.scope
         : DEFAULT_SIGN_IN_SCOPE,
+    method:
+      entry?.method === "client" || entry?.method === "udap"
+        ? entry.method
+        : undefined,
   };
 }
 
 /**
- * Keeps the client id and the scope for `server`. Only these two fields go
- * into storage, so the client secret is never stored.
+ * Keeps the client id, the scope, and the method for `server`. Only these
+ * three fields go into storage, so the client secret is never stored.
  */
 export function setStoredSignInFields(
   server: string,
-  { clientId, scope }: SignInFields,
+  { clientId, scope, method }: Required<StoredSignInFields>,
 ): void {
   const record = readStoredRecord(SIGN_IN_STORAGE_KEY);
-  record[server] = { clientId, scope };
+  record[server] = { clientId, scope, method };
   localStorage.setItem(SIGN_IN_STORAGE_KEY, JSON.stringify(record));
 }

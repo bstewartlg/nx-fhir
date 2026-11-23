@@ -22,16 +22,21 @@ public final class LoginSession {
 
 	private static final String ATTRIBUTE = LoginSession.class.getName();
 
-	public enum ClientAuth { BASIC, NONE }
+	public enum ClientAuth { BASIC, NONE, UDAP }
 
 	/**
 	 * The client values that the settings dialog saved for one server. fhirBase has no trailing slash
-	 * (Target.fhirBaseWithoutSlash). An empty secret is a public client. The values stay until a save for the
-	 * same server or the end of the session.
+	 * (Target.fhirBaseWithoutSlash). An empty secret is a public client. With udap true, the sign-in uses the
+	 * certificate of this app, and the client id and the secret are kept for a later save of method client. The
+	 * values stay until a save for the same server or the end of the session.
 	 */
-	public record Client(LoginClients.Kind kind, URI fhirBase, String clientId, String secret, String scope) {
+	public record Client(LoginClients.Kind kind, URI fhirBase, String clientId, String secret, String scope,
+			boolean udap) {
 
 		public ClientAuth clientAuth() {
+			if (udap) {
+				return ClientAuth.UDAP;
+			}
 			return secret == null || secret.isEmpty() ? ClientAuth.NONE : ClientAuth.BASIC;
 		}
 

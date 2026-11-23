@@ -3,10 +3,11 @@ import {
   QueryClientProvider,
   useQuery,
 } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fhirFetch } from "@/hooks/use-fhir-api";
+import { DEFAULT_SIGN_IN_SCOPE } from "@/lib/sign-in";
 import { SignedInUser, SignInGate } from "./sign-in-gate";
 
 // The server list of the app is read when fhir-config loads, so proxy mode
@@ -73,7 +74,11 @@ describe("SignInGate", () => {
   it("shows the endpoints, the client id, and Sign in when the client values are saved", async () => {
     status = {
       ...offered,
-      client: { clientId: "app-1", scope: "openid patient/*.rs" },
+      client: {
+        method: "client",
+        clientId: "app-1",
+        scope: "openid patient/*.rs",
+      },
     };
     renderGate();
 
@@ -96,6 +101,60 @@ describe("SignInGate", () => {
     );
     expect(onOpenSettings).toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+  });
+
+  it("signs in with the UDAP certificate in one step when the server offers UDAP and no values are saved", async () => {
+    const authorizeUrl = "https://as.example/udap/authorize?state=abc";
+    const udap = {
+      offered: true,
+      authorizationEndpoint: "https://as.example/udap/authorize",
+      tokenEndpoint: "https://as.example/udap/token",
+      registrationEndpoint: "https://as.example/udap/register",
+      clientUri: "https://app.example/fhir",
+    };
+    status = { offered: false, signedIn: false, udap };
+    const fetchMock = vi.fn<
+      (url: string, init?: RequestInit) => Promise<Response>
+    >(async (url) => {
+      if (url.startsWith("/auth/status")) {
+        return new Response(JSON.stringify(status));
+      }
+      if (url === "/auth/client") {
+        return new Response(null, { status: 204 });
+      }
+      if (url === "/auth/login") {
+        return new Response(JSON.stringify({ authorizeUrl }));
+      }
+      return new Response(null, { status: 401 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    renderGate();
+
+    const signIn = await screen.findByRole("button", { name: "Sign in" });
+    expect(screen.getAllByRole("button", { name: "Sign in" })).toHaveLength(1);
+    expect(screen.getByText(udap.authorizationEndpoint)).toBeInTheDocument();
+    expect(screen.getByText(udap.tokenEndpoint)).toBeInTheDocument();
+    expect(screen.getByText(udap.registrationEndpoint)).toBeInTheDocument();
+    fireEvent.click(signIn);
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(authorizeUrl));
+    const auth = fetchMock.mock.calls.filter(
+      ([url]) => url === "/auth/client" || url === "/auth/login",
+    );
+    expect(auth.map(([url]) => url)).toEqual(["/auth/client", "/auth/login"]);
+    expect(JSON.parse(String(auth[0][1]?.body))).toEqual({
+      server: "/fhir",
+      method: "udap",
+      scope: DEFAULT_SIGN_IN_SCOPE,
+    });
+    expect(JSON.parse(String(auth[1][1]?.body))).toEqual({
+      server: "/fhir",
+      authorizationEndpoint: udap.authorizationEndpoint,
+      tokenEndpoint: udap.tokenEndpoint,
+      registrationEndpoint: udap.registrationEndpoint,
+    });
+    vi.unstubAllGlobals();
   });
 
   it("says that the app found no sign-in, with the plain http reason and the reason of a failed sign-in", async () => {

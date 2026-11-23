@@ -1,15 +1,15 @@
 <% const packagePath = packageBase.replace(/\./g, '/'); -%>
 # Auth login
 
-The nx-fhir `auth-login` feature lets a tester sign in at the authorization server of the selected FHIR server. The tester saves the client values in the settings dialog of the integrated frontend, and then signs in from the dialog or from the sign-in page of a `clinical` frontend. The sign-in is a SMART standalone launch with an authorization code and PKCE. This server is the OAuth client. It keeps the client values and the access token in the session of the tester and adds the access token to the requests of the frontend for the signed-in FHIR server.
+The nx-fhir `auth-login` feature lets a tester sign in at the authorization server of the selected FHIR server. The sign-in has two methods. With the method `client`, the tester saves a client id, a client secret, and the scopes in the settings dialog of the integrated frontend. With the method `udap`, this server registers itself at the authorization server with the certificate of the `auth-udap` feature, and the tester types no client id and no secret. The tester signs in from the dialog or from the sign-in page of a `clinical` frontend. The sign-in is a SMART standalone launch with an authorization code and PKCE. This server is the OAuth client. It keeps the client values and the access token in the session of the tester and adds the access token to the requests of the frontend for the signed-in FHIR server.
 
 The feature needs the `frontend-proxy` feature. The sign-in uses the HTTP clients and the `app.proxy` settings of that feature, and the list of FHIR servers in `app.fhir.servers`.
 
 ## What the feature adds
 
-The feature adds `LoginController`, `LoginFilter`, `LoginClients`, `IdTokenCheck`, and `LoginSession` under `src/main/java/<%= packagePath %>/login/`. It adds the unit tests `LoginClientsTest`, `LoginFilterTest`, and `LoginControllerTest` and the integration test `AuthLoginIT` under `src/test/java/<%= packagePath %>/login/`. `AuthLoginIT` runs under `mvn verify`. The install also adds the dependency `com.nimbusds:oauth2-oidc-sdk` with version 11.26 to `pom.xml`, and writes each key of the configuration table that has an install value to `application.yaml`.
+The feature adds `LoginController`, `LoginFilter`, `LoginClients`, `IdTokenCheck`, `UdapClient`, and `LoginSession` under `src/main/java/<%= packagePath %>/login/`. It adds the unit tests `LoginClientsTest`, `LoginFilterTest`, `LoginControllerTest`, and `UdapClientTest`, the test helper `LoginTestKeys`, and the integration test `AuthLoginIT` under `src/test/java/<%= packagePath %>/login/`. `AuthLoginIT` runs under `mvn verify`. The install also adds the dependency `com.nimbusds:oauth2-oidc-sdk` with version 11.26 to `pom.xml`. It writes each key of the configuration table that has an install value to `application.yaml`, and `app.login.udap.scope` as a comment line.
 
-`LoginController` answers the client call `POST /auth/client`, the status call `GET /auth/status`, the sign-in call `POST /auth/login`, the callback `GET /auth/callback`, and the sign-out call `POST /auth/logout`. The settings dialog sends the client call, the status call, the sign-in call, and the sign-out call. The sign-in page and the header of a `clinical` frontend send the status call, the sign-in call, and the sign-out call. The authorization server sends the browser to the callback.
+`LoginController` answers the client call `POST /auth/client`, the status call `GET /auth/status`, the sign-in call `POST /auth/login`, the callback `GET /auth/callback`, and the sign-out call `POST /auth/logout`. The settings dialog sends the client call, the status call, the sign-in call, and the sign-out call. The sign-in page and the header of a `clinical` frontend send the status call, the sign-in call, and the sign-out call. The sign-in page also sends the client call for the UDAP sign-in in one step. The authorization server sends the browser to the callback.
 
 ## Configuration
 
@@ -17,19 +17,27 @@ The feature adds `LoginController`, `LoginFilter`, `LoginClients`, `IdTokenCheck
 | --- | --- | --- |
 | `app.login.enabled` | `false` when absent. The install writes `true`. | Master switch. When `false`, the five `/auth` endpoints return 404, `LoginFilter` adds no token to a request, and `/config.js` has no `login` object. |
 | `app.login.ssl-verify` | `true`. The install writes `true`. | When `false`, the calls for this server, the listed servers, and their authorization servers accept each certificate and each host name. With `app.login.enabled: true`, this server then writes one WARN line at startup. Read the warning in the section "Which servers". |
+| `app.login.udap.client-name` | None. The install writes the name of the server project. | The `client_name` of the software statement of a UDAP registration. |
+| `app.login.udap.contact` | None. The install writes `mailto:admin@localhost`. | The one entry of `contacts` in the software statement. |
+| `app.login.udap.logo-uri` | None. The install writes `https://build.fhir.org/icon-fhir-16.png`. | The `logo_uri` of the software statement. The authorization server must be able to read the URL. |
+| `app.login.udap.scope` | Empty. The install writes the comment line `# scope: openid fhirUser launch/patient patient/*.rs user/*.rs` after `logo-uri`. | When set, the `scope` of the software statement has the values of the key in their order. This server adds no value and removes no value for the sign-in or for `scopes_supported`. Remove `# ` from the comment line to set the key. When empty, the scope comes from the rule in "UDAP sign-in". |
 | `server.servlet.session.cookie.same-site` | The install writes `lax`. | The browser sends the session cookie with the return from the authorization server, which comes from a different site. |
 | `server.servlet.session.tracking-modes` | The install writes `cookie`. | This server reads the session id from the cookie only. A session id in the URL has no effect. |
 | `app.proxy.passthrough` | `false` | Permits sign-in at a server that the tester types as a custom URL. |
 | `app.proxy.connect-timeout` | `5s` | Connect timeout for each call of the sign-in. |
 | `app.proxy.read-timeout` | `60s` | Read timeout for each call of the sign-in. |
 
+Startup stops when `app.login.udap.client-name`, `app.login.udap.contact`, or `app.login.udap.logo-uri` is absent.
+
 ## Sign-in
 
-The settings dialog has a sign-in section for the selected FHIR server when `/config.js` has the `proxy` object and the `login` object. The section appears when the FHIR server offers sign-in, when the tester is signed in at that FHIR server, when a sign-in error is present, or when this server refuses the sign-in because of the `http` rule in "Which servers". For that refusal, the section shows the reason. On a page that is not a secure context, for example an `http` page on a host that is not local, the section shows a sentence that the sign-in needs `https` in place of the sign-in form. The page then has no field for the client secret.
+The settings dialog has a sign-in section for the selected FHIR server when `/config.js` has the `proxy` object and the `login` object. The section appears when the FHIR server offers sign-in, when the status call answers with `udap`, when the tester is signed in at that FHIR server, when a sign-in error is present, or when this server refuses the sign-in because of the `http` rule in "Which servers". For that refusal, the section shows the reason. When `udap` has `offered: false`, the section shows its reason. On a page that is not a secure context, for example an `http` page on a host that is not local, the section shows a sentence that the sign-in needs `https` in place of the sign-in form. The page then has no field for the client secret.
 
-A FHIR server offers sign-in when `GET {fhirBase}/.well-known/smart-configuration` answers with status 200 and a SMART configuration in JSON that has an `authorization_endpoint` and a `token_endpoint`. The URL has one slash before `.well-known` also for a base that ends in a slash. Each endpoint must be an absolute URL that obeys the `http` rule in "Which servers" after this server resolves it. When the SMART configuration has an `issuer` or a `jwks_uri`, the same rule applies to that value. This server offers sign-in for itself only when it serves `/fhir/.well-known/smart-configuration`, for example with the `auth-smart` feature.
+A FHIR server offers the sign-in of the method `client` when `GET {fhirBase}/.well-known/smart-configuration` answers with status 200 and a SMART configuration in JSON that has an `authorization_endpoint` and a `token_endpoint`. The URL has one slash before `.well-known` also for a base that ends in a slash. Each endpoint must be an absolute URL that obeys the `http` rule in "Which servers" after this server resolves it. When the SMART configuration has an `issuer` or a `jwks_uri`, the same rule applies to that value. A FHIR server offers the UDAP sign-in under the rules in "UDAP sign-in". This server offers the sign-in of the method `client` for itself only when it serves `/fhir/.well-known/smart-configuration`, for example with the `auth-smart` feature. It offers the UDAP sign-in for itself with the `auth-udap` feature.
 
-Before the sign-in, the section shows these items and a Save button:
+When the FHIR server offers both methods, a select above the fields chooses the form, see "UDAP sign-in". When the FHIR server offers one method, the section shows the form of that method with no select.
+
+Before the sign-in, the form of the method `client` shows these items and a Save button:
 
 - The authorization endpoint and the token endpoint, as this server resolved them.
 - The client id.
@@ -37,19 +45,108 @@ Before the sign-in, the section shows these items and a Save button:
 - The scopes, with the start value `openid fhirUser launch/patient patient/*.rs`.
 - The callback URL `{origin}/auth/callback`, where `{origin}` is the origin of the page. Register this URL at the authorization server.
 
-The Save button sends the client call with `server`, `clientId`, `clientSecret`, and `scope` in JSON. The client id and the scopes must not be empty, else this server answers 400. When `clientSecret` is empty or absent and the session holds client values for that FHIR server with the same client id, this server keeps the saved secret. In each other case, an empty or absent `clientSecret` makes a public client. A `clientSecret` with a value replaces the saved secret. The `server` value has the rules of "Which servers", and this server refuses a value that breaks them with status 400 or 403. The client call reads no SMART configuration and sends no request to another server. It starts the session when there is none, changes the session id, and keeps the client values for that FHIR server in the session. The session holds one set of client values for each FHIR server, and a second save for the same FHIR server replaces the first. The answer is 204.
+The Save button sends the client call with `server`, `method: "client"`, `clientId`, `clientSecret`, and `scope` in JSON. An absent `method` is `client`. A `method` other than `client` or `udap` gets status 400. The client id and the scopes must not be empty, else this server answers 400. When `clientSecret` is empty or absent and the session holds client values for that FHIR server with the same client id, this server keeps the saved secret. In each other case, an empty or absent `clientSecret` makes a public client. A `clientSecret` with a value replaces the saved secret. The `server` value has the rules of "Which servers", and this server refuses a value that breaks them with status 400 or 403. The client call reads no SMART configuration and sends no request to another server. It starts the session when there is none, changes the session id, and keeps the client values for that FHIR server in the session. The session holds one set of client values for each FHIR server. A second save of the method `client` for the same FHIR server replaces the first. A save of the method `udap` keeps the client id and the secret, see "UDAP sign-in". The answer is 204.
 
-The frontend keeps the client id and the scopes in the browser storage for each FHIR server. It does not keep the client secret. After the save, the secret field is empty.
+The frontend keeps the client id, the scopes, and the method of the last save in the browser storage for each FHIR server. It does not keep the client secret. After the save, the secret field is empty.
 
-When the session holds client values for the FHIR server, the status call answers with `client`, which has `clientId`, `scope`, and `hasSecret`, and never the secret. `hasSecret` is true when the saved client values have a client secret. The section then shows the saved client id, the line "Saved client secret:" with "yes" or "none", the saved scopes, and a Sign in button.
+When the session holds client values of the method `client` for the FHIR server, the status call answers with `client`, which has `method: "client"`, `clientId`, `scope`, and `hasSecret`, and never the secret. `hasSecret` is true when the saved client values have a client secret. The form of the method `client` then shows the saved client id, the line "Saved client secret:" with "yes" or "none", the saved scopes, and a Sign in button.
 
-The Sign in button sends the sign-in call, with the authorization endpoint and the token endpoint that the section shows. The sign-in uses the client values that the session holds for that FHIR server. The sign-in call takes no client values. When the session holds none, this server answers 400 with the reason. When this server reads other endpoints at the sign-in call, it answers with status 409 and starts no sign-in. After each failed sign-in call, the frontend shows the reason and sends the status call. The section and the sign-in page then show the state of that answer. With equal endpoints, the browser goes to the authorization endpoint. The request has `response_type=code`, the client id, the callback URL, the scopes, a `state` value, `aud` with the FHIR base URL, and a PKCE `code_challenge` with the method `S256`.
+The Sign in button sends the sign-in call, with the authorization endpoint and the token endpoint that the section shows. The sign-in uses the client values that the session holds for that FHIR server, with their method. The sign-in call takes no client values. When the session holds none, this server answers 400 with the reason. When this server reads other endpoints at the sign-in call, it answers with status 409 and starts no sign-in. After each failed sign-in call, the frontend shows the reason and sends the status call. The section and the sign-in page then show the state of that answer. With equal endpoints, the browser goes to the authorization endpoint. The request has `response_type=code`, the client id, the callback URL, the scopes, a `state` value, `aud` with the FHIR base URL, and a PKCE `code_challenge` with the method `S256`.
 
-At the callback, this server checks the `state` value. A callback with a different `state` gets status 400 and leaves the pending sign-in in the session. A callback with no pending sign-in also gets status 400. When the callback has a code, this server sends the code to the token endpoint. With a client secret, the token call uses HTTP Basic. With an empty secret, the token call sends `client_id` in the form body and has no `Authorization` header. The token type must be `bearer`. After the token call, or after an error from the authorization server, this server sends the browser to `/`. When the sign-in fails, the frontend shows the reason one time. A `browser` frontend shows it in the section. A `clinical` frontend shows it on the sign-in page, or in one line above the app content when the FHIR server does not answer 401 to the count request.
+At the callback, this server checks the `state` value. A callback with a different `state` gets status 400 and leaves the pending sign-in in the session. A callback with no pending sign-in also gets status 400. When the callback has a code, this server sends the code to the token endpoint. With a client secret, the token call uses HTTP Basic. With an empty secret, the token call sends `client_id` in the form body and has no `Authorization` header. A UDAP sign-in sends a client assertion, see "UDAP sign-in". The token type must be `bearer`. After the token call, or after an error from the authorization server, this server sends the browser to `/`. When the sign-in fails, the frontend shows the reason one time. A `browser` frontend shows it in the section. A `clinical` frontend shows it on the sign-in page, or in one line above the app content when the FHIR server does not answer 401 to the count request.
 
 After the sign-in, the section shows the user, the patient, the granted scopes, and the expiry time, each when this server knows it. When the token response has no `scope`, the granted scopes are the requested scopes. When the token response has no `expires_in`, the access token stays until sign-out or the end of the session, and the section shows no expiry time.
 
 The Sign out button removes the access token of that FHIR server from the session and keeps the client values, so a later sign-in needs no secret from the tester. This server sends no request to the authorization server at sign-out.
+
+## UDAP sign-in
+
+The UDAP sign-in needs the `auth-udap` feature with `app.auth.enabled` and `app.auth.udap.enabled` both `true`. The certificate of that feature reaches this feature as the Spring bean `udapCertificate`. With no such bean, the status call has no `udap` member, and the frontend shows no UDAP sign-in. The private key of the certificate never leaves this server.
+
+The client URI of this app is the first URI subject alternative name of the leaf certificate, byte for byte. For a certificate file with more than one URI entry, the first entry is the client URI. When the leaf certificate has no URI entry or is outside its validity period, this server offers no UDAP sign-in, and `auth-udap` writes its WARN line at startup. When the FHIR server answers the metadata request, the dialog then shows the reason.
+
+A sign-in at a different FHIR server works only when its authorization server trusts the issuer of this certificate.
+
+### Metadata
+
+For the status call and for the sign-in call, this server reads `{fhirBase}/.well-known/udap` with no credentials. For this server, the read goes through the loopback address, as for the SMART configuration. A 404, a 204, or no answer means that the FHIR server offers no UDAP sign-in, and the status call has no `udap` member. Each other status than 200, and a body that is not a JSON object, gives `udap` with `offered: false` and the reason. A document with status 200 must pass these checks in order:
+
+1. `signed_metadata` is a compact JWS with `alg` `RS256` and an `x5c` header.
+2. The signature verifies with the public key of the first `x5c` certificate.
+3. That certificate is inside its validity period.
+4. `iss` is equal to a URI subject alternative name of that certificate, `sub` is equal to `iss`, and `exp` is in the future.
+5. `iss` is equal to the URL of a listed or typed FHIR server as the frontend sends it, after this server removes one trailing slash from each side. So the signed `iss` `https://fhir.example.org/fhir/` passes for the server `https://fhir.example.org/fhir`. For this server there is no compare, because it reads itself through the loopback address, and under Vite the origin of the app differs from the base URL that `auth-udap` signs.
+6. Each of `authorization_endpoint`, `token_endpoint`, and `registration_endpoint` in the plain JSON is equal to its signed claim. The sign-in uses the signed values.
+7. `grant_types_supported`, when the document has it, holds `authorization_code`. An empty array fails.
+8. The three endpoints obey the `http` rule in "Which servers".
+
+WARNING: Each check uses the certificate that the document itself has in `x5c`. This server follows no certificate chain to a trust anchor and reads no revocation status. So the checks show that the document agrees with itself. They do not show who signed it.
+
+The first check that fails stops the UDAP sign-in before the registration, and the `reason` names that check. When all checks pass, the status call answers with `udap`, which has `offered: true`, `authorizationEndpoint`, `tokenEndpoint`, and `registrationEndpoint` with the signed values as published, and `clientUri`.
+
+### What the tester sees
+
+When the FHIR server offers both methods, the section shows the select "Sign in with" above the fields, with the options "Certificate of this app (UDAP)" and "Client id and secret". The start value is the method of the last save for that FHIR server in this browser, else "Certificate of this app (UDAP)". The select changes only the form. A form shows its Sign in button only while the saved values have the method of that form. So after a save of the method `udap`, the form of the method `client` has no Sign in button until a save of the method `client`.
+
+The form of the method `udap` shows these items and a Save button:
+
+- The authorization endpoint, the token endpoint, and the registration endpoint, with the signed values.
+- The client URI.
+- The callback URL `{origin}/auth/callback`. The registration sends this URL to the authorization server.
+- The scopes, with the stored scopes of that FHIR server, else the start value `openid fhirUser launch/patient patient/*.rs`.
+
+The Save button sends the client call with `server`, `method: "udap"`, and `scope` in JSON. The scopes must not be empty, else this server answers 400. The save sets the method and the scopes, and keeps the client id and the secret that the session holds for that FHIR server. So a later save of the method `client` with the same client id and an empty secret field keeps the secret. The frontend stores the scopes and the method `udap` for that FHIR server, and keeps the stored client id.
+
+When the session holds UDAP values for the FHIR server, the status call answers with `client`, which has `method: "udap"` and `scope`. The form then shows the saved scopes and a Sign in button. The sign-in page of a `clinical` frontend has one Sign in button for the UDAP sign-in, see "Sign-in page of the `clinical` template".
+
+### Sign-in call
+
+The Sign in button sends the sign-in call with the three endpoints of the form. When the FHIR server offers no UDAP sign-in at that time, this server answers 400. A failed check of the metadata or of the certificate of this app gets status 502 with the reason. When this server reads other signed endpoints, it answers 409 and starts no sign-in. Then this server reads the SMART configuration for the ID token check in "Identity". An `issuer` or a `jwks_uri` there that breaks the `http` rule in "Which servers" gets status 502. Then this server registers.
+
+### Registration
+
+This server registers at each sign-in start. It sends a `POST` of JSON to the signed `registration_endpoint`, with `software_statement` and `"udap": "1"` and no other member. It keeps the `client_id` of the answer in the pending sign-in only, and keeps no client id between two sign-ins.
+
+The software statement is a JWT signed with RS256, with the full certificate chain in the `x5c` header, leaf first. It has these claims:
+
+| Claim | Value |
+| --- | --- |
+| `iss`, `sub` | The client URI. |
+| `aud` | The signed `registration_endpoint`, as published. |
+| `iat`, `exp` | The time of the registration, and 300 seconds later. |
+| `jti` | A fresh random value. |
+| `client_name` | `app.login.udap.client-name`. |
+| `redirect_uris` | The callback URL `{origin}/auth/callback`. |
+| `contacts` | `app.login.udap.contact`, as the one entry. |
+| `logo_uri` | `app.login.udap.logo-uri`. |
+| `grant_types` | `authorization_code`. |
+| `response_types` | `code`. |
+| `token_endpoint_auth_method` | `private_key_jwt`. |
+| `scope` | The full scope set of this app, from the rule below. |
+
+The `scope` of the software statement comes from the first of these sources that applies:
+
+1. `app.login.udap.scope`, when it is set. The `scope` has the values of the key in their order. This server adds no value and removes no value for the sign-in or for `scopes_supported`.
+2. Each value of `scopes_supported` of the UDAP metadata that does not start with `system/`, in the order of the list, then each value of the scopes of the sign-in that the list does not hold.
+3. When `scopes_supported` is absent, empty, or not an array of strings, the scopes of the sign-in.
+
+The authorize request asks for the scopes of the sign-in.
+
+These cases fail the sign-in with status 502 and the reason:
+
+- The registration call fails.
+- The answer has a status other than 200 or 201. The reason has the `error` code of the answer when the code has only the characters that RFC 6749 section 5.2 permits.
+- The answer has no `client_id`.
+- The answer has an empty `grant_types` array, which means that the registration is cancelled.
+- The answer has `redirect_uris` that do not hold the callback URL.
+
+This server does not compare the returned `scope` with the requested scope. An answer with no `redirect_uris` passes.
+
+### Authorize request and token call
+
+After the registration, the browser goes to the signed authorization endpoint. The request is the request of "Sign-in", with the registered client id.
+
+At the callback, the token call has `grant_type=authorization_code`, the code, the callback URL as `redirect_uri`, the PKCE `code_verifier`, `client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer`, `client_assertion`, and `udap=1`. It has no `Authorization` header and no secret. The client assertion is a JWT signed with RS256, with the full certificate chain in the `x5c` header, leaf first. Its `iss` and `sub` are the registered client id, and its `aud` is the signed `token_endpoint` as published. Its `exp` is 300 seconds after `iat`, and it has a fresh `jti`. Each token call has its own assertion. The rest of the callback is as in "Sign-in".
 
 ## Sign-in page of the `clinical` template
 
@@ -57,9 +154,13 @@ A `clinical` frontend sends `GET {fhirBase}/Patient?_summary=count` for the sele
 
 The page has the heading "Sign in" and the sentence "This FHIR server requires authorization." The page then shows one of these items:
 
-- When the FHIR server offers sign-in and the session holds client values: the authorization endpoint, the token endpoint, the saved client id, and a Sign in button. On a page that is not a secure context, the sentence that the sign-in needs `https` replaces the button.
-- When the FHIR server offers sign-in and the session holds no client values: the sentence "Save a client id and scopes for this server in the settings." and an Open settings button, which opens the settings dialog. On a page that is not a secure context, the sentence that the sign-in needs `https` replaces the sentence and the button, because the settings dialog then has no form.
+- When the FHIR server offers the sign-in of the method `client` and the session holds client values of that method: the authorization endpoint, the token endpoint, the saved client id, and a Sign in button.
+- When the FHIR server offers the UDAP sign-in and the session holds UDAP values: the authorization endpoint, the token endpoint, and the registration endpoint of the signed metadata, and a Sign in button.
+- When the FHIR server offers the UDAP sign-in and the session holds no client values: the three UDAP endpoints, the scopes, and one Sign in button. The scopes are the stored scopes of that FHIR server, else `openid fhirUser launch/patient patient/*.rs`. The button sends the client call with the method `udap` and these scopes, and then the sign-in call. The tester needs no visit to the settings.
+- When the FHIR server offers only the sign-in of the method `client` and the session holds no client values: the sentence "Save a client id and scopes for this server in the settings." and an Open settings button, which opens the settings dialog. On a page that is not a secure context, the sentence that the sign-in needs `https` replaces the sentence and the button, because the settings dialog then has no form.
 - When the FHIR server offers no sign-in, or `/config.js` has no `login` object: the sentence "The app found no sign-in for this server." When this server refuses the sign-in because of the `http` rule in "Which servers", the page also shows the reason.
+
+On a page that is not a secure context, the sentence that the sign-in needs `https` replaces each Sign in button. Client values of a method that the FHIR server does not offer count as no client values. When `udap` has `offered: false`, the page also shows its reason.
 
 The callback sends the browser to `/`. After a failed sign-in, the page shows the reason one time. When the count request does not answer 401, the reason shows one time in one line above the app content.
 
@@ -104,14 +205,18 @@ When the access token expires, this server removes it at the next use. Requests 
 
 The section shows the `fhirUser` claim of the ID token as the user, and the `patient` value of the token response as the patient. When the granted scopes have a `patient/` scope and the token response has no `patient`, the section shows a warning.
 
-This server validates an ID token only when the SMART configuration has an `issuer`. With no `issuer`, this server drops the ID token, and the section shows no user. The validation checks these items:
+For both methods, this server validates an ID token when the SMART configuration of the FHIR server has an `issuer`. For a UDAP sign-in, this server reads the SMART configuration at the sign-in start for its `issuer` and `jwks_uri` only, so a document with an `issuer` and no endpoints still gives the issuer. A failed read gives no issuer. The validation checks these items:
 
 - `iss` is equal to the `issuer` of the SMART configuration.
-- `aud` has exactly one value, the client id.
+- `aud` has exactly one value, the client id. For a UDAP sign-in, this is the registered client id.
 - The ID token has not expired.
 - The signature uses an RSA or an EC algorithm and matches a key of the key set. This server refuses `none` and each HMAC algorithm.
 
 The key set comes from the `jwks_uri` of the SMART configuration. When there is none, it comes from the `jwks_uri` of the OpenID document `{issuer}/.well-known/openid-configuration`, and the `issuer` of the OpenID document must be equal to the expected issuer. This server removes one trailing slash from the issuer before it adds `/.well-known/openid-configuration`. An ID token that fails a check fails the sign-in.
+
+With no `issuer`, this server reads the `fhirUser` claim of the ID token with no signature check, no issuer check, no audience check, and no expiry check, and keeps it for display only. Nothing in the app decides access from this value. The ID token comes from the token call of this server, and OpenID Connect Core 1.0 section 3.1.3.7 item 6 permits the TLS check of that call in place of the signature check. An ID token that this server cannot read gives no user, and the sign-in continues.
+
+WARNING: For a FHIR server with no `issuer` in its SMART configuration, the user that this server shows has no signature check. On plain `http` or with `app.login.ssl-verify: false`, no TLS check stands behind that value.
 
 A relative `fhirUser`, such as `Patient/123`, goes under the FHIR base URL: `{fhirBase}/Patient/123`, with one slash also for a base that ends in a slash.
 
@@ -119,7 +224,7 @@ A relative `fhirUser`, such as `Patient/123`, goes under the FHIR base URL: `{fh
 
 This server keeps the sign-in state in the servlet session, in memory. A restart of this server signs each tester out and removes the client values. The session starts at the client call. The status call, the sign-in call, the callback, the sign-out call, and `LoginFilter` create no session.
 
-The session holds one set of client values for each FHIR server, one pending sign-in, and one token set for each FHIR server. The client values stay in the session until a save for the same FHIR server or the end of the session. The client secret stays until a save for the same FHIR server with a different client id or with a secret, or until the end of the session. The client secret is in server memory only. It is in no answer and no log line. When the tester starts a second sign-in in the same session, it replaces the pending sign-in. The pending sign-in holds its own copy of the client values and leaves the session at the callback that has its `state`. A token set holds the access token, the expiry time, the granted scopes, the patient, and the user. This server does not keep a refresh token.
+The session holds one set of client values for each FHIR server, one pending sign-in, and one token set for each FHIR server. The client values stay in the session until a save for the same FHIR server or the end of the session. The client secret stays until a save of the method `client` for the same FHIR server with a different client id or with a secret, or until the end of the session. The client secret is in server memory only. It is in no answer and no log line. When the tester starts a second sign-in in the same session, it replaces the pending sign-in. The pending sign-in holds its own copy of the client values, and for a UDAP sign-in the registered client id. It leaves the session at the callback that has its `state`. A token set holds the access token, the expiry time, the granted scopes, the patient, and the user. This server does not keep a refresh token.
 
 The session id changes at the client call, when a sign-in starts, and after a successful token call.
 
@@ -137,4 +242,4 @@ WARNING: `X-App-Request` or `*` in `hapi.fhir.cors.allowed_headers`, or in the a
 
 ## Development mode
 
-The Vite server of the frontend forwards `/auth` to `DEV_SERVER_URL`, together with `/proxy`, `/config.js`, and `/fhir`. The session cookie and the callback then stay on the Vite origin. The callback URL that the settings dialog shows has the Vite origin, so register that URL at the authorization server too.
+The Vite server of the frontend forwards `/auth` to `DEV_SERVER_URL`, together with `/proxy`, `/config.js`, and `/fhir`. The session cookie and the callback then stay on the Vite origin. The callback URL that the settings dialog shows has the Vite origin. For the method `client`, register that URL at the authorization server too. A UDAP registration sends that URL itself.

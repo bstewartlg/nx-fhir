@@ -191,10 +191,13 @@ describe('auth-login feature', () => {
         `${javaRoot}/login/LoginController.java`,
         `${javaRoot}/login/LoginFilter.java`,
         `${javaRoot}/login/LoginSession.java`,
+        `${javaRoot}/login/UdapClient.java`,
         `${javaTestRoot}/login/AuthLoginIT.java`,
         `${javaTestRoot}/login/LoginClientsTest.java`,
         `${javaTestRoot}/login/LoginControllerTest.java`,
         `${javaTestRoot}/login/LoginFilterTest.java`,
+        `${javaTestRoot}/login/LoginTestKeys.java`,
+        `${javaTestRoot}/login/UdapClientTest.java`,
         docPath,
       ];
       for (const file of written) {
@@ -202,8 +205,8 @@ describe('auth-login feature', () => {
         expect(content, `${file} should exist`).not.toBeNull();
         expect(content).not.toContain('<%');
       }
-      expect(tree.children(`${javaRoot}/login`)).toHaveLength(5);
-      expect(tree.children(`${javaTestRoot}/login`)).toHaveLength(4);
+      expect(tree.children(`${javaRoot}/login`)).toHaveLength(6);
+      expect(tree.children(`${javaTestRoot}/login`)).toHaveLength(6);
       expect(
         tree.read(`${javaRoot}/login/LoginController.java`, 'utf-8'),
       ).toContain('package com.example.login;');
@@ -279,9 +282,19 @@ describe('auth-login feature', () => {
             '  login:',
             '    enabled: true',
             '    ssl-verify: true',
+            '    udap:',
+            `      client-name: ${serverProject(tree).name}`,
+            '      contact: mailto:admin@localhost',
+            '      logo-uri: https://build.fhir.org/icon-fhir-16.png',
+            '      # scope: openid fhirUser launch/patient patient/*.rs user/*.rs',
             '',
           ].join('\n'),
       );
+      expect(
+        parseDocument(
+          (tree.read(yamlPath, 'utf-8') as string).replace('# scope', 'scope'),
+        ).getIn(['app', 'login', 'udap', 'scope']),
+      ).toBe('openid fhirUser launch/patient patient/*.rs user/*.rs');
       expect(readYaml(tree)).toEqual({
         hapi: { fhir: { fhir_version: 'R4' } },
         server: {
@@ -290,7 +303,17 @@ describe('auth-login feature', () => {
             session: { cookie: { 'same-site': 'lax' }, 'tracking-modes': 'cookie' },
           },
         },
-        app: { login: { enabled: true, 'ssl-verify': true } },
+        app: {
+          login: {
+            enabled: true,
+            'ssl-verify': true,
+            udap: {
+              'client-name': serverProject(tree).name,
+              contact: 'mailto:admin@localhost',
+              'logo-uri': 'https://build.fhir.org/icon-fhir-16.png',
+            },
+          },
+        },
       });
     });
 
@@ -329,8 +352,8 @@ describe('auth-login feature', () => {
     });
 
     it('puts back the pom and the yaml when a later yaml edit refuses', async () => {
-      // A servlet key with only commented children has a null value, so the third edit,
-      // server.servlet.session.cookie.same-site, refuses after the two app.login keys are written.
+      // A servlet key with only commented children has a null value, so the edit of
+      // server.servlet.session.cookie.same-site refuses after the app.login keys are written.
       tree.write(
         yamlPath,
         'hapi:\n  fhir:\n    fhir_version: R4\nserver:\n  servlet:\n    # context-path: /example\n  port: 8080\n',
@@ -357,6 +380,13 @@ describe('auth-login feature', () => {
       for (const key of [
         'app.login.enabled',
         'app.login.ssl-verify',
+        'app.login.udap.client-name',
+        'app.login.udap.contact',
+        'app.login.udap.logo-uri',
+        'app.login.udap.scope',
+        '/.well-known/udap',
+        'udapCertificate',
+        'client_assertion',
         'server.servlet.session.cookie.same-site',
         'server.servlet.session.tracking-modes',
         'app.proxy.passthrough',
@@ -377,6 +407,9 @@ describe('auth-login feature', () => {
       );
       expect(doc).toMatch(/WARNING: On plain `http`/);
       expect(doc).toMatch(/WARNING: With `app\.login\.ssl-verify: false`/);
+      expect(doc).toMatch(
+        /WARNING: For a FHIR server with no `issuer` in its SMART configuration/,
+      );
       expect(doc).not.toMatch(/[;—]/);
       expect(doc).not.toMatch(/\b(now|previously|no longer|new|again)\b/i);
       expect(doc).not.toMatch(/\n\n\n/);

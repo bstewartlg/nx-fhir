@@ -21,6 +21,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
@@ -77,6 +78,9 @@ public class LoginClients {
 	/** Each URI is resolved and checked. The published strings are the values as the discovery document has them. */
 	public record Discovery(URI authorize, String authorizePublished, URI token, String tokenPublished,
 			List<String> capabilities, String issuer, URI jwksUri) {}
+
+	/** The issuer of the SMART configuration and its resolved jwks_uri, which can be null. */
+	public record IssuerKeys(String issuer, URI jwksUri) {}
 
 	public static final class RefusedServerException extends RuntimeException {
 		private static final long serialVersionUID = 1L;
@@ -162,11 +166,7 @@ public class LoginClients {
 	 * @throws IllegalArgumentException for an endpoint that is missing or that requireHttp refuses
 	 */
 	public Discovery discover(Target target) throws IOException, ParseException {
-		HTTPRequest request = new HTTPRequest(HTTPRequest.Method.GET, wellKnown(target.discoveryBase(), "smart-configuration"));
-		request.setAccept("application/json");
-		HTTPResponse response = send(target.kind(), request);
-		response.ensureStatusCode(200);
-		JSONObject json = JSONObjectUtils.parse(response.getBody());
+		JSONObject json = smartConfiguration(target);
 		String authorizePublished = JSONObjectUtils.getString(json, "authorization_endpoint", null);
 		String tokenPublished = JSONObjectUtils.getString(json, "token_endpoint", null);
 		String issuer = JSONObjectUtils.getString(json, "issuer", null);
@@ -186,6 +186,38 @@ public class LoginClients {
 				JSONObjectUtils.getStringList(json, "capabilities", List.of()),
 				issuer,
 				jwksUri == null ? null : resolve(target.discoveryBase(), jwksUri));
+	}
+
+	/**
+	 * Reads only the issuer and the jwks_uri of the SMART configuration of the target, so a document with no
+	 * endpoints still gives the issuer. The jwks_uri resolves as in discover.
+	 *
+	 * @return empty when the read fails or the document has no issuer
+	 * @throws IllegalArgumentException for an issuer or a jwks_uri that requireHttp refuses
+	 */
+	public Optional<IssuerKeys> issuer(Target target) {
+		String issuer;
+		String jwksUri;
+		try {
+			JSONObject json = smartConfiguration(target);
+			issuer = JSONObjectUtils.getString(json, "issuer", null);
+			jwksUri = JSONObjectUtils.getString(json, "jwks_uri", null);
+		} catch (IOException | ParseException e) {
+			return Optional.empty();
+		}
+		if (issuer == null) {
+			return Optional.empty();
+		}
+		requireHttp(wellKnown(URI.create(issuer), "openid-configuration"));
+		return Optional.of(new IssuerKeys(issuer, jwksUri == null ? null : resolve(target.discoveryBase(), jwksUri)));
+	}
+
+	private JSONObject smartConfiguration(Target target) throws IOException, ParseException {
+		HTTPRequest request = new HTTPRequest(HTTPRequest.Method.GET, wellKnown(target.discoveryBase(), "smart-configuration"));
+		request.setAccept("application/json");
+		HTTPResponse response = send(target.kind(), request);
+		response.ensureStatusCode(200);
+		return JSONObjectUtils.parse(response.getBody());
 	}
 
 	/**

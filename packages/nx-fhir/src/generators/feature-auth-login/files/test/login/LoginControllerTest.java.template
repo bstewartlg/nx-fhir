@@ -48,7 +48,8 @@ class LoginControllerTest {
 			null, null);
 
 	private final LoginClients clients = mock(LoginClients.class);
-	private final LoginController controller = new LoginController(clients, mock(IdTokenCheck.class), true);
+	private final LoginController controller = new LoginController(clients, mock(IdTokenCheck.class),
+			mock(UdapClient.class), true);
 	private final MockHttpSession session = new MockHttpSession();
 
 	@BeforeEach
@@ -125,8 +126,8 @@ class LoginControllerTest {
 		assertEquals(204, save("client-1", "s3cret", "openid patient/*.rs"));
 		assertEquals(204, save("client-1", "", "openid launch/patient"));
 		Map<String, Object> status = status();
-		assertEquals(Map.of("clientId", "client-1", "scope", "openid launch/patient", "hasSecret", true),
-				status.get("client"));
+		assertEquals(Map.of("method", "client", "clientId", "client-1", "scope", "openid launch/patient", "hasSecret",
+				true), status.get("client"));
 		assertFalse(status.toString().contains("s3cret"), status.toString());
 		ResponseEntity<Object> started = controller.login(withOrigin(), signIn);
 		assertEquals(200, started.getStatusCode().value());
@@ -137,6 +138,11 @@ class LoginControllerTest {
 		assertEquals("s3cret", pending.secret());
 		assertEquals("openid launch/patient", pending.scope());
 
+		assertEquals(204, controller.saveClient(fromApp(), Map.of("server", OWN, "method", "udap", "scope",
+				"openid launch/patient")).getStatusCode().value());
+		assertEquals(Map.of("method", "udap", "scope", "openid launch/patient"), status().get("client"));
+		assertEquals(204, save("client-1", "", "openid launch/patient"));
+		assertEquals(true, ((Map<?, ?>) status().get("client")).get("hasSecret"));
 		assertEquals(204, save("client-2", "", "openid launch/patient"));
 		assertEquals(false, ((Map<?, ?>) status().get("client")).get("hasSecret"));
 	}
