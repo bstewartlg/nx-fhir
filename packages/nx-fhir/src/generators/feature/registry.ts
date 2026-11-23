@@ -7,6 +7,7 @@ import { authUdapFeature } from '../feature-auth-udap/auth-udap';
 import { authSmartFeature } from '../feature-auth-smart/auth-smart';
 import { authScopesFeature } from '../feature-auth-scopes/auth-scopes';
 import { authLoginFeature } from '../feature-auth-login/auth-login';
+import { authPeopleFeature } from '../feature-auth-people/auth-people';
 
 export const FEATURES: FeatureDefinition[] = [
   bulkPublishFeature,
@@ -17,4 +18,5 @@ export const FEATURES: FeatureDefinition[] = [
   authSmartFeature,
   authScopesFeature,
   authLoginFeature,
+  authPeopleFeature,
 ];

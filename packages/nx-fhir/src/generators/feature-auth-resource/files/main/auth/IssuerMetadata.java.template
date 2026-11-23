@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Strings;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -27,23 +28,33 @@ public class IssuerMetadata {
 	static final int READ_TIMEOUT_MS = 10000;
 
 	private final String issuer;
+
+	/** Checks the certificate chain and the host name for each call that the auth features make. Absent means true. */
+	private final boolean sslVerify;
+
 	private final ResourceRetriever retriever;
 	private final Map<String, Map<String, Object>> documents = new ConcurrentHashMap<>();
 
-	/** With app.auth.ssl-verify false, the retriever accepts any certificate and any host name. */
-	public IssuerMetadata(AuthResourceProperties properties) {
+	/** With app.ssl-verify false, the retriever accepts any certificate and any host name. */
+	public IssuerMetadata(AuthResourceProperties properties, @Value("${app.ssl-verify:true}") boolean sslVerify) {
 		this.issuer = properties.getIssuer();
+		this.sslVerify = sslVerify;
 		this.retriever = new DefaultResourceRetriever(
 				CONNECT_TIMEOUT_MS,
 				READ_TIMEOUT_MS,
 				JWKSourceBuilder.DEFAULT_HTTP_SIZE_LIMIT,
 				true,
-				properties.isSslVerify() ? null : TrustAllSslContext.create().getSocketFactory());
+				sslVerify ? null : TrustAllSslContext.create().getSocketFactory());
 	}
 
 	/** The configured issuer, or null. */
 	public String issuer() {
 		return issuer;
+	}
+
+	/** The value of app.ssl-verify. */
+	public boolean sslVerify() {
+		return sslVerify;
 	}
 
 	public ResourceRetriever retriever() {

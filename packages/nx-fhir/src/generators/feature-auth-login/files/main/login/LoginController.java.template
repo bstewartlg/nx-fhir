@@ -91,6 +91,9 @@ public class LoginController {
 	// RFC 6749 section 5.2: an error code has only the characters %x20-21, %x23-5B, and %x5D-7E.
 	private static final Pattern ERROR_CODE = Pattern.compile("[\\x20\\x21\\x23-\\x5B\\x5D-\\x7E]+");
 
+	// The id part has the characters and the length of the FHIR id type.
+	private static final Pattern LOGIN_HINT = Pattern.compile("(Patient|Practitioner)/[A-Za-z0-9.-]{1,64}");
+
 	private final LoginClients clients;
 	private final IdTokenCheck idTokens;
 	private final UdapClient udap;
@@ -220,9 +223,13 @@ public class LoginController {
 		return ResponseEntity.noContent().build();
 	}
 
-	/** Uses the client values that the session holds for the server. */
+	/**
+	 * Uses the client values that the session holds for the server. A body with a loginHint can also give the scope
+	 * of this sign-in, which replaces the saved scope for this sign-in only. The values of the body are not of
+	 * type String, because skipForm can be a JSON boolean.
+	 */
 	@PostMapping("/auth/login")
-	public ResponseEntity<Object> login(HttpServletRequest request, @RequestBody Map<String, String> body) {
+	public ResponseEntity<Object> login(HttpServletRequest request, @RequestBody Map<String, ?> body) {
 		if (!enabled) {
 			return refuse(404, NOT_ENABLED);
 		}
@@ -241,9 +248,25 @@ public class LoginController {
 					? "The address of the app uses plain http. " + e.getMessage()
 					: "The request has no valid Origin header");
 		}
+		// A refused member changes no session and sends no request to another server.
+		String loginHint = member(body, "loginHint");
+		boolean skipForm = "true".equals(member(body, "skipForm"));
+		String bodyScope = member(body, "scope");
+		if (loginHint != null && !LOGIN_HINT.matcher(loginHint).matches()) {
+			return refuse(400, "The loginHint must be Patient/<id> or Practitioner/<id>");
+		}
+		if (skipForm && loginHint == null) {
+			return refuse(400, "skipForm needs a loginHint");
+		}
+		if (bodyScope != null && loginHint == null) {
+			return refuse(400, "scope needs a loginHint");
+		}
+		if (bodyScope != null && bodyScope.isBlank()) {
+			return refuse(400, "The scope must not be empty");
+		}
 		Target target;
 		try {
-			target = clients.target(body.get("server"), origin, request.getLocalPort());
+			target = clients.target(member(body, "server"), origin, request.getLocalPort());
 		} catch (RefusedServerException | IllegalArgumentException e) {
 			return refuseServer(e);
 		}
@@ -251,6 +274,9 @@ public class LoginController {
 		if (client == null) {
 			return refuse(400, "The session has no client values for this server. Save them first.");
 		}
+		// The registration, the authorize request, and the pending sign-in use this scope. The saved client values
+		// keep their scope.
+		String scope = Objects.requireNonNullElse(bodyScope, client.scope());
 		URI redirectUri = URI.create(origin + "/auth/callback");
 		String clientId;
 		Discovery discovery;
@@ -266,9 +292,9 @@ public class LoginController {
 			}
 			// The registration, the sign-in, and the client assertion go only to the endpoints that the dialog showed.
 			Endpoints endpoints = offer.endpoints();
-			if (!endpoints.authorization().equals(body.get("authorizationEndpoint"))
-					|| !endpoints.token().equals(body.get("tokenEndpoint"))
-					|| !endpoints.registration().equals(body.get("registrationEndpoint"))) {
+			if (!endpoints.authorization().equals(member(body, "authorizationEndpoint"))
+					|| !endpoints.token().equals(member(body, "tokenEndpoint"))
+					|| !endpoints.registration().equals(member(body, "registrationEndpoint"))) {
 				return refuse(409, ENDPOINTS_CHANGED);
 			}
 			Optional<IssuerKeys> issuer;
@@ -279,7 +305,7 @@ public class LoginController {
 						+ " URL, or an http URL on localhost or a loopback address");
 			}
 			try {
-				clientId = udap.register(target, offer, redirectUri, client.scope());
+				clientId = udap.register(target, offer, redirectUri, scope);
 			} catch (RefusedException e) {
 				return refuse(502, e.getMessage());
 			}
@@ -294,28 +320,33 @@ public class LoginController {
 			}
 			// The sign-in and the client secret go only to the endpoints that the dialog showed. A server can name
 			// other endpoints in this read than in the read of the status call.
-			if (!discovery.authorize().toString().equals(body.get("authorizationEndpoint"))
-					|| !discovery.token().toString().equals(body.get("tokenEndpoint"))) {
+			if (!discovery.authorize().toString().equals(member(body, "authorizationEndpoint"))
+					|| !discovery.token().toString().equals(member(body, "tokenEndpoint"))) {
 				return refuse(409, ENDPOINTS_CHANGED);
 			}
 			clientId = client.clientId();
 		}
 		State state = new State();
 		CodeVerifier verifier = new CodeVerifier();
-		URI authorizeUrl = new AuthorizationRequest.Builder(ResponseType.CODE, new ClientID(clientId))
+		AuthorizationRequest.Builder authorize = new AuthorizationRequest.Builder(ResponseType.CODE, new ClientID(clientId))
 				.endpointURI(discovery.authorize())
 				.redirectionURI(redirectUri)
-				.scope(Scope.parse(client.scope()))
+				.scope(Scope.parse(scope))
 				.state(state)
 				.codeChallenge(verifier, CodeChallengeMethod.S256)
-				.customParameter("aud", target.fhirBase().toString())
-				.build()
-				.toURI();
+				.customParameter("aud", target.fhirBase().toString());
+		if (loginHint != null) {
+			authorize.customParameter("login_hint", loginHint);
+		}
+		if (skipForm) {
+			authorize.customParameter("hl7fast_signin", "auto");
+		}
+		URI authorizeUrl = authorize.build().toURI();
 		// A session id that a different site planted in the browser must never hold a sign-in, so the id changes.
 		HttpSession session = request.getSession(true);
 		request.changeSessionId();
-		LoginSession.of(session).start(new Pending(body.get("server"), target, clientId, client.clientAuth(),
-				client.udap() ? null : client.secret(), client.scope(), redirectUri, state, verifier, discovery));
+		LoginSession.of(session).start(new Pending(member(body, "server"), target, clientId, client.clientAuth(),
+				client.udap() ? null : client.secret(), scope, redirectUri, state, verifier, discovery));
 		return ResponseEntity.ok(Map.of("authorizeUrl", authorizeUrl.toString()));
 	}
 
@@ -502,6 +533,12 @@ public class LoginController {
 
 	static String errorCode(String code) {
 		return code != null && ERROR_CODE.matcher(code).matches() ? ": " + code : "";
+	}
+
+	// String.valueOf of null gives the text "null", so an absent member stays null.
+	private static String member(Map<String, ?> body, String name) {
+		Object value = body.get(name);
+		return value == null ? null : String.valueOf(value);
 	}
 
 	private static void putIfKnown(Map<String, Object> out, String name, Object value) {

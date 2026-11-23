@@ -11,15 +11,15 @@ The install writes `app.auth.enabled: false` to `src/test/resources/config/appli
 
 ## Configuration
 
-The install replaces `app.auth` with one map: `enabled: true`, `issuer`, `audience` when the option has a value, `public-endpoints: []`, `ssl-verify`, and the comment line of `bypass-header`. The keys:
+The install replaces `app.auth` with one map: `enabled: true`, `issuer`, `audience` when the option has a value, `public-endpoints: []`, and the comment line of `bypass-header`. The install also writes `app.ssl-verify`. The keys:
 
 - `app.auth.enabled`: `true` makes the server check each request under `/fhir`, other than the requests in [Request rule](#request-rule) that pass with no token, and `app.auth.issuer` must then have a value, or the application stops at startup. `false` or absent: the server has no check and ignores the other `app.auth` properties.
 - `app.auth.issuer`: the `iss` claim of a token must be equal to it. The default issuer of the generator is `https://udap-security.fast.hl7.org`, the public FAST security server.
 - `app.auth.audience`: optional. When it is set, the `aud` claim must contain it.
 - `app.auth.jwks-uri`: optional. When it is set, the server reads the signing keys from this URL and reads no discovery document. Use it for an issuer whose `iss` value is not a URL that the server can reach.
 - `app.auth.public-endpoints`: a list of entries relative to the FHIR base. A request that fits an entry passes with no token, for each request method. When `app.auth.enabled` is `true`, an entry in a form other than the three below stops the application at startup.
-- `app.auth.ssl-verify`: `true` or absent makes the server check the certificate chain and the host name for each call that the auth features make. `false` turns off these checks, and with `app.auth.enabled: true` the server writes one WARN line at startup. The install writes `ssl-verify: false` when the issuer is an `https` URL with the host `localhost`, and `ssl-verify: true` for each other issuer.
 - `app.auth.bypass-header`: optional, a header name. A request that has this header, with any value, skips the check. When it is absent or empty, the server has no bypass. When it is set and `app.auth.enabled` is `true`, the server writes one WARN line at startup that names the header. The install writes the comment line `# bypass-header: X-Bypass-Auth`, and the bypass is off. To turn on the bypass, remove `# ` from that line.
+- `app.ssl-verify`: `true` or absent makes the server check the certificate chain and the host name for each call that the auth features make to the issuer and for the read of the key set. `false` turns off these checks, and with `app.auth.enabled: true` the server writes one WARN line at startup. The install writes `false` when the issuer is an `https` URL with the host `localhost`, and `true` for each other issuer. The `auth-login` feature reads the same key.
 
 The three forms of a public endpoint:
 
@@ -29,7 +29,7 @@ The three forms of a public endpoint:
 
 The server compares an entry with the resource type and the operation name that HAPI FHIR reads from the request.
 
-WARNING: With `app.auth.ssl-verify: false`, the server accepts any certificate from the hosts it calls. Use it only with a local development certificate.
+WARNING: With `app.ssl-verify: false`, the auth features accept any certificate and any host name for their calls to the issuer and for the read of the key set. Use it only with a local development certificate.
 
 WARNING: With `app.auth.bypass-header` set, each caller that sends this header skips the token check. Remove the property for a deployment that has data that is not public.
 

@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect } from "react";
+import { PersonPicker } from "@/components/person-picker";
 import {
   INSECURE_PAGE,
   isInsecurePage,
@@ -79,68 +80,80 @@ export function SignInGate({ children, onOpenSettings }: SignInGateProps) {
     server !== undefined && !client
       ? getStoredSignInFields(server).scope
       : undefined;
+  const signIn =
+    server !== undefined && (status?.offered || status?.udap?.offered) ? (
+      client?.method === "client" ? (
+        <>
+          <Value
+            label="Authorization endpoint"
+            value={status.authorizationEndpoint ?? ""}
+          />
+          <Value label="Token endpoint" value={status.tokenEndpoint ?? ""} />
+          <Value label="Client id" value={client.clientId} />
+          <SignInButton server={server} status={status} />
+        </>
+      ) : status.udap?.offered ? (
+        // One branch for the saved UDAP values and for no saved values, so a
+        // failed start after the save keeps the button and its reason
+        <>
+          <Value
+            label="Authorization endpoint"
+            value={status.udap.authorizationEndpoint ?? ""}
+          />
+          <Value
+            label="Token endpoint"
+            value={status.udap.tokenEndpoint ?? ""}
+          />
+          <Value
+            label="Registration endpoint"
+            value={status.udap.registrationEndpoint ?? ""}
+          />
+          {udapScope !== undefined && (
+            <Value label="Scopes" value={udapScope} />
+          )}
+          <SignInButton server={server} status={status} udapScope={udapScope} />
+        </>
+      ) : isInsecurePage() ? (
+        // The settings dialog has no form on this page, so it cannot save
+        <p className="text-sm text-destructive">{INSECURE_PAGE}</p>
+      ) : (
+        <>
+          <p className="text-sm">
+            Save a client id and scopes for this server in the settings.
+          </p>
+          <Button variant="outline" size="sm" onClick={onOpenSettings}>
+            Open settings
+          </Button>
+        </>
+      )
+    ) : (
+      <>
+        <p className="text-sm">The app found no sign-in for this server.</p>
+        {status?.plainHttp && (
+          <p className="text-sm text-destructive">{status.reason}</p>
+        )}
+      </>
+    );
+  // The picker takes the place of the sign-in of an offered method, only for
+  // the server of this app
+  const people =
+    server === "/fhir" &&
+    status !== undefined &&
+    (client !== undefined || status.udap?.offered === true) &&
+    window.APP_CONFIG?.login?.people === true &&
+    !isInsecurePage();
   return (
     <div className="p-6 space-y-3 max-w-xl">
       <h2 className="text-base font-semibold">Sign in</h2>
       <p className="text-sm text-muted-foreground">
         This FHIR server requires authorization.
       </p>
-      {server !== undefined && (status?.offered || status?.udap?.offered) ? (
-        client?.method === "client" ? (
-          <>
-            <Value
-              label="Authorization endpoint"
-              value={status.authorizationEndpoint ?? ""}
-            />
-            <Value label="Token endpoint" value={status.tokenEndpoint ?? ""} />
-            <Value label="Client id" value={client.clientId} />
-            <SignInButton server={server} status={status} />
-          </>
-        ) : status.udap?.offered ? (
-          // One branch for the saved UDAP values and for no saved values, so a
-          // failed start after the save keeps the button and its reason
-          <>
-            <Value
-              label="Authorization endpoint"
-              value={status.udap.authorizationEndpoint ?? ""}
-            />
-            <Value
-              label="Token endpoint"
-              value={status.udap.tokenEndpoint ?? ""}
-            />
-            <Value
-              label="Registration endpoint"
-              value={status.udap.registrationEndpoint ?? ""}
-            />
-            {udapScope !== undefined && (
-              <Value label="Scopes" value={udapScope} />
-            )}
-            <SignInButton
-              server={server}
-              status={status}
-              udapScope={udapScope}
-            />
-          </>
-        ) : isInsecurePage() ? (
-          // The settings dialog has no form on this page, so it cannot save
-          <p className="text-sm text-destructive">{INSECURE_PAGE}</p>
-        ) : (
-          <>
-            <p className="text-sm">
-              Save a client id and scopes for this server in the settings.
-            </p>
-            <Button variant="outline" size="sm" onClick={onOpenSettings}>
-              Open settings
-            </Button>
-          </>
-        )
+      {people ? (
+        <PersonPicker server={server} status={status} udapScope={udapScope}>
+          {signIn}
+        </PersonPicker>
       ) : (
-        <>
-          <p className="text-sm">The app found no sign-in for this server.</p>
-          {status?.plainHttp && (
-            <p className="text-sm text-destructive">{status.reason}</p>
-          )}
-        </>
+        signIn
       )}
       {status?.udap?.offered === false && (
         <p className="text-sm text-destructive">{status.udap.reason}</p>
@@ -178,7 +191,13 @@ export function SignedInUser() {
         className="max-w-64 truncate text-xs text-muted-foreground"
         title={status.fhirUser}
       >
-        {status.fhirUser ? `Signed in as ${status.fhirUser}` : "Signed in"}
+        {status.fhirUser
+          ? `Signed in as ${status.fhirUser
+              .replace(/\/_history\/[^/]+$/, "")
+              .split("/")
+              .slice(-2)
+              .join("/")}`
+          : "Signed in"}
       </span>
       <SignOutButton server={server} />
     </div>

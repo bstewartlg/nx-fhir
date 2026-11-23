@@ -52,8 +52,10 @@ export function fhirRequestHeaders(url: string): Headers {
   }
   // A page link can point at another host, which must not see the headers
   const serverUrl = getStoredServerUrl();
-  const base = serverUrl.replace(/\/+$/, "");
-  if (url.startsWith(base) && "/?#".includes(url.charAt(base.length))) {
+  // A page link is absolute, also when the server URL is a path such as "/fhir"
+  const target = new URL(url, origin).href;
+  const base = new URL(serverUrl, origin).href.replace(/\/+$/, "");
+  if (target.startsWith(base) && "/?#".includes(target.charAt(base.length))) {
     for (const header of getStoredServerHeaders(serverUrl)) {
       headers.set(header.name, header.value);
     }

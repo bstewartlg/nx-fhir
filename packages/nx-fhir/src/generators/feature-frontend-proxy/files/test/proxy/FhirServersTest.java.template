@@ -98,25 +98,28 @@ class FhirServersTest {
 
 	@Test
 	void configOutputInThinMode() throws Exception {
-		assertEquals(THIN_CONFIG, new ConfigController(listForm(), false, false, false).getConfig());
-		assertEquals(THIN_CONFIG, new ConfigController(withSecret(), false, true, false).getConfig());
+		assertEquals(THIN_CONFIG, new ConfigController(listForm(), false, false, false, false).getConfig());
+		assertEquals(THIN_CONFIG, new ConfigController(withSecret(), false, true, false, false).getConfig());
 		assertEquals("window.APP_CONFIG = {\"fhirServers\":[]};",
-				new ConfigController(new FhirServers(new MockEnvironment()), false, false, false).getConfig());
+				new ConfigController(new FhirServers(new MockEnvironment()), false, false, false, false).getConfig());
 		assertEquals("window.APP_CONFIG = {\"fhirServers\":[{\"name\":\"Local\",\"url\":\"/fhir\"}]};",
-				new ConfigController(new FhirServers(listFormEnvironment("Local", "/fhir")), false, false, false).getConfig());
+				new ConfigController(new FhirServers(listFormEnvironment("Local", "/fhir")), false, false, false, false).getConfig());
 	}
 
 	@Test
 	void configOutputInProxyMode() throws Exception {
-		String config = new ConfigController(withSecret(), true, false, false).getConfig();
+		String config = new ConfigController(withSecret(), true, false, false, false).getConfig();
 		assertEquals(PROXY_CONFIG, config);
 		assertFalse(config.contains("s3"));
 		assertEquals(
 				"window.APP_CONFIG = {\"fhirServers\":[{\"name\":\"A\",\"url\":\"https://a.example/fhir\"}],\"proxy\":{\"passthrough\":true}};",
-				new ConfigController(listForm(), true, true, false).getConfig());
+				new ConfigController(listForm(), true, true, false, false).getConfig());
 		assertEquals(
 				"window.APP_CONFIG = {\"fhirServers\":[{\"name\":\"A\",\"url\":\"https://a.example/fhir\"}],\"proxy\":{\"passthrough\":true},\"login\":{}};",
-				new ConfigController(listForm(), true, true, true).getConfig());
+				new ConfigController(listForm(), true, true, true, false).getConfig());
+		assertEquals(
+				"window.APP_CONFIG = {\"fhirServers\":[{\"name\":\"A\",\"url\":\"https://a.example/fhir\"}],\"proxy\":{\"passthrough\":true},\"login\":{\"people\":true}};",
+				new ConfigController(listForm(), true, true, true, true).getConfig());
 	}
 
 	private static MockEnvironment listFormEnvironment() {

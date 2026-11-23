@@ -66,6 +66,11 @@
       "schema": "./src/generators/feature-auth-login/schema.json",
       "description": "Add sign-in at the authorization server of a FHIR server to the integrated frontend of an existing server project"
     },
+    "feature-auth-people": {
+      "factory": "./src/generators/feature-auth-people/feature-auth-people",
+      "schema": "./src/generators/feature-auth-people/schema.json",
+      "description": "Add a picker of the Patient and Practitioner resources of an existing server project to the sign-in page of its integrated clinical frontend"
+    },
     "preset": {
       "factory": "./src/generators/preset/generator",
       "schema": "./src/generators/preset/schema.json",

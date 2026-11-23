@@ -18,7 +18,10 @@ interface AppConfig {
   cdsServers?: CdsServer[];
   proxy?: ProxyConfig;
   /** Present when this server offers sign-in at the authorization servers. */
-  login?: Record<string, never>;
+  login?: {
+    /** True when this server lists its Practitioners and Patients for the sign-in. */
+    people?: boolean;
+  };
 }
 
 /**

@@ -12,6 +12,10 @@ import * as path from 'path';
 import { parseDocument } from 'yaml';
 
 import { AUTH_LOGIN_FEATURE, authLoginFeature } from './auth-login';
+import {
+  authResourceFeature,
+  LOCAL_FAST_ISSUER,
+} from '../feature-auth-resource/auth-resource';
 import { runFeature } from '../feature/run-feature';
 import { updateServerYaml } from '../../shared/utils';
 import { FhirVersion, ServerProjectConfiguration } from '../../shared/models';
@@ -279,9 +283,9 @@ describe('auth-login feature', () => {
             '        same-site: lax',
             '      tracking-modes: cookie',
             'app:',
+            '  ssl-verify: true',
             '  login:',
             '    enabled: true',
-            '    ssl-verify: true',
             '    udap:',
             `      client-name: ${serverProject(tree).name}`,
             '      contact: mailto:admin@localhost',
@@ -304,9 +308,9 @@ describe('auth-login feature', () => {
           },
         },
         app: {
+          'ssl-verify': true,
           login: {
             enabled: true,
-            'ssl-verify': true,
             udap: {
               'client-name': serverProject(tree).name,
               contact: 'mailto:admin@localhost',
@@ -316,6 +320,61 @@ describe('auth-login feature', () => {
         },
       });
     });
+
+    const loginLines = [
+      '  login:',
+      '    enabled: true',
+      '    udap:',
+      '      client-name: server',
+      '      contact: mailto:admin@localhost',
+      '      logo-uri: https://build.fhir.org/icon-fhir-16.png',
+      '      # scope: openid fhirUser launch/patient patient/*.rs user/*.rs',
+    ];
+    const authLines = [
+      '  auth:',
+      '    enabled: true',
+      '    issuer: https://localhost:5001',
+      '    public-endpoints: []',
+      '    # bypass-header: X-Bypass-Auth',
+    ];
+    it.each([
+      ['auth-login', 'auth-resource', [...loginLines, ...authLines]],
+      ['auth-resource', 'auth-login', [...authLines, ...loginLines]],
+    ])(
+      'writes app.ssl-verify: false for the local issuer when %s installs before %s',
+      async (first, second, appLines) => {
+        const install: Record<string, () => Promise<unknown>> = {
+          'auth-login': () =>
+            authLoginFeature.apply(tree, serverProject(tree), {}),
+          'auth-resource': () =>
+            authResourceFeature.apply(tree, serverProject(tree), {
+              issuer: LOCAL_FAST_ISSUER,
+              audience: '',
+            }),
+        };
+
+        await install[first]();
+        await install[second]();
+
+        expect(tree.read(yamlPath, 'utf-8')).toBe(
+          [
+            'hapi:',
+            '  fhir:',
+            '    fhir_version: R4',
+            'app:',
+            '  ssl-verify: false',
+            ...appLines,
+            'server:',
+            '  servlet:',
+            '    session:',
+            '      cookie:',
+            '        same-site: lax',
+            '      tracking-modes: cookie',
+            '',
+          ].join('\n'),
+        );
+      },
+    );
 
     it('refuses to overwrite a file that is already there', async () => {
       tree.write(`${javaRoot}/login/LoginFilter.java`, 'hand written');
@@ -379,7 +438,7 @@ describe('auth-login feature', () => {
       );
       for (const key of [
         'app.login.enabled',
-        'app.login.ssl-verify',
+        'app.ssl-verify',
         'app.login.udap.client-name',
         'app.login.udap.contact',
         'app.login.udap.logo-uri',
@@ -399,6 +458,10 @@ describe('auth-login feature', () => {
         'Sec-Fetch-Site',
         '/auth/callback',
         'DEV_SERVER_URL',
+        'loginHint',
+        'skipForm',
+        'login_hint',
+        'hl7fast_signin=auto',
       ]) {
         expect(doc).toContain(key);
       }
@@ -406,7 +469,7 @@ describe('auth-login feature', () => {
         /WARNING: .*`X-App-Request` or `\*`.*`hapi\.fhir\.cors\.allowed_headers`/,
       );
       expect(doc).toMatch(/WARNING: On plain `http`/);
-      expect(doc).toMatch(/WARNING: With `app\.login\.ssl-verify: false`/);
+      expect(doc).toMatch(/WARNING: With `app\.ssl-verify: false`/);
       expect(doc).toMatch(
         /WARNING: For a FHIR server with no `issuer` in its SMART configuration/,
       );

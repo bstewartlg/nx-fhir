@@ -1,9 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import type { Patient } from "fhir/r4";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ClinicalTable } from "@/components/clinical-table";
 import { PatientSearch } from "@/components/patient-search";
-import { usePatientSearch } from "@/hooks/use-clinical-api";
+import { TablePagination } from "@/components/table-pagination";
+import {
+  getPaginationLinks,
+  useResourceSearchWithParams,
+} from "@/hooks/use-fhir-api";
+import { useFhirServer } from "@/hooks/use-fhir-server";
 import {
   calculateAge,
   formatClinicalDate,
@@ -16,24 +21,46 @@ export const Route = createFileRoute("/")({
 });
 
 function PatientSearchPage() {
-  const [searchParams, setSearchParams] = useState<{
-    family?: string;
-    given?: string;
-    birthdate?: string;
-    identifier?: string;
-  }>({});
+  const { serverUrl } = useFhirServer();
 
-  const { data, isLoading, isError, error } = usePatientSearch(searchParams);
+  // A page link belongs to one server, so the key starts the list at page 1
+  // with no filter when the server changes
+  return <PatientList key={serverUrl} serverUrl={serverUrl} />;
+}
+
+function PatientList({ serverUrl }: { serverUrl: string }) {
+  const [filters, setFilters] = useState<Record<string, string | undefined>>(
+    {},
+  );
+  const [pageUrl, setPageUrl] = useState<string | undefined>(undefined);
+  const [pageSize, setPageSize] = useState(50);
+
+  const params = useMemo(() => {
+    const values: Record<string, string> = { _sort: "-_lastUpdated" };
+    for (const [name, value] of Object.entries(filters)) {
+      if (value) values[name] = value;
+    }
+    return values;
+  }, [filters]);
+
+  const { data, isLoading, isError, error } = useResourceSearchWithParams(
+    serverUrl,
+    "Patient",
+    params,
+    pageUrl,
+    pageSize,
+  );
 
   const patients: Patient[] =
-    data?.entry?.map((e) => e.resource).filter((r): r is Patient => !!r) ?? [];
+    data?.entry
+      ?.map((e) => e.resource)
+      .filter((r): r is Patient => r?.resourceType === "Patient") ?? [];
+  const links = getPaginationLinks(data);
 
-  const hasSearched = !!(
-    searchParams.family ||
-    searchParams.given ||
-    searchParams.birthdate ||
-    searchParams.identifier
-  );
+  const search = (values: Record<string, string | undefined>) => {
+    setFilters(values);
+    setPageUrl(undefined);
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-6xl">
@@ -42,7 +69,7 @@ function PatientSearchPage() {
         <p className="text-sm text-muted-foreground mt-0.5 mb-3">
           Search for patients by name, date of birth, or identifier
         </p>
-        <PatientSearch onSearch={setSearchParams} />
+        <PatientSearch onSearch={search} />
       </section>
 
       {isError && (
@@ -51,7 +78,7 @@ function PatientSearchPage() {
         </p>
       )}
 
-      {(isLoading || (hasSearched && !isError)) && (
+      {!isError && (
         <section className="border-t pt-4">
           <h2 className="text-base font-semibold mb-3">
             Results
@@ -102,16 +129,28 @@ function PatientSearchPage() {
               },
             ]}
             data={patients}
-            emptyMessage="No patients found. Try adjusting your search criteria."
+            emptyMessage="No patients found."
           />
+          {(isLoading ||
+            patients.length > 0 ||
+            Boolean(links.previous || links.next)) && (
+            <div className="mt-2 border-t">
+              <TablePagination
+                shown={patients.length}
+                total={data?.total}
+                pageSize={pageSize}
+                onPageSizeChange={(size) => {
+                  setPageSize(size);
+                  setPageUrl(undefined);
+                }}
+                previous={links.previous}
+                next={links.next}
+                onPageChange={setPageUrl}
+                disabled={isLoading}
+              />
+            </div>
+          )}
         </section>
-      )}
-
-      {!hasSearched && !isLoading && (
-        <p className="py-8 text-sm text-muted-foreground">
-          Enter a name, date of birth, or identifier to find patients in the
-          FHIR server.
-        </p>
       )}
     </div>
   );

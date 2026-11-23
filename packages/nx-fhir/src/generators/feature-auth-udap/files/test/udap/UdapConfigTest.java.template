@@ -103,7 +103,7 @@ class UdapConfigTest {
 
 	UdapConfig config(UdapProperties properties, AuthResourceProperties authProperties) {
 		UdapConfig config = new UdapConfig(
-				restfulServer, properties, authProperties, new IssuerMetadata(authProperties), environment);
+				restfulServer, properties, authProperties, new IssuerMetadata(authProperties, true), environment);
 		config.savedCertificateDirectory = directory;
 		return config;
 	}

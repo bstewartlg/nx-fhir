@@ -143,7 +143,7 @@ public class UdapConfig {
 		if (!Files.exists(saved)) {
 			try {
 				new UdapCertificateFetcher(
-								fetchClient(authProperties.isSslVerify()),
+								fetchClient(issuerMetadata.sslVerify()),
 								authProperties.getIssuer(),
 								properties.getFetchCertRetryAttempts(),
 								properties.getFetchCertRetryDelay())

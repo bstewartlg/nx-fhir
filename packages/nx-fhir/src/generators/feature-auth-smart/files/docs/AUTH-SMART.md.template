@@ -36,7 +36,7 @@ app:
 
 The capabilities `permission-patient`, `permission-user`, `permission-v1`, and `permission-v2` are true only while `app.auth.scopes.enabled` is `true`, because the scope check of the `auth-scopes` feature enforces them. When you set `app.auth.scopes.enabled` to `false`, remove these four capabilities from `app.auth.smart.capabilities`.
 
-The server reads the OpenID discovery document of the issuer at `{issuer}/.well-known/openid-configuration`. The class `IssuerMetadata` of the `auth-resource` feature reads it at the first request that needs it and keeps it after a successful read, with a connect timeout of 5 seconds and a read timeout of 10 seconds. `app.auth.ssl-verify` of the `auth-resource` feature also applies to this read.
+The server reads the OpenID discovery document of the issuer at `{issuer}/.well-known/openid-configuration`. The class `IssuerMetadata` of the `auth-resource` feature reads it at the first request that needs it and keeps it after a successful read, with a connect timeout of 5 seconds and a read timeout of 10 seconds. `app.ssl-verify` applies to this read. The `auth-resource` install writes the key, and the install of this feature does not change it. The `auth-resource` and `auth-login` features read the same key.
 
 ## Where each member comes from
 

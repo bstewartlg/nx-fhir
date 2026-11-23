@@ -192,8 +192,7 @@ class BearerTokenInterceptorTest {
 	static IssuerMetadata metadata(String issuerUrl, boolean sslVerify) {
 		AuthResourceProperties properties = new AuthResourceProperties();
 		properties.setIssuer(issuerUrl);
-		properties.setSslVerify(sslVerify);
-		return new IssuerMetadata(properties);
+		return new IssuerMetadata(properties, sslVerify);
 	}
 
 	static BearerTokenInterceptor interceptor(LocalIssuer from, List<String> publicEndpoints, String bypassHeader) {

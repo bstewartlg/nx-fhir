@@ -9,13 +9,16 @@ export async function featureGenerator(tree: Tree, options: FeatureGeneratorSche
   const { feature, project, ...rest } = options;
   let featureName = feature;
   if (!featureName) {
+    const features = [...FEATURES].sort((a, b) => a.name.localeCompare(b.name));
     if (!isInteractive()) {
-      const available = FEATURES.map((f) => f.name).join(', ');
+      const available = features.map((f) => f.name).join(', ');
       throw new Error(`Missing required option --feature. Available features: ${available}`);
     }
     featureName = await select({
       message: 'Select a feature to add:',
-      choices: FEATURES.map((f) => ({ name: f.name, value: f.name, description: f.description })),
+      choices: features.map((f) => ({ name: f.name, value: f.name, description: f.description })),
+      // The list shows every feature with no scroll
+      pageSize: features.length,
     });
   }
   // Every option the picker does not own belongs to the feature. An option the caller

@@ -13,7 +13,7 @@ The install writes `app.auth.udap.enabled: false` to `src/test/resources/config/
 
 ## Configuration
 
-The install writes the configuration below, the `udap` map of `app.auth`. `AUTH-RESOURCE.md` gives the other keys of `app.auth`, which this feature also uses: `enabled`, `issuer`, and `ssl-verify`.
+The install writes the configuration below, the `udap` map of `app.auth`. `AUTH-RESOURCE.md` gives the other keys that this feature also uses: `app.auth.enabled`, `app.auth.issuer`, and `app.ssl-verify`.
 
 ```yaml
 app:
@@ -58,9 +58,9 @@ With the `certFile` option, the map has `cert-file` and no `fetch-cert`. The key
 - `fetch-cert-retry-attempts`: the number of fetch tries. The default is 10.
 - `fetch-cert-retry-delay`: the time between two fetch tries, in milliseconds. The default is 5000.
 
-`app.auth.ssl-verify` of the `auth-resource` feature also applies to the certificate fetch and to the read of the UDAP metadata of the issuer. With `false`, the server accepts any certificate and any host name for these calls.
+`app.ssl-verify` applies to the certificate fetch and to the read of the UDAP metadata of the issuer. With `false`, the server accepts any certificate and any host name for these calls. The `auth-resource` install writes the key, and the install of this feature does not change it. The `auth-resource` and `auth-login` features read the same key.
 
-WARNING: With `app.auth.ssl-verify: false`, the server accepts any certificate from the hosts it calls. Use it only with a local development certificate.
+WARNING: With `app.ssl-verify: false`, the server accepts any certificate for the certificate fetch and for the read of the UDAP metadata. Use it only with a local development certificate.
 
 ### IG rules for the lists
 

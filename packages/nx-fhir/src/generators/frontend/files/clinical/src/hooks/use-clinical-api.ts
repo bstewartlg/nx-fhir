@@ -3,13 +3,6 @@ import type { Bundle, Condition, MedicationRequest, Patient } from "fhir/r4";
 import { type FhirError, fhirFetch } from "./use-fhir-api";
 import { useFhirServer } from "./use-fhir-server";
 
-interface PatientSearchParams {
-  family?: string;
-  given?: string;
-  birthdate?: string;
-  identifier?: string;
-}
-
 // A FHIR id cannot hold "=", so this key never matches the key of a Patient read
 export function patientCountKey(serverUrl: string) {
   return ["fhir", "Patient", "_summary=count", serverUrl];
@@ -31,36 +24,6 @@ export function useRequiresAuthorization() {
         (error: FhirError) => error.status === 401,
       ),
     enabled: !!serverUrl,
-  });
-}
-
-export function usePatientSearch(params: PatientSearchParams) {
-  const { serverUrl } = useFhirServer();
-
-  const searchParams = new URLSearchParams();
-  searchParams.set("_count", "50");
-  searchParams.set("_sort", "-_lastUpdated");
-
-  if (params.family) searchParams.set("family", params.family);
-  if (params.given) searchParams.set("given", params.given);
-  if (params.birthdate) searchParams.set("birthdate", params.birthdate);
-  if (params.identifier) searchParams.set("identifier", params.identifier);
-
-  const hasSearchParams = !!(
-    params.family ||
-    params.given ||
-    params.birthdate ||
-    params.identifier
-  );
-
-  return useQuery({
-    queryKey: ["fhir", "Patient", "search", serverUrl, params],
-    queryFn: () =>
-      fhirFetch<Bundle<Patient>>(
-        `${serverUrl}/Patient?${searchParams.toString()}`,
-      ),
-    staleTime: 30 * 1000,
-    enabled: !!serverUrl && hasSearchParams,
   });
 }
 

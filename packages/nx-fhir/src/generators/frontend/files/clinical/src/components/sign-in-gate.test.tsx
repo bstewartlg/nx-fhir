@@ -218,11 +218,23 @@ describe("SignedInUser", () => {
     );
     renderWithQueries(<SignedInUser />);
 
-    expect(
-      await screen.findByText(`Signed in as ${fhirUser}`),
-    ).toBeInTheDocument();
+    const label = await screen.findByText("Signed in as Patient/1002");
+    expect(label).toHaveAttribute("title", fhirUser);
     expect(
       screen.getByRole("button", { name: "Sign out" }),
     ).toBeInTheDocument();
+  });
+
+  it("shows the type and the id of a fhirUser with a version", async () => {
+    const fhirUser = `${window.location.origin}/fhir/Practitioner/123/_history/4`;
+    status = { ...offered, signedIn: true, fhirUser };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(status))),
+    );
+    renderWithQueries(<SignedInUser />);
+
+    const label = await screen.findByText("Signed in as Practitioner/123");
+    expect(label).toHaveAttribute("title", fhirUser);
   });
 });

@@ -183,12 +183,16 @@ export const authResourceFeature: FeatureDefinition = {
     }
     const config = parseYaml(configPath, configFile);
     const { protocol, hostname } = new URL(options.issuer);
+    // A JVM does not trust the development certificate of an https issuer on localhost.
+    config.setIn(
+      ['app', 'ssl-verify'],
+      !(protocol === 'https:' && hostname === 'localhost'),
+    );
     const auth = config.createNode({
       enabled: true,
       issuer: options.issuer,
       ...(options.audience ? { audience: options.audience } : {}),
       'public-endpoints': [],
-      'ssl-verify': !(protocol === 'https:' && hostname === 'localhost'),
     }) as YAMLMap;
     // The comment follows the last key at the indentation of the app.auth keys, so the removal of "# " turns the bypass on.
     auth.comment = ' bypass-header: X-Bypass-Auth';

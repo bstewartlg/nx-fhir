@@ -108,7 +108,7 @@ public class LoginClients {
 			FhirServers fhirServers,
 			ClientHttpRequestFactorySettings settings,
 			@Value("${app.login.enabled:false}") boolean enabled,
-			@Value("${app.login.ssl-verify:true}") boolean sslVerify,
+			@Value("${app.ssl-verify:true}") boolean sslVerify,
 			@Value("${app.proxy.passthrough:false}") boolean passthrough,
 			@Value("${app.proxy.connect-timeout:5s}") Duration connectTimeout,
 			@Value("${app.proxy.read-timeout:60s}") Duration readTimeout) {
@@ -123,7 +123,7 @@ public class LoginClients {
 		this.unguarded = RestClient.builder().requestFactory(unguardedFactory).build();
 		this.publicOnly = RestClient.builder().requestFactory(ProxyHttpClients.publicOnly(timeouts)).build();
 		if (enabled && !sslVerify) {
-			log.warn("app.login.ssl-verify is false, so the sign-in accepts any certificate and any host name"
+			log.warn("app.ssl-verify is false, so the sign-in accepts any certificate and any host name"
 					+ " from the own server, the listed servers, and their authorization servers");
 		}
 	}
@@ -351,7 +351,7 @@ public class LoginClients {
 			context.init(null, new TrustManager[] {trustAll}, new SecureRandom());
 			return context;
 		} catch (GeneralSecurityException e) {
-			throw new IllegalStateException("Could not create the SSL context for app.login.ssl-verify false", e);
+			throw new IllegalStateException("Could not create the SSL context for app.ssl-verify false", e);
 		}
 	}
 }

@@ -1,0 +1,72 @@
+<% const packagePath = packageBase.replace(/\./g, '/'); -%>
+# Auth people
+
+The nx-fhir `auth-people` feature lets a tester sign in as one of the Practitioner or Patient resources of this server. The sign-in page of an integrated `clinical` frontend shows these resources for this server. The tester picks one, and the sign-in call of the `auth-login` feature sends the reference of that resource as `loginHint`.
+
+The feature needs the `auth-login` feature. `AUTH-LOGIN.md` gives the sign-in call, the request proof, and the sign-in page without the picker.
+
+## What the feature adds
+
+The feature adds `PeopleController` under `src/main/java/<%= packagePath %>/people/` and the unit test `PeopleControllerTest` under `src/test/java/<%= packagePath %>/people/`. The install writes `app.login.people.enabled: true` to `application.yaml`.
+
+## Configuration
+
+| Key | Default and install value | Effect |
+|---|---|---|
+| `app.login.people.enabled` | `false` when absent. The install writes `true`. | When `true`, `GET /auth/people` answers with the list, and the `login` object of `/config.js` has `people: true`. When it is not `true`, `GET /auth/people` returns 404, and the `login` object of `/config.js` has no `people` member. |
+
+The `login` object of `/config.js` is present only while `app.login.enabled` is `true`. `GET /auth/people` does not read `app.login.enabled`.
+
+## People list
+
+`GET /auth/people` needs the request proof of `AUTH-LOGIN.md`. The request must have the header `X-App-Request`, and its `Sec-Fetch-Site` header, when present, must have the value `same-origin`. Without the proof, the answer is 403.
+
+The answer is JSON with two members:
+
+```json
+{ "practitioners": [{ "id": "pr-1", "name": "Jane Doe" }], "patients": [{ "id": "pa-1", "name": "Sam Roe" }] }
+```
+
+- This server reads at most 100 Practitioner resources and at most 100 Patient resources, sorted by the search parameter `family`. The read has no other search parameter and no paging.
+- `id` is the logical id of the resource, with no version.
+- `name` is the `text` of the first name of the resource. When that `text` is absent or blank, `name` is the given names and the family name of the first name, joined with one space. When these are also absent, `name` is the id.
+- Each entry has only `id` and `name`.
+- A resource type that this server does not support, for example because `hapi.fhir.supported_resource_types` does not list it, gives an empty list.
+- This server reads the resources in process, and no token check applies to the read.
+- When the read fails, the answer is 500 with a short reason, and the log has one warning line with the class of the error.
+
+WARNING: The ids and the names of the Patient and Practitioner resources of this server are readable with no token by each caller that sends the header `X-App-Request`.
+
+## Sign-in page
+
+A `clinical` frontend shows the person picker on its sign-in page when all of these conditions are true:
+
+- The selected FHIR server is this server.
+- `/config.js` has `login.people`.
+- The session holds client values of a method that the FHIR server offers, or the FHIR server offers the UDAP sign-in.
+- The page is a secure context.
+
+In each other case, the frontend shows the sign-in page of `AUTH-LOGIN.md`. So when the session holds no client values and the FHIR server offers only the method `client`, the page shows the sentence "Save a client id and scopes for this server in the settings." and no picker.
+
+The picker has the tabs "Practitioners" and "Patients". "Practitioners" is the start tab. Each tab has the select "Person" with the list of its resource type. A type with an empty list shows a sentence that this server has no resource of that type. Below the tabs is the checkbox "Skip the sign-in form of the authorization server". The frontend keeps the value of the checkbox in browser storage. When the storage holds no value, the checkbox is checked.
+
+The "Sign in" button is off until the tester picks a person. The button sends the sign-in call of `AUTH-LOGIN.md` with the endpoints of the method in use and these three members:
+
+- `loginHint`: `Practitioner/<id>` or `Patient/<id>`.
+- `skipForm`: the value of the checkbox. The value `true` adds `hl7fast_signin=auto` to the authorize request.
+- `scope`: `openid fhirUser user/*.rs` on the tab "Practitioners", and `openid fhirUser launch/patient patient/*.rs` on the tab "Patients". The page does not show the scope.
+
+The method in use is the saved method while the FHIR server offers it, else UDAP when the FHIR server offers it. When the session holds no client values and the FHIR server offers UDAP, the button first sends the client call with the method `udap`. The scopes of that call are the stored scopes of that FHIR server, else `openid fhirUser launch/patient patient/*.rs`. The scope of the tab goes only into the sign-in call.
+
+"Sign in without a person" shows the sign-in page of `AUTH-LOGIN.md` in place of the picker, with a link back to the picker. When the read of the list fails, the page shows a sentence and the sign-in page of `AUTH-LOGIN.md`.
+
+## Scopes at the authorization server
+
+The two tabs ask for different scopes. A client of the method `client` works with both tabs only when the authorization server registers it with the scopes of both tabs. With the UDAP sign-in and `app.login.udap.scope` set, the registration holds exactly that value, so the value must hold the scopes of both tabs. The comment line `# scope: openid fhirUser launch/patient patient/*.rs user/*.rs` that the `auth-login` install writes holds them.
+
+## Install checks
+
+The install refuses in these cases:
+
+- The `ConfigController.java` of the server is absent or does not read `app.login.people`. The message names the file and the command `nx g nx-fhir:update-frontend --project=<name>` for each integrated frontend. After the update, resolve each merge conflict in this file.
+- No integrated frontend has `src/components/person-picker.tsx`. Only the `clinical` frontend template has this file. The message names the `update-frontend` command for each integrated frontend, and that command adds the file to a frontend of the `clinical` template. A `browser` frontend beside a frontend with the picker does not stop the install.

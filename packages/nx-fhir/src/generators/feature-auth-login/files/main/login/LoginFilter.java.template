@@ -33,7 +33,7 @@ public class LoginFilter extends OncePerRequestFilter {
 	 * of the server do not permit this header. A browser sends Sec-Fetch-Site only to https addresses, to
 	 * localhost, and to loopback IP addresses, so a request without it passes on the app header alone.
 	 */
-	static boolean hasProof(HttpServletRequest request) {
+	public static boolean hasProof(HttpServletRequest request) {
 		String site = request.getHeader("Sec-Fetch-Site");
 		return request.getHeader(APP_HEADER) != null && (site == null || "same-origin".equals(site));
 	}

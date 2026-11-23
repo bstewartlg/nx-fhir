@@ -116,6 +116,11 @@ class AuthLoginIT {
 	private static final String LISTED_ACCESS_TOKEN = "at-8c2f61a9d3e7";
 	private static final String UDAP_ACCESS_TOKEN = "at-3a7f0c9e5b21";
 	private static final String UDAP_CLIENT_ID = "udap-client-1";
+	// The id has a hyphen and a period, which a FHIR id permits.
+	private static final String PICKED_HINT = "Practitioner/it-pr-1.a";
+	// user/Practitioner.rs is not in the scopes_supported of the UDAP metadata of the stub, so the software
+	// statement shows which scope the registration got.
+	private static final String PICKED_SCOPE = "openid fhirUser user/*.rs user/Practitioner.rs";
 	private static final String NO_PENDING = "No sign-in is pending for this state";
 	private static final String NO_HEADER = "<none>";
 
@@ -234,7 +239,7 @@ class AuthLoginIT {
 		assertEquals(200, send(request("/fhir/Patient", session, true)).statusCode());
 		assertEquals(List.of("Bearer " + ACCESS_TOKEN), HAPI_AUTHORIZATION);
 		HttpResponse<String> config = send(request("/config.js", null, false));
-		assertTrue(config.body().contains("\"login\":{}"), config.body());
+		assertTrue(config.body().contains("\"login\":{"), config.body());
 
 		String listed = STUB.base() + "/listed/fhir";
 		HttpResponse<String> listedLogin = login(listed, save(listed, session));
@@ -359,6 +364,47 @@ class AuthLoginIT {
 	}
 
 	@Test
+	void loginHintSkipFormAndScopeOfTheBody() throws Exception {
+		String server = STUB.base() + "/udap/fhir";
+		HttpResponse<String> saved = post("/auth/client", null, Map.of("server", server, "method", "udap", "scope", SCOPE));
+		assertEquals(204, saved.statusCode(), saved.body());
+		String session = sessionId(sessionCookie(saved));
+		JsonNode udap = json(status(server, session, true)).get("udap");
+		Map<String, Object> endpoints = Map.of("server", server,
+				"authorizationEndpoint", udap.get("authorizationEndpoint").asText(),
+				"tokenEndpoint", udap.get("tokenEndpoint").asText(),
+				"registrationEndpoint", udap.get("registrationEndpoint").asText());
+
+		// skipForm is a JSON boolean, as the frontend sends it.
+		Map<String, Object> picked = new LinkedHashMap<>(endpoints);
+		picked.put("loginHint", PICKED_HINT);
+		picked.put("skipForm", Boolean.TRUE);
+		picked.put("scope", PICKED_SCOPE);
+		HttpResponse<String> login = post("/auth/login", session, picked);
+		assertEquals(200, login.statusCode(), login.body());
+		Map<String, String> authorize = parameters(URI.create(json(login).get("authorizeUrl").asText()).getRawQuery());
+		assertEquals(PICKED_HINT, authorize.get("login_hint"));
+		assertEquals("auto", authorize.get("hl7fast_signin"));
+		assertEquals(PICKED_SCOPE, authorize.get("scope"));
+		List<Received> registrations = STUB.at("/udap/register");
+		assertEquals(1, registrations.size());
+		Map<?, ?> registration = JSON.readValue(registrations.get(0).body(), Map.class);
+		// The scopes_supported values of the metadata with no system/ value, then the one value of PICKED_SCOPE
+		// outside that list.
+		assertEquals("openid fhirUser launch/patient patient/*.rs user/*.rs user/Practitioner.rs",
+				signedByUdapKey((String) registration.get("software_statement")).getStringClaim("scope"));
+
+		// The sign-in changes the session id. This session holds the client values, so only the check of the
+		// loginHint can refuse the call.
+		Map<String, Object> wrongType = new LinkedHashMap<>(endpoints);
+		wrongType.put("loginHint", "Observation/1");
+		HttpResponse<String> refused = post("/auth/login", sessionId(sessionCookie(login)), wrongType);
+		assertEquals(400, refused.statusCode(), refused.body());
+		assertEquals("The loginHint must be Patient/<id> or Practitioner/<id>", refused.body());
+		assertEquals(1, STUB.at("/udap/register").size());
+	}
+
+	@Test
 	void serverWithNoDiscoveryIsNotOffered() throws Exception {
 		for (String server : List.of("/no-discovery/fhir", "/html/fhir")) {
 			HttpResponse<String> status = status(STUB.base() + server, null, true);
@@ -431,7 +477,7 @@ class AuthLoginIT {
 				"registrationEndpoint", udap.get("registrationEndpoint").asText()));
 	}
 
-	private HttpResponse<String> post(String target, String session, Map<String, String> body) throws Exception {
+	private HttpResponse<String> post(String target, String session, Map<String, ?> body) throws Exception {
 		return send(request(target, session, true)
 				.header("Origin", origin())
 				.header("Content-Type", "application/json")

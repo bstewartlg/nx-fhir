@@ -11,7 +11,7 @@ import javax.net.ssl.X509ExtendedTrustManager;
 
 /**
  * An SSL context that accepts each server certificate and each host name. Only the HTTP clients of the auth features
- * get it, when app.auth.ssl-verify is false. It never becomes the JVM default.
+ * get it, when app.ssl-verify is false. It never becomes the JVM default.
  */
 public final class TrustAllSslContext {
 
@@ -48,7 +48,7 @@ public final class TrustAllSslContext {
 			context.init(null, new TrustManager[] {trustAll}, new SecureRandom());
 			return context;
 		} catch (GeneralSecurityException e) {
-			throw new IllegalStateException("Could not create the SSL context for app.auth.ssl-verify false", e);
+			throw new IllegalStateException("Could not create the SSL context for app.ssl-verify false", e);
 		}
 	}
 }

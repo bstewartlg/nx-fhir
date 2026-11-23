@@ -5,13 +5,7 @@ import {
 } from "@tanstack/react-router";
 import type { SortingState } from "@tanstack/react-table";
 import type { FhirResource } from "fhir/r4";
-import {
-  ChevronLeft,
-  ChevronRight,
-  FileJson,
-  Loader2,
-  RefreshCw,
-} from "lucide-react";
+import { FileJson, Loader2, RefreshCw } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -23,6 +17,7 @@ import {
 import { DataTable } from "@/components/data-table";
 import { ResourceFilters } from "@/components/data-table/resource-filters";
 import { JsonViewerDialog } from "@/components/json-viewer-dialog";
+import { TablePagination } from "@/components/table-pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -171,10 +166,6 @@ function ResourceBrowser() {
     },
     [navigate],
   );
-
-  const handlePageChange = useCallback((url: string | undefined) => {
-    if (url) setPageUrl(url);
-  }, []);
 
   const handleFiltersChange = useCallback(
     (
@@ -373,63 +364,19 @@ function ResourceBrowser() {
 
       {selectedType && (
         <div className="shrink-0 border-t bg-background">
-          <div className="flex items-center justify-between px-4 py-3">
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-muted-foreground">
-                {bundle?.total !== undefined && (
-                  <>
-                    Showing {resources.length} of{" "}
-                    {bundle.total.toLocaleString()}
-                  </>
-                )}
-              </span>
-              <div className="flex items-center gap-2">
-                <label
-                  htmlFor="page-size-select"
-                  className="text-sm text-muted-foreground"
-                >
-                  Per page:
-                </label>
-                <Select
-                  value={pageSize.toString()}
-                  onValueChange={(v) => {
-                    setPageSize(Number(v));
-                    setPageUrl(undefined);
-                  }}
-                >
-                  <SelectTrigger id="page-size-select" className="w-20 h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="20">20</SelectItem>
-                    <SelectItem value="50">50</SelectItem>
-                    <SelectItem value="100">100</SelectItem>
-                    <SelectItem value="200">200</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handlePageChange(paginationLinks.previous)}
-                disabled={!paginationLinks.previous || isLoadingResources}
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handlePageChange(paginationLinks.next)}
-                disabled={!paginationLinks.next || isLoadingResources}
-              >
-                Next
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            </div>
-          </div>
+          <TablePagination
+            shown={resources.length}
+            total={bundle?.total}
+            pageSize={pageSize}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPageUrl(undefined);
+            }}
+            previous={paginationLinks.previous}
+            next={paginationLinks.next}
+            onPageChange={setPageUrl}
+            disabled={isLoadingResources}
+          />
         </div>
       )}
 

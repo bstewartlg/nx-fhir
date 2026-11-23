@@ -91,6 +91,24 @@ export interface SignInRequest {
   tokenEndpoint: string;
   /** Only for a UDAP sign-in. */
   registrationEndpoint?: string;
+  /** `Patient/<id>` or `Practitioner/<id>`. The server adds it to the authorize request as `login_hint`. */
+  loginHint?: string;
+  /** True adds `hl7fast_signin=auto` to the authorize request. It needs `loginHint`. */
+  skipForm?: boolean;
+  /** The scope of this sign-in in place of the saved scope. It needs `loginHint`. */
+  scope?: string;
+}
+
+/** A Practitioner or a Patient of the FHIR server of this app. */
+export interface Person {
+  id: string;
+  name: string;
+}
+
+/** The answer of `GET /auth/people`. */
+export interface People {
+  practitioners: Person[];
+  patients: Person[];
 }
 
 interface StoredSignInFields {
@@ -132,6 +150,11 @@ export async function getSignInStatus(server: string): Promise<SignInStatus> {
   const response = await authFetch(
     `/auth/status?server=${encodeURIComponent(server)}`,
   );
+  return response.json();
+}
+
+export async function getPeople(): Promise<People> {
+  const response = await authFetch("/auth/people");
   return response.json();
 }
 

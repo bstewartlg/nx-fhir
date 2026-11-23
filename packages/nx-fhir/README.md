@@ -9,7 +9,7 @@ An Nx plugin for building FHIR servers and frontends.
 - Scaffold TanStack Router-based React frontend SPAs with browser or clinical templates
 - Generate custom FHIR operations from OperationDefinition resources
 - Add FHIR Implementation Guides to your server
-- Add packaged server features such as scheduled `$bulk-publish` bulk data publication, OpenTelemetry instrumentation, a same-origin proxy for frontend requests to other FHIR servers, a bearer token check on the FHIR endpoint, signed UDAP metadata for an external authorization server, the SMART configuration of that server, a token scope check on the FHIR endpoint, and sign-in from the integrated frontend at the authorization server of a FHIR server
+- Add packaged server features such as scheduled `$bulk-publish` bulk data publication, OpenTelemetry instrumentation, a same-origin proxy for frontend requests to other FHIR servers, a bearer token check on the FHIR endpoint, signed UDAP metadata for an external authorization server, the SMART configuration of that server, a token scope check on the FHIR endpoint, sign-in from the integrated frontend at the authorization server of a FHIR server, and a picker of the Patient and Practitioner resources of the server on the sign-in page of a `clinical` frontend
 - Keep your HAPI FHIR server and frontend up to date with newer releases via `nx migrate`
 
 ## Installation
@@ -286,9 +286,9 @@ nx g nx-fhir:feature-auth-resource --project=my-fhir-server
 
 WARNING: With `app.auth.bypass-header` set, each caller that sends this header skips the token check. Remove the property for a deployment that has data that is not public.
 
-The install writes the comment line `# bypass-header: X-Bypass-Auth`, and the bypass is off. The install writes `ssl-verify: false` when the issuer is an `https` URL with the host `localhost`, and `ssl-verify: true` for each other issuer.
+The install writes the comment line `# bypass-header: X-Bypass-Auth`, and the bypass is off. The install writes `app.ssl-verify: false` when the issuer is an `https` URL with the host `localhost`, and `app.ssl-verify: true` for each other issuer. `app.ssl-verify` applies to each call that the auth features make to the issuer and to the read of the key set. The `auth-login` feature reads the same key.
 
-WARNING: With `app.auth.ssl-verify: false`, the server accepts any certificate from the hosts it calls. Use it only with a local development certificate.
+WARNING: With `app.ssl-verify: false`, the auth features accept any certificate and any host name for their calls to the issuer and for the read of the key set. Use it only with a local development certificate.
 
 Requires HAPI FHIR 8.8.0 or later.
 
@@ -325,9 +325,9 @@ nx g nx-fhir:feature-auth-udap --project=my-fhir-server --certFile=certs/udap.p1
 
 The generator does not write `cert-password`. Before you start the server, set `cert-password` in `application.yaml` or with the environment variable `APP_AUTH_UDAP_CERTPASSWORD`.
 
-`app.auth.ssl-verify` of the `auth-resource` feature also applies to the certificate fetch and to the read of the UDAP metadata of the issuer.
+`app.ssl-verify` also applies to the certificate fetch and to the read of the UDAP metadata of the issuer.
 
-WARNING: With `app.auth.ssl-verify: false`, the server accepts any certificate from the hosts it calls. Use it only with a local development certificate.
+WARNING: With `app.ssl-verify: false`, the server accepts any certificate for the certificate fetch and for the read of the UDAP metadata. Use it only with a local development certificate.
 
 Requires HAPI FHIR 8.8.0 or later.
 
@@ -404,9 +404,9 @@ The install writes these values to `application.yaml`:
 
 ```yaml
 app:
+  ssl-verify: true
   login:
     enabled: true
-    ssl-verify: true
     udap:
       client-name: <name of the server project>
       contact: mailto:admin@localhost
@@ -420,19 +420,49 @@ server:
       tracking-modes: cookie
 ```
 
+The install writes `app.ssl-verify: true` only when the key is absent. The auth features read the same key.
+
 The `udap` keys go into the software statement of a UDAP registration. Remove `# ` from the `scope` line to set the scope of the registration.
 
 The sign-in accepts plain `http` only for `localhost`, names that end in `.localhost`, and loopback addresses. On a different host, the address of the app, each listed or typed FHIR server, and each authorization server must use `https`.
 
 WARNING: On plain `http`, the client secret, the authorization code, and the access token travel in clear text.
 
-WARNING: With `app.login.ssl-verify: false`, the sign-in trusts each certificate and each host name of this server, the listed servers, and their authorization servers. The signature check of an ID token then proves nothing, because a different host can answer the request for the key set. Use this only for a test deployment.
+WARNING: With `app.ssl-verify: false`, the sign-in trusts each certificate and each host name of this server, the listed servers, and their authorization servers. The calls for a typed server always check the certificate and the host name. The signature check of an ID token then proves nothing, because a different host can answer the request for the key set. Use this only for a test deployment.
 
-WARNING: For a FHIR server with no `issuer` in its SMART configuration, the user that this server shows has no signature check. On plain `http` or with `app.login.ssl-verify: false`, no TLS check stands behind that value.
+WARNING: For a FHIR server with no `issuer` in its SMART configuration, the user that this server shows has no signature check. On plain `http`, no TLS check stands behind that value. With `app.ssl-verify: false`, the same is true for this server and for each listed server.
 
 WARNING: `X-App-Request` or `*` in `hapi.fhir.cors.allowed_headers`, or in the allowed headers of `GlobalCorsConfiguration`, lets a page of another origin send the header. The request proof then rests on `Sec-Fetch-Site` alone.
 
 Behind a reverse proxy that ends TLS, the cookie has the `Secure` attribute, because the `frontend-proxy` install writes `server.forward-headers-strategy: native`.
+
+Requires HAPI FHIR 8.8.0 or later.
+
+#### Auth people (auth-people)
+
+Adds a picker of the Patient and Practitioner resources of a server to the sign-in page of its integrated `clinical` frontend:
+
+```sh
+nx g nx-fhir:feature-auth-people
+```
+
+The feature needs the `auth-login` feature and an integrated `clinical` frontend. When the server integration files or the frontend need `update-frontend`, the install refuses and names the command.
+
+On the sign-in page for this server, the tester sees the tabs "Practitioners" and "Patients", a select with the resources of that type, and the checkbox "Skip the sign-in form of the authorization server". The tester picks a person and selects "Sign in". The sign-in call then sends the reference of the person as `loginHint` and the scope of the tab. With the checkbox on, the authorize request also has `hl7fast_signin=auto`. "Sign in without a person" shows the sign-in page of `auth-login`. The generator also writes `AUTH-PEOPLE.md` to the server root, with the configuration, the list endpoint `GET /auth/people`, and the page ([template](https://github.com/bstewartlg/nx-fhir/blob/main/packages/nx-fhir/src/generators/feature-auth-people/files/docs/AUTH-PEOPLE.md.template)).
+
+**Options:**
+- `--project`: Name of the Nx server project to add the feature to
+
+The install writes this value to `application.yaml`:
+
+```yaml
+app:
+  login:
+    people:
+      enabled: true
+```
+
+WARNING: The ids and the names of the Patient and Practitioner resources of this server are readable with no token by each caller that sends the header `X-App-Request`.
 
 Requires HAPI FHIR 8.8.0 or later.
 

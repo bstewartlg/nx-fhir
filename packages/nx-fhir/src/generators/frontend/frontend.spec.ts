@@ -314,6 +314,7 @@ ${testerBlock}
       expect(tree.exists(`${configDir}/FhirServers.java`)).toBe(true);
       expect(tree.read(`${configDir}/ConfigController.java`, 'utf-8')).toContain('app.proxy.enabled');
       expect(tree.read(`${configDir}/ConfigController.java`, 'utf-8')).toContain('app.login.enabled');
+      expect(tree.read(`${configDir}/ConfigController.java`, 'utf-8')).toContain('app.login.people.enabled');
       // Spring uses the first CORS mapping that matches, so the proxy mapping must come first.
       const cors = tree.read(`${configDir}/GlobalCorsConfiguration.java`, 'utf-8') as string;
       expect(cors.indexOf('addMapping("/proxy")')).toBeGreaterThan(-1);

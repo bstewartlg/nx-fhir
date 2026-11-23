@@ -28,9 +28,6 @@ public class AuthResourceProperties {
 
 	private String bypassHeader;
 
-	/** Checks the certificate chain and the host name for each call that the auth features make. Absent means true. */
-	private boolean sslVerify = true;
-
 	public boolean isEnabled() {
 		return enabled;
 	}
@@ -77,13 +74,5 @@ public class AuthResourceProperties {
 
 	public void setBypassHeader(String bypassHeader) {
 		this.bypassHeader = bypassHeader;
-	}
-
-	public boolean isSslVerify() {
-		return sslVerify;
-	}
-
-	public void setSslVerify(boolean sslVerify) {
-		this.sslVerify = sslVerify;
 	}
 }

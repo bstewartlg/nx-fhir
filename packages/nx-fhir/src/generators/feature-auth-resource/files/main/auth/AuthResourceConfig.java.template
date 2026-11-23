@@ -37,8 +37,8 @@ public class AuthResourceConfig {
 			log.warn("app.auth.bypass-header is set, so each FHIR request with the header {} skips the bearer token check",
 					bypassHeader);
 		}
-		if (!properties.isSslVerify()) {
-			log.warn("app.auth.ssl-verify is false, so the auth features accept any certificate from the hosts they call");
+		if (!issuerMetadata.sslVerify()) {
+			log.warn("app.ssl-verify is false, so the auth features accept any certificate from the hosts they call");
 		}
 		restfulServer.registerInterceptor(new BearerTokenInterceptor(
 				issuerMetadata,

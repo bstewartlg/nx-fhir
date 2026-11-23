@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "FeatureAuthPeople",
+  "title": "auth-people Feature Generator",
+  "description": "Adds a picker of the Patient and Practitioner resources of an existing HAPI FHIR server to the sign-in page of its integrated clinical frontend",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Name of the Nx server project to add the feature to"
+    }
+  }
+}

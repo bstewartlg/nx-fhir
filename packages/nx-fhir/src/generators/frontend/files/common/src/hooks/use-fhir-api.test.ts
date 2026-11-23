@@ -79,6 +79,21 @@ describe("fhirRequestHeaders", () => {
     expect(fhirRequestHeaders(`${server}/metadata`).get("X-Api-Key")).toBe("k");
   });
 
+  it("sends them to an absolute page link when the server url is a path", () => {
+    localStorage.setItem("fhir-server-url", "/fhir");
+    localStorage.setItem(
+      "fhir-server-headers",
+      JSON.stringify({ "/fhir": [{ name: "X-Api-Key", value: "k" }] }),
+    );
+    const { origin } = window.location;
+    for (const url of ["/fhir/Patient", `${origin}/fhir?_getpages=abc`]) {
+      expect(fhirRequestHeaders(url).get("X-Api-Key")).toBe("k");
+    }
+    expect(
+      fhirRequestHeaders(`${origin}/fhir-other/metadata`).get("X-Api-Key"),
+    ).toBeNull();
+  });
+
   it("sends no X-App-Request to another origin in thin mode", () => {
     expect(fhirRequestHeaders(`${server}/metadata`).has("X-App-Request")).toBe(
       false,

@@ -149,8 +149,17 @@ export const authLoginFeature: FeatureDefinition = {
     const yamlBefore = tree.read(yamlPath);
     addPomDependency(tree, pomPath, DEPENDENCY_XML);
     try {
+      // The auth features read the same key, so a value that the file has stays. With no file, updateServerYaml
+      // refuses.
+      if (
+        !parseYaml(yamlPath, tree.read(yamlPath, 'utf-8') ?? '').hasIn([
+          'app',
+          'ssl-verify',
+        ])
+      ) {
+        updateServerYaml(project.root, tree, 'app.ssl-verify', true);
+      }
       updateServerYaml(project.root, tree, 'app.login.enabled', true);
-      updateServerYaml(project.root, tree, 'app.login.ssl-verify', true);
       updateServerYaml(
         project.root,
         tree,

@@ -23,6 +23,7 @@ import {
   getStoredSignInFields,
   isSignInAvailable,
   type SignInMethod,
+  type SignInRequest,
   type SignInStatus,
   saveClient,
   setStoredSignInFields,
@@ -108,14 +109,20 @@ interface SignInPartProps {
 /**
  * Starts the sign-in with the client values that the session holds for
  * `server`. With `udapScope`, the button first saves the UDAP values with that
- * scope. A page that is not a secure context shows a sentence in place of the
- * button.
+ * scope. The sign-in call gets the members of `person`. A page that is not a
+ * secure context shows a sentence in place of the button.
  */
 export function SignInButton({
   server,
   status,
   udapScope,
-}: SignInPartProps & { udapScope?: string }) {
+  person,
+  disabled,
+}: SignInPartProps & {
+  udapScope?: string;
+  person?: Pick<SignInRequest, "loginHint" | "skipForm" | "scope">;
+  disabled?: boolean;
+}) {
   const queryClient = useQueryClient();
   const signIn = useMutation({
     mutationFn: async () => {
@@ -131,6 +138,7 @@ export function SignInButton({
         ...(udap && {
           registrationEndpoint: status.udap?.registrationEndpoint ?? "",
         }),
+        ...person,
       });
     },
     onSuccess: (authorizeUrl) => window.location.assign(authorizeUrl),
@@ -151,7 +159,7 @@ export function SignInButton({
       <Button
         size="sm"
         onClick={() => signIn.mutate()}
-        disabled={signIn.isPending || signIn.isSuccess}
+        disabled={disabled || signIn.isPending || signIn.isSuccess}
       >
         Sign in
       </Button>

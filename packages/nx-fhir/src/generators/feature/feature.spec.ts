@@ -20,6 +20,14 @@ vi.mock('./registry', () => ({
       collectOptions: async (_t: unknown, _p: unknown, provided: object) => ({ ...provided }),
       apply: async () => undefined,
     },
+    {
+      name: 'alpha',
+      description: 'alpha feature',
+      featureVersion: 1,
+      minHapiVersion: '8.0.0',
+      collectOptions: async (_t: unknown, _p: unknown, provided: object) => ({ ...provided }),
+      apply: async () => undefined,
+    },
   ],
 }));
 
@@ -74,9 +82,11 @@ describe('featureGenerator', () => {
     expect(select).toHaveBeenCalledWith(
       expect.objectContaining({
         message: 'Select a feature to add:',
-        choices: expect.arrayContaining([
+        choices: [
+          { name: 'alpha', value: 'alpha', description: 'alpha feature' },
           { name: 'stub', value: 'stub', description: 'stub feature' },
-        ]),
+        ],
+        pageSize: 2,
       })
     );
     expect(readFeatures(tree)?.stub).toBeDefined();
@@ -86,7 +96,7 @@ describe('featureGenerator', () => {
     const tree = createServerTree();
     isInteractive.mockReturnValue(false);
     await expect(featureGenerator(tree, { project: 'server' })).rejects.toThrow(
-      'Missing required option --feature. Available features: stub'
+      'Missing required option --feature. Available features: alpha, stub'
     );
     expect(select).not.toHaveBeenCalled();
   });
