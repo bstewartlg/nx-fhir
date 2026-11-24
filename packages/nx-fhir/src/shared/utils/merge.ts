@@ -262,6 +262,42 @@ export async function discardVerifiedWhitespaceOnlyEdits(
 }
 
 /**
+ * Returns `current` with each replaced block of lines reverted to the base
+ * text when the prettier probe confirms that the block is formatting only.
+ *
+ * A file can contain a reformat and a real edit together. An example is a
+ * template file in the quote style of the workspace that also has a user
+ * edit. The whole file probe finds the real edit, so the quote changes stay
+ * as user changes. Each of them conflicts with an upstream edit near it.
+ * A check of each block on its own sends only the real edits to the merge.
+ */
+export async function discardVerifiedFormattingOnlyBlocks(
+  base: string,
+  current: string,
+  filePath: string
+): Promise<string> {
+  const parts = diffLines(base, current);
+  const pieces = parts.map((part) => (part.removed ? '' : part.value));
+  let result = current;
+
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!parts[i].removed || !parts[i + 1].added) {
+      continue;
+    }
+    const userPiece = pieces[i + 1];
+    pieces[i + 1] = parts[i].value;
+    const candidate = pieces.join('');
+    if (await isFormattingOnlyDifference(candidate, result, filePath)) {
+      result = candidate;
+    } else {
+      pieces[i + 1] = userPiece;
+    }
+  }
+
+  return result;
+}
+
+/**
  * Content is binary when it does not survive a UTF-8 round trip, or when it
  * holds NUL bytes, which round-trip but mark formats whose 0x0D 0x0A bytes
  * are data rather than line endings.
@@ -582,7 +618,11 @@ export async function migrateWithThreeWayMerge(
       logger.info(`🔀 3-way merging: ${relativePath}`);
       const mergeResult = threeWayMerge(
         oldContent,
-        currentContent,
+        await discardVerifiedFormattingOnlyBlocks(
+          oldContent,
+          currentContent,
+          relativePath
+        ),
         newContent,
         relativePath
       );

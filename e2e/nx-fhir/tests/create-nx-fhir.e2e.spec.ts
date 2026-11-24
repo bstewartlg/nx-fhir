@@ -269,6 +269,9 @@ describe('create-nx-fhir e2e test', () => {
       HOME: scratchHome,
       TMPDIR: scratchTmp,
       NX_SOCKET_DIR: nxSocketDir,
+      // The workspaces of this suite share NX_SOCKET_DIR and one daemon socket
+      // path in it, so a command can reach the daemon of another workspace
+      NX_DAEMON: 'false',
       // bun reads its cache location from BUN_INSTALL, not from HOME, and keys
       // entries by version. Both packages are always published as the same
       // version, so without this the run silently installs the tarball an

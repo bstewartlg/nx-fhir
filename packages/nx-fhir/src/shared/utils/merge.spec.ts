@@ -26,6 +26,14 @@ const baseYaml = [
   '',
 ].join('\n');
 
+const doubleQuotedModule = [
+  'import { useQuery } from "@tanstack/react-query";',
+  'import { useMemo } from "react";',
+  '',
+  'export const retries = 1;',
+  '',
+].join('\n');
+
 describe('isFormattingOnlyDifference', () => {
   it('reports a prettier reformat of the base as formatting only', async () => {
     const reformatted = await prettier.format(baseYaml, {
@@ -640,6 +648,69 @@ describe('migrateWithThreeWayMerge', () => {
     expect(summary.conflicts).toBe(0);
     expect(merged).toContain('preexpansion: USE_IF_PRESENT');
     expect(merged).toContain('port: 8383');
+  });
+
+  it('merges a user edit beside a quote style change that upstream edited', async () => {
+    const upstream = doubleQuotedModule.replace(
+      '{ useQuery }',
+      '{ queryOptions, useQuery }',
+    );
+    writeVersionFile(oldDir, 'src/api.ts', doubleQuotedModule);
+    writeVersionFile(newDir, 'src/api.ts', upstream);
+
+    // A template file after a prettier run in single quotes, plus one user edit
+    const current = (
+      await prettier.format(doubleQuotedModule, {
+        parser: 'typescript',
+        singleQuote: true,
+      })
+    ).replace('retries = 1', 'retries = 3');
+    tree.write(`${projectRoot}/src/api.ts`, current);
+
+    const summary = await migrateWithThreeWayMerge(
+      tree,
+      projectRoot,
+      oldDir,
+      newDir,
+      '1.0.0',
+      '2.0.0',
+    );
+
+    expect(summary.conflicts).toBe(0);
+    expect(tree.read(`${projectRoot}/src/api.ts`, 'utf-8')).toBe(
+      upstream.replace('retries = 1', 'retries = 3'),
+    );
+  });
+
+  it('still conflicts when a user edit shares a block with a quote style change that upstream edited', async () => {
+    writeVersionFile(oldDir, 'src/api.ts', doubleQuotedModule);
+    writeVersionFile(
+      newDir,
+      'src/api.ts',
+      doubleQuotedModule.replace('{ useQuery }', '{ queryOptions, useQuery }'),
+    );
+
+    const current = (
+      await prettier.format(doubleQuotedModule, {
+        parser: 'typescript',
+        singleQuote: true,
+      })
+    ).replace('{ useQuery }', '{ useMutation, useQuery }');
+    tree.write(`${projectRoot}/src/api.ts`, current);
+
+    const summary = await migrateWithThreeWayMerge(
+      tree,
+      projectRoot,
+      oldDir,
+      newDir,
+      '1.0.0',
+      '2.0.0',
+    );
+
+    expect(summary.conflicts).toBe(1);
+    expect(tree.read(`${projectRoot}/src/api.ts`, 'utf-8')).toContain(
+      'useMutation',
+    );
   });
 
   it('merges files prettier cannot parse without consulting the probe', async () => {

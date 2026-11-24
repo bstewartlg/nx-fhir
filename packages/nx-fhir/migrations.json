@@ -4,6 +4,11 @@
       "version": "0.0.0-dev",
       "description": "Check for available server and frontend template updates",
       "implementation": "./src/migrations/check-updates/migration"
+    },
+    "bulk-publish-vary-check": {
+      "version": "0.3.3",
+      "description": "Make the Vary assertions in BulkPublishIT.java of each bulk-publish server read every Vary header value",
+      "implementation": "./src/migrations/bulk-publish-vary-check/migration"
     }
   },
   "packageJsonUpdates": {
@@ -201,6 +206,39 @@
         },
         "@nx/plugin": {
           "version": "23.3.0",
+          "alwaysAddToPackageJson": false
+        }
+      }
+    },
+    "0.3.3": {
+      "version": "0.3.3",
+      "packages": {
+        "nx": {
+          "version": "23.3.2",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/workspace": {
+          "version": "23.3.2",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/devkit": {
+          "version": "23.3.2",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/eslint": {
+          "version": "23.3.2",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/js": {
+          "version": "23.3.2",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/vite": {
+          "version": "23.3.2",
+          "alwaysAddToPackageJson": false
+        },
+        "@nx/plugin": {
+          "version": "23.3.2",
           "alwaysAddToPackageJson": false
         }
       }

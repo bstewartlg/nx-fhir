@@ -158,6 +158,8 @@ HAPI migration resolver uses BFS graph traversal to find migration paths between
 
 `create-nx-fhir .` converts a workspace that runs Nx through the Nx wrapper into a `package.json` install and carries the plugins from the `installation` block. The update generator leaves an `installation` block unchanged and points to that conversion.
 
+The `bulk-publish-vary-check` migration (0.3.3) makes the `Vary` assertions of `BulkPublishIT.java` read every `Vary` value in each server whose `features` manifest records `bulk-publish`.
+
 ### Shared Code (`packages/nx-fhir/src/shared/`)
 
 - `models/`: TypeScript interfaces for FHIR resources and project config
