@@ -11,7 +11,11 @@ import { readFileSync } from 'fs';
 import * as path from 'path';
 import { parseDocument } from 'yaml';
 
-import { AUTH_LOGIN_FEATURE, authLoginFeature } from './auth-login';
+import {
+  AUTH_LOGIN_FEATURE,
+  authLoginFeature,
+  httpsDefault,
+} from './auth-login';
 import {
   authResourceFeature,
   LOCAL_FAST_ISSUER,
@@ -71,9 +75,14 @@ function copyFrontendTemplate(tree: Tree, frontendRoot: string, file: string) {
 }
 
 /** A frontend integrated with the server, with the sign-in support of the shipped template. */
-function addFrontend(tree: Tree, name: string, integratedRoot = serverRoot) {
+function addFrontend(
+  tree: Tree,
+  name: string,
+  integratedRoot = serverRoot,
+  root = name,
+) {
   addProjectConfiguration(tree, name, {
-    root: name,
+    root,
     projectType: 'application',
     targets: {
       'copy-to-server': {
@@ -87,8 +96,8 @@ function addFrontend(tree: Tree, name: string, integratedRoot = serverRoot) {
       },
     },
   });
-  copyFrontendTemplate(tree, name, 'src/lib/fhir-config.ts');
-  copyFrontendTemplate(tree, name, 'src/components/sign-in-section.tsx');
+  copyFrontendTemplate(tree, root, 'src/lib/fhir-config.ts');
+  copyFrontendTemplate(tree, root, 'src/components/sign-in-section.tsx');
 }
 
 function createServerTree(hapiVersion = '8.12.0'): Tree {
@@ -182,6 +191,248 @@ describe('auth-login feature', () => {
       await expect(result).rejects.toThrow(
         'Run "nx g nx-fhir:update-frontend --project=frontend" and "nx g nx-fhir:update-frontend --project=admin", then resolve each merge conflict in this file.',
       );
+    });
+  });
+
+  describe('https options', () => {
+    const viteQuestion =
+      'Serve the Vite dev server of the frontend over https?';
+    const composeQuestion =
+      'Write docker-compose.https.yml with the server behind an https proxy?';
+    const setIssuer = (issuer: string) =>
+      updateServerYaml(serverRoot, tree, 'app.auth.issuer', issuer);
+
+    it.each([
+      ['no issuer', undefined, true],
+      [
+        'https://udap-security.fast.hl7.org',
+        'https://udap-security.fast.hl7.org',
+        true,
+      ],
+      ['LOCAL_FAST_ISSUER', LOCAL_FAST_ISSUER, false],
+      ['http://localhost:9000', 'http://localhost:9000', false],
+      ['not a url', 'not a url', true],
+    ])('httpsDefault with %s', (_, issuer, expected) => {
+      if (issuer !== undefined) {
+        setIssuer(issuer);
+      }
+
+      expect(httpsDefault(tree, serverProject(tree))).toBe(expected);
+    });
+
+    it.each([
+      ['no issuer', undefined, { viteHttps: true, composeHttps: true }],
+      [
+        'the local issuer',
+        LOCAL_FAST_ISSUER,
+        { viteHttps: false, composeHttps: false },
+      ],
+    ])(
+      'records the default of both options with %s in a run that is not interactive',
+      async (_, issuer, expected) => {
+        if (issuer !== undefined) {
+          setIssuer(issuer);
+        }
+
+        await runFeature(tree, {
+          feature: AUTH_LOGIN_FEATURE,
+          project: 'server',
+        });
+
+        expect(serverProject(tree).features?.['auth-login']?.options).toEqual(
+          expected,
+        );
+      },
+    );
+
+    it('takes a given viteHttps over the default and asks only the compose question', async () => {
+      isInteractive.mockReturnValue(true);
+      confirm.mockResolvedValue(true);
+
+      const options = await authLoginFeature.collectOptions(
+        tree,
+        serverProject(tree),
+        { viteHttps: false },
+      );
+
+      expect(options).toEqual({ viteHttps: false, composeHttps: true });
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(confirm).toHaveBeenCalledWith({
+        message: composeQuestion,
+        default: true,
+      });
+    });
+
+    it('asks both questions with the default true in an interactive run and returns the answers', async () => {
+      isInteractive.mockReturnValue(true);
+      confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+      const options = await authLoginFeature.collectOptions(
+        tree,
+        serverProject(tree),
+        {},
+      );
+
+      expect(confirm).toHaveBeenCalledTimes(2);
+      expect(confirm).toHaveBeenNthCalledWith(1, {
+        message: viteQuestion,
+        default: true,
+      });
+      expect(confirm).toHaveBeenNthCalledWith(2, {
+        message: composeQuestion,
+        default: true,
+      });
+      expect(options).toEqual({ viteHttps: false, composeHttps: true });
+    });
+
+    it('adds DEV_HTTPS=true to .env.development of each integrated frontend with viteHttps', async () => {
+      addFrontend(tree, 'admin');
+
+      await authLoginFeature.apply(tree, serverProject(tree), {
+        viteHttps: true,
+        composeHttps: false,
+      });
+
+      for (const root of ['frontend', 'admin']) {
+        expect(tree.read(`${root}/.env.development`, 'utf-8')).toBe(
+          'DEV_HTTPS=true\n',
+        );
+      }
+    });
+
+    it('writes no DEV_HTTPS line with viteHttps false', async () => {
+      await authLoginFeature.apply(tree, serverProject(tree), {
+        viteHttps: false,
+        composeHttps: false,
+      });
+
+      expect(tree.read('frontend/.env.development', 'utf-8') ?? '').not.toContain(
+        'DEV_HTTPS',
+      );
+    });
+
+    it('warns for a vite.config.ts that does not read DEV_HTTPS and records the feature', async () => {
+      tree.write('frontend/vite.config.ts', 'export default {};\n');
+      addFrontend(tree, 'admin');
+      tree.write(
+        'admin/vite.config.ts',
+        readFileSync(
+          path.join(frontendTemplates, 'clinical', 'vite.config.ts'),
+          'utf-8',
+        ),
+      );
+
+      await runFeature(tree, {
+        feature: AUTH_LOGIN_FEATURE,
+        project: 'server',
+        options: { viteHttps: true, composeHttps: false },
+      });
+
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'nx g nx-fhir:update-frontend --project=frontend',
+        ),
+      );
+      expect(serverProject(tree).features?.['auth-login']).toBeDefined();
+    });
+  });
+
+  describe('compose file', () => {
+    const composeOnly = { viteHttps: false, composeHttps: true };
+
+    it('writes docker-compose.https.yml next to a Dockerfile at the workspace root', async () => {
+      tree.write('Dockerfile', 'FROM scratch\n');
+
+      await authLoginFeature.apply(tree, serverProject(tree), composeOnly);
+
+      const compose = tree.read('docker-compose.https.yml', 'utf-8') as string;
+      expect(compose).toContain('context: .\n');
+      expect(compose).not.toContain('dockerfile:');
+      expect(compose).toContain(
+        'caddy reverse-proxy --from localhost --to server:8080',
+      );
+      expect(compose).toContain('"443:443"');
+      expect(compose).toContain('caddy-data:/data');
+      expect(Object.keys(parseDocument(compose).toJS().services)).toEqual([
+        'server',
+        'https',
+      ]);
+    });
+
+    it('gives the context and the Dockerfile path for a frontend at apps/web', async () => {
+      removeProjectConfiguration(tree, 'frontend');
+      addFrontend(tree, 'web', serverRoot, 'apps/web');
+      tree.write('apps/Dockerfile', 'FROM scratch\n');
+
+      await authLoginFeature.apply(tree, serverProject(tree), composeOnly);
+
+      const compose = tree.read(
+        'apps/docker-compose.https.yml',
+        'utf-8',
+      ) as string;
+      expect(compose).toContain('context: ..\n');
+      expect(compose).toContain('dockerfile: apps/Dockerfile\n');
+      expect(tree.exists('docker-compose.https.yml')).toBe(false);
+    });
+
+    it('writes one file for two frontends with one parent directory', async () => {
+      addFrontend(tree, 'admin');
+      tree.write('Dockerfile', 'FROM scratch\n');
+
+      await authLoginFeature.apply(tree, serverProject(tree), composeOnly);
+
+      expect(tree.exists('docker-compose.https.yml')).toBe(true);
+    });
+
+    it('warns, writes no compose file, and records the feature when no parent directory has a Dockerfile', async () => {
+      await runFeature(tree, {
+        feature: AUTH_LOGIN_FEATURE,
+        project: 'server',
+        options: { viteHttps: false },
+      });
+
+      expect(tree.exists('docker-compose.https.yml')).toBe(false);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(serverProject(tree).features?.['auth-login']?.options).toEqual(
+        composeOnly,
+      );
+    });
+
+    it('refuses an existing docker-compose.https.yml and writes nothing', async () => {
+      tree.write('Dockerfile', 'FROM scratch\n');
+      tree.write('docker-compose.https.yml', 'hand written');
+      const pomBefore = tree.read(pomPath, 'utf-8');
+      const yamlBefore = tree.read(yamlPath, 'utf-8');
+
+      await expect(
+        authLoginFeature.apply(tree, serverProject(tree), composeOnly),
+      ).rejects.toThrow(
+        'feature auth-login would overwrite files that already exist:\ndocker-compose.https.yml\n',
+      );
+      expect(tree.read('docker-compose.https.yml', 'utf-8')).toBe(
+        'hand written',
+      );
+      expect(tree.read(pomPath, 'utf-8')).toBe(pomBefore);
+      expect(tree.read(yamlPath, 'utf-8')).toBe(yamlBefore);
+      expect(tree.exists(docPath)).toBe(false);
+    });
+
+    it('writes no compose file with composeHttps false and accepts an existing one', async () => {
+      tree.write('Dockerfile', 'FROM scratch\n');
+      tree.write('apps/Dockerfile', 'FROM scratch\n');
+      addFrontend(tree, 'web', serverRoot, 'apps/web');
+      tree.write('docker-compose.https.yml', 'hand written');
+
+      await authLoginFeature.apply(tree, serverProject(tree), {
+        viteHttps: false,
+        composeHttps: false,
+      });
+
+      expect(tree.read('docker-compose.https.yml', 'utf-8')).toBe(
+        'hand written',
+      );
+      expect(tree.exists('apps/docker-compose.https.yml')).toBe(false);
     });
   });
 
@@ -290,7 +541,7 @@ describe('auth-login feature', () => {
             `      client-name: ${serverProject(tree).name}`,
             '      contact: mailto:admin@localhost',
             '      logo-uri: https://build.fhir.org/icon-fhir-16.png',
-            '      # scope: openid fhirUser launch/patient patient/*.rs user/*.rs',
+            '      # scope: openid fhirUser launch/patient patient/*.cruds user/*.cruds',
             '',
           ].join('\n'),
       );
@@ -298,7 +549,7 @@ describe('auth-login feature', () => {
         parseDocument(
           (tree.read(yamlPath, 'utf-8') as string).replace('# scope', 'scope'),
         ).getIn(['app', 'login', 'udap', 'scope']),
-      ).toBe('openid fhirUser launch/patient patient/*.rs user/*.rs');
+      ).toBe('openid fhirUser launch/patient patient/*.cruds user/*.cruds');
       expect(readYaml(tree)).toEqual({
         hapi: { fhir: { fhir_version: 'R4' } },
         server: {
@@ -328,7 +579,7 @@ describe('auth-login feature', () => {
       '      client-name: server',
       '      contact: mailto:admin@localhost',
       '      logo-uri: https://build.fhir.org/icon-fhir-16.png',
-      '      # scope: openid fhirUser launch/patient patient/*.rs user/*.rs',
+      '      # scope: openid fhirUser launch/patient patient/*.cruds user/*.cruds',
     ];
     const authLines = [
       '  auth:',
@@ -477,10 +728,42 @@ describe('auth-login feature', () => {
       expect(doc).not.toMatch(/\b(now|previously|no longer|new|again)\b/i);
       expect(doc).not.toMatch(/\n\n\n/);
     });
+
+    it.each([
+      [true, true],
+      [true, false],
+      [false, true],
+      [false, false],
+    ])(
+      'writes the development text of AUTH-LOGIN.md for viteHttps %s and composeHttps %s',
+      async (viteHttps, composeHttps) => {
+        tree.write('Dockerfile', 'FROM scratch\n');
+        await authLoginFeature.apply(tree, serverProject(tree), {
+          viteHttps,
+          composeHttps,
+        });
+
+        const doc = tree.read(docPath, 'utf-8') as string;
+        expect(doc).toContain('local-ssl-proxy --source 8443 --target 8080');
+        expect(doc.includes('DEV_HTTPS=true')).toBe(viteHttps);
+        expect(doc.includes('https://localhost:3000')).toBe(viteHttps);
+        expect(doc.includes('docker-compose.https.yml')).toBe(composeHttps);
+        expect(
+          doc.includes('docker compose -f docker-compose.https.yml up --build'),
+        ).toBe(composeHttps);
+        expect(doc.includes('X-Forwarded-Port')).toBe(composeHttps);
+        expect(doc).not.toMatch(/[;—]/);
+        expect(doc).not.toMatch(
+          /\b(now|previously|no longer|new|again|once|old)\b/i,
+        );
+        expect(doc).not.toMatch(/\n\n\n/);
+        expect(doc.endsWith('\n')).toBe(true);
+      },
+    );
   });
 
   describe('through runFeature', () => {
-    it('installs frontend-proxy first and records auth-login with no options', async () => {
+    it('installs frontend-proxy first and records auth-login with the https options', async () => {
       await runFeature(tree, { feature: AUTH_LOGIN_FEATURE, project: 'server' });
 
       const features = serverProject(tree).features;
@@ -488,7 +771,10 @@ describe('auth-login feature', () => {
         'frontend-proxy',
         'auth-login',
       ]);
-      expect(features?.['auth-login']).toEqual({ version: 1, options: {} });
+      expect(features?.['auth-login']).toEqual({
+        version: 1,
+        options: { viteHttps: true, composeHttps: true },
+      });
       expect(confirm).not.toHaveBeenCalled();
       expect(
         tree.exists(`${javaRoot}/proxy/FrontendProxyController.java`),

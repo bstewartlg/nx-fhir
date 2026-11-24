@@ -14,8 +14,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getPeople, type SignInStatus } from "@/lib/sign-in";
 
-export const PRACTITIONER_SCOPE = "openid fhirUser user/*.rs";
-export const PATIENT_SCOPE = "openid fhirUser launch/patient patient/*.rs";
+export const PRACTITIONER_SCOPE = "openid fhirUser user/*.cruds";
+export const PATIENT_SCOPE = "openid fhirUser launch/patient patient/*.cruds";
 
 const TABS = {
   practitioners: {

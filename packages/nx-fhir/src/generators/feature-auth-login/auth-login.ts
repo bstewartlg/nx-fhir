@@ -1,13 +1,25 @@
-import { generateFiles, OverwriteStrategy, Tree } from '@nx/devkit';
+import {
+  detectPackageManager,
+  generateFiles,
+  logger,
+  OverwriteStrategy,
+  Tree,
+} from '@nx/devkit';
+import { confirm } from '@inquirer/prompts';
 import * as path from 'path';
 import { YAMLMap } from 'yaml';
 
 import { FeatureDefinition } from '../feature/types';
+import { parseBooleanOption } from '../feature/options';
 import { parseYaml } from '../feature-auth-resource/auth-resource';
-import { FRONTEND_PROXY_FEATURE } from '../feature-frontend-proxy/frontend-proxy';
+import {
+  FRONTEND_PROXY_FEATURE,
+  writeDevEnvLine,
+} from '../feature-frontend-proxy/frontend-proxy';
 import { ServerProjectConfiguration } from '../../shared/models';
 import { updateServerYaml } from '../../shared/utils';
 import { getIntegratedFrontends } from '../../shared/utils/frontend-integration';
+import { isInteractive } from '../../shared/utils/interactive';
 import { addPomDependency } from '../../shared/utils/pom-edit';
 import {
   detectApplicationClass,
@@ -22,6 +34,72 @@ const DEPENDENCY_XML = `
     <artifactId>oauth2-oidc-sdk</artifactId>
     <version>11.26</version>
 </dependency>`;
+
+interface AuthLoginOptions {
+  viteHttps: boolean;
+  composeHttps: boolean;
+}
+
+export function httpsDefault(
+  tree: Tree,
+  project: ServerProjectConfiguration,
+): boolean {
+  const yamlPath = path.join(
+    project.root,
+    'src',
+    'main',
+    'resources',
+    'application.yaml',
+  );
+  const text = tree.read(yamlPath, 'utf-8');
+  if (text === null) {
+    return true;
+  }
+  const issuer = parseYaml(yamlPath, text).getIn(['app', 'auth', 'issuer']);
+  try {
+    return new URL(String(issuer)).hostname !== 'localhost';
+  } catch {
+    return true;
+  }
+}
+
+// The COPY lines of the Dockerfile in the parent directory of a frontend use paths from the workspace root,
+// so the build context of the compose file is the workspace root.
+export function composeTargets(
+  tree: Tree,
+  project: ServerProjectConfiguration,
+): Array<{ directory: string; context: string; dockerfile?: string }> {
+  const directories = new Set(
+    getIntegratedFrontends(tree, project.root).map((frontend) =>
+      path.posix.dirname(frontend.root.replace(/\\/g, '/')),
+    ),
+  );
+  return [...directories]
+    .filter((directory) => tree.exists(path.posix.join(directory, 'Dockerfile')))
+    .map((directory) =>
+      directory === '.'
+        ? { directory, context: '.' }
+        : {
+            directory,
+            context: path.posix.relative(directory, '.'),
+            dockerfile: path.posix.join(directory, 'Dockerfile'),
+          },
+    );
+}
+
+async function collectHttpsOption(
+  name: string,
+  provided: unknown,
+  message: string,
+  defaultValue: boolean,
+): Promise<boolean> {
+  if (provided !== undefined) {
+    return parseBooleanOption(name, provided);
+  }
+  return isInteractive()
+    ? confirm({ message, default: defaultValue })
+    : defaultValue;
+}
 
 /**
  * Refuses the install when the frontend or the server integration files have
@@ -98,12 +176,28 @@ export const authLoginFeature: FeatureDefinition = {
   minHapiVersion: '8.8.0',
   requires: [FRONTEND_PROXY_FEATURE],
 
-  async collectOptions(tree, project) {
+  async collectOptions(tree, project, provided) {
     assertSignInSupport(tree, project);
-    return {};
+    const defaultValue = httpsDefault(tree, project);
+    const options: AuthLoginOptions = {
+      viteHttps: await collectHttpsOption(
+        'viteHttps',
+        provided.viteHttps,
+        'Serve the Vite dev server of the frontend over https?',
+        defaultValue,
+      ),
+      composeHttps: await collectHttpsOption(
+        'composeHttps',
+        provided.composeHttps,
+        'Write docker-compose.https.yml with the server behind an https proxy?',
+        defaultValue,
+      ),
+    };
+    return options as unknown as Record<string, unknown>;
   },
 
-  async apply(tree: Tree, project) {
+  async apply(tree: Tree, project, rawOptions) {
+    const options = rawOptions as unknown as Partial<AuthLoginOptions>;
     const packagePath = project.packageBase.replace(/\./g, '/');
     const applicationClassFqn = detectApplicationClass(tree, project.root);
     const substitutions = {
@@ -118,14 +212,22 @@ export const authLoginFeature: FeatureDefinition = {
       ['test', path.join(project.root, 'src', 'test', 'java', packagePath)],
       ['docs', project.root],
     ];
-    const collisions = groups
-      .flatMap(([group, target]) =>
+    const composeDir = path.join(__dirname, 'files', 'compose');
+    const composeDirectories =
+      options.composeHttps === true ? composeTargets(tree, project) : [];
+    const collisions = [
+      ...groups.flatMap(([group, target]) =>
         listTemplateOutputs(
           path.join(__dirname, 'files', group),
           substitutions,
         ).map((relative) => path.join(target, relative)),
-      )
-      .filter((file) => tree.exists(file));
+      ),
+      ...composeDirectories.flatMap(({ directory }) =>
+        listTemplateOutputs(composeDir).map((relative) =>
+          path.join(directory, relative),
+        ),
+      ),
+    ].filter((file) => tree.exists(file));
     if (collisions.length > 0) {
       throw new Error(
         `feature ${AUTH_LOGIN_FEATURE} would overwrite files that already exist:\n${collisions.join(
@@ -182,7 +284,7 @@ export const authLoginFeature: FeatureDefinition = {
       // The comment follows the last key at the indentation of the app.login.udap keys, so the removal of "# " gives
       // app.login.udap.scope.
       (config.getIn(['app', 'login', 'udap'], true) as YAMLMap).comment =
-        ' scope: openid fhirUser launch/patient patient/*.rs user/*.rs';
+        ' scope: openid fhirUser launch/patient patient/*.cruds user/*.cruds';
       tree.write(yamlPath, config.toString());
       updateServerYaml(
         project.root,
@@ -206,16 +308,52 @@ export const authLoginFeature: FeatureDefinition = {
 
     // The pre-check above reports every collision at once. The strategy is the backstop for a
     // path it fails to predict.
+    const templateVars = {
+      ...substitutions,
+      viteHttps: options.viteHttps === true,
+      // The document describes the compose file only when the install writes one.
+      composeHttps: composeDirectories.length > 0,
+      runner: detectPackageManager(tree.root) === 'bun' ? 'bunx' : 'npx',
+    };
     for (const [group, target] of groups) {
       generateFiles(
         tree,
         path.join(__dirname, 'files', group),
         target,
-        substitutions,
+        templateVars,
         {
           overwriteStrategy: OverwriteStrategy.ThrowIfExisting,
         },
       );
+    }
+
+    for (const { directory, context, dockerfile } of composeDirectories) {
+      generateFiles(
+        tree,
+        composeDir,
+        directory,
+        { context, dockerfile: dockerfile ?? '' },
+        { overwriteStrategy: OverwriteStrategy.ThrowIfExisting },
+      );
+    }
+    if (options.composeHttps === true && composeDirectories.length === 0) {
+      logger.warn(
+        `No integrated frontend of project '${project.name}' has a Dockerfile in its parent directory, so the install writes no docker-compose.https.yml.`,
+      );
+    }
+
+    if (options.viteHttps === true) {
+      for (const frontend of getIntegratedFrontends(tree, project.root)) {
+        writeDevEnvLine(tree, frontend.root, 'DEV_HTTPS', 'true');
+        const viteConfig =
+          tree.read(path.join(frontend.root, 'vite.config.ts'), 'utf-8') ?? '';
+        if (!viteConfig.includes('DEV_HTTPS')) {
+          logger.warn(
+            `The vite.config.ts of frontend project '${frontend.name}' does not read DEV_HTTPS, so its Vite server uses http. ` +
+              `Run "nx g nx-fhir:update-frontend --project=${frontend.name}" to add the https support.`,
+          );
+        }
+      }
     }
   },
 };

@@ -10,6 +10,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SIGN_IN_SCOPE, getStoredSignInFields } from "@/lib/sign-in";
 import { SignInSection } from "./sign-in-section";
 
+const navigate = vi.hoisted(() => vi.fn());
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
+
 const origin = window.location.origin;
 const authorizeUrl = "https://auth.example.org/authorize?state=abc";
 const offered = {
@@ -266,6 +269,7 @@ describe("SignInSection", () => {
 
     expect(await screen.findByLabelText("Client id")).toBeInTheDocument();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["fhir"] });
+    expect(navigate).toHaveBeenCalledWith({ to: "/" });
     const init = requestTo("/auth/logout");
     expect(init.method).toBe("POST");
     expect(new Headers(init.headers).get("X-App-Request")).toBe("1");

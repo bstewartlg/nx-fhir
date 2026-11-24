@@ -8,6 +8,14 @@
     "project": {
       "type": "string",
       "description": "Name of the Nx server project to add the feature to"
+    },
+    "viteHttps": {
+      "type": "boolean",
+      "description": "Serve the Vite dev server of each integrated frontend over https. With no value, the generator uses false when the host of app.auth.issuer is localhost, and true in all other cases."
+    },
+    "composeHttps": {
+      "type": "boolean",
+      "description": "Write docker-compose.https.yml with the server behind an https proxy. With no value, the generator uses false when the host of app.auth.issuer is localhost, and true in all other cases."
     }
   }
 }

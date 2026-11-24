@@ -5,6 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -167,12 +168,19 @@ export function SignInButton({
   );
 }
 
-/** Signs out at `server`, then reloads the server data and the status. */
+/**
+ * Signs out at `server`, reloads the server data and the status, then goes to
+ * the start route.
+ */
 export function SignOutButton({ server }: { server: string }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const signOutMutation = useMutation({
     mutationFn: () => signOut(server),
-    onSuccess: () => reload(queryClient, server),
+    onSuccess: () => {
+      reload(queryClient, server);
+      navigate({ to: "/" });
+    },
   });
 
   return (

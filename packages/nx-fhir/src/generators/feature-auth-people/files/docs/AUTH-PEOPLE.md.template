@@ -54,15 +54,15 @@ The "Sign in" button is off until the tester picks a person. The button sends th
 
 - `loginHint`: `Practitioner/<id>` or `Patient/<id>`.
 - `skipForm`: the value of the checkbox. The value `true` adds `hl7fast_signin=auto` to the authorize request.
-- `scope`: `openid fhirUser user/*.rs` on the tab "Practitioners", and `openid fhirUser launch/patient patient/*.rs` on the tab "Patients". The page does not show the scope.
+- `scope`: `openid fhirUser user/*.cruds` on the tab "Practitioners", and `openid fhirUser launch/patient patient/*.cruds` on the tab "Patients". The page does not show the scope.
 
-The method in use is the saved method while the FHIR server offers it, else UDAP when the FHIR server offers it. When the session holds no client values and the FHIR server offers UDAP, the button first sends the client call with the method `udap`. The scopes of that call are the stored scopes of that FHIR server, else `openid fhirUser launch/patient patient/*.rs`. The scope of the tab goes only into the sign-in call.
+The method in use is the saved method while the FHIR server offers it, else UDAP when the FHIR server offers it. When the session holds no client values and the FHIR server offers UDAP, the button first sends the client call with the method `udap`. The scopes of that call are the stored scopes of that FHIR server, else `openid fhirUser launch/patient patient/*.cruds`. The scope of the tab goes only into the sign-in call.
 
 "Sign in without a person" shows the sign-in page of `AUTH-LOGIN.md` in place of the picker, with a link back to the picker. When the read of the list fails, the page shows a sentence and the sign-in page of `AUTH-LOGIN.md`.
 
 ## Scopes at the authorization server
 
-The two tabs ask for different scopes. A client of the method `client` works with both tabs only when the authorization server registers it with the scopes of both tabs. With the UDAP sign-in and `app.login.udap.scope` set, the registration holds exactly that value, so the value must hold the scopes of both tabs. The comment line `# scope: openid fhirUser launch/patient patient/*.rs user/*.rs` that the `auth-login` install writes holds them.
+The two tabs ask for different scopes. A client of the method `client` works with both tabs only when the authorization server registers it with the scopes of both tabs. With the UDAP sign-in and `app.login.udap.scope` set, the registration holds exactly that value, so the value must hold the scopes of both tabs. The comment line `# scope: openid fhirUser launch/patient patient/*.cruds user/*.cruds` that the `auth-login` install writes holds them.
 
 ## Install checks
 

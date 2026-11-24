@@ -10,6 +10,8 @@ import { fhirFetch } from "@/hooks/use-fhir-api";
 import { DEFAULT_SIGN_IN_SCOPE } from "@/lib/sign-in";
 import { SignedInUser, SignInGate } from "./sign-in-gate";
 
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
+
 // The server list of the app is read when fhir-config loads, so proxy mode
 // must be on before the imports run
 vi.hoisted(() => {

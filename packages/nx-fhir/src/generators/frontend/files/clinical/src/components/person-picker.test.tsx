@@ -117,7 +117,7 @@ describe("PersonPicker", () => {
           ...endpoints,
           loginHint: "Practitioner/pr-1",
           skipForm: true,
-          scope: "openid fhirUser user/*.rs",
+          scope: "openid fhirUser user/*.cruds",
         },
       ],
     ]);
@@ -147,7 +147,7 @@ describe("PersonPicker", () => {
           ...endpoints,
           loginHint: "Patient/pa-1",
           skipForm: true,
-          scope: "openid fhirUser launch/patient patient/*.rs",
+          scope: "openid fhirUser launch/patient patient/*.cruds",
         },
       ],
     ]);

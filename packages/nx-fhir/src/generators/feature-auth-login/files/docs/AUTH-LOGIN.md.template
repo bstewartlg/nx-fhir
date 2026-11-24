@@ -8,6 +8,14 @@ The feature needs the `frontend-proxy` feature. The sign-in uses the HTTP client
 ## What the feature adds
 
 The feature adds `LoginController`, `LoginFilter`, `LoginClients`, `IdTokenCheck`, `UdapClient`, and `LoginSession` under `src/main/java/<%= packagePath %>/login/`. It adds the unit tests `LoginClientsTest`, `LoginFilterTest`, `LoginControllerTest`, and `UdapClientTest`, the test helper `LoginTestKeys`, and the integration test `AuthLoginIT` under `src/test/java/<%= packagePath %>/login/`. `AuthLoginIT` runs under `mvn verify`. The install also adds the dependency `com.nimbusds:oauth2-oidc-sdk` with version 11.26 to `pom.xml`. It writes each key of the configuration table that has an install value to `application.yaml`, and `app.login.udap.scope` as a comment line.
+<% if (viteHttps) { -%>
+
+The install adds the line `DEV_HTTPS=true` to the `.env.development` file of each integrated frontend.
+<% } -%>
+<% if (composeHttps) { -%>
+
+The install writes `docker-compose.https.yml` to each parent directory of an integrated frontend that has a `Dockerfile`.
+<% } -%>
 
 `LoginController` answers the client call `POST /auth/client`, the status call `GET /auth/status`, the sign-in call `POST /auth/login`, the callback `GET /auth/callback`, and the sign-out call `POST /auth/logout`. The settings dialog sends the client call, the status call, the sign-in call, and the sign-out call. The sign-in page and the header of a `clinical` frontend send the status call, the sign-in call, and the sign-out call. The sign-in page also sends the client call for the UDAP sign-in in one step. The authorization server sends the browser to the callback.
 
@@ -20,7 +28,7 @@ The feature adds `LoginController`, `LoginFilter`, `LoginClients`, `IdTokenCheck
 | `app.login.udap.client-name` | Empty when absent. The install writes the name of the server project. | The `client_name` of the software statement of a UDAP registration. |
 | `app.login.udap.contact` | Empty when absent. The install writes `mailto:admin@localhost`. | The one entry of `contacts` in the software statement. |
 | `app.login.udap.logo-uri` | Empty when absent. The install writes `https://build.fhir.org/icon-fhir-16.png`. | The `logo_uri` of the software statement. The authorization server must be able to read the URL. |
-| `app.login.udap.scope` | Empty. The install writes the comment line `# scope: openid fhirUser launch/patient patient/*.rs user/*.rs` after `logo-uri`. | When set, the `scope` of the software statement has the values of the key in their order. This server adds no value and removes no value for the sign-in or for `scopes_supported`. Remove `# ` from the comment line to set the key. When empty, the scope comes from the rule in "UDAP sign-in". |
+| `app.login.udap.scope` | Empty. The install writes the comment line `# scope: openid fhirUser launch/patient patient/*.cruds user/*.cruds` after `logo-uri`. | When set, the `scope` of the software statement has the values of the key in their order. This server adds no value and removes no value for the sign-in or for `scopes_supported`. Remove `# ` from the comment line to set the key. When empty, the scope comes from the rule in "UDAP sign-in". |
 | `server.servlet.session.cookie.same-site` | The install writes `lax`. | The browser sends the session cookie with the return from the authorization server, which comes from a different site. |
 | `server.servlet.session.tracking-modes` | The install writes `cookie`. | This server reads the session id from the cookie only. A session id in the URL has no effect. |
 | `app.proxy.passthrough` | `false` | Permits sign-in at a server that the tester types as a custom URL. |
@@ -40,7 +48,7 @@ Before the sign-in, the form of the method `client` shows these items and a Save
 - The authorization endpoint and the token endpoint, as this server resolved them.
 - The client id.
 - The client secret. When the saved client values have a secret and the client id field has the saved client id, the empty field shows "Empty keeps the saved secret". Else it shows "Empty for a public client".
-- The scopes, with the start value `openid fhirUser launch/patient patient/*.rs`.
+- The scopes, with the start value `openid fhirUser launch/patient patient/*.cruds`.
 - The callback URL `{origin}/auth/callback`, where `{origin}` is the origin of the page. Register this URL at the authorization server.
 
 The Save button sends the client call with `server`, `method: "client"`, `clientId`, `clientSecret`, and `scope` in JSON. An absent `method` is `client`. A `method` other than `client` or `udap` gets status 400. The client id and the scopes must not be empty, else this server answers 400. When `clientSecret` is empty or absent and the session holds client values for that FHIR server with the same client id, this server keeps the saved secret. In each other case, an empty or absent `clientSecret` makes a public client. A `clientSecret` with a value replaces the saved secret. The `server` value has the rules of "Which servers", and this server refuses a value that breaks them with status 400 or 403. The client call reads no SMART configuration and sends no request to another server. It starts the session when there is none, changes the session id, and keeps the client values for that FHIR server in the session. The session holds one set of client values for each FHIR server. A second save of the method `client` for the same FHIR server replaces the first. A save of the method `udap` keeps the client id and the secret, see "UDAP sign-in". The answer is 204.
@@ -57,7 +65,7 @@ At the callback, this server checks the `state` value. A callback with a differe
 
 After the sign-in, the section shows the user, the patient, the granted scopes, and the expiry time, each when this server knows it. When the token response has no `scope`, the granted scopes are the requested scopes. When the token response has no `expires_in`, the access token stays until sign-out or the end of the session, and the section shows no expiry time.
 
-The Sign out button removes the access token of that FHIR server from the session and keeps the client values, so a later sign-in needs no secret from the tester. This server sends no request to the authorization server at sign-out.
+The Sign out button removes the access token of that FHIR server from the session and keeps the client values, so a later sign-in needs no secret from the tester. The frontend then goes to its start route. This server sends no request to the authorization server at sign-out.
 
 ## UDAP sign-in
 
@@ -93,7 +101,7 @@ The form of the method `udap` shows these items and a Save button:
 - The authorization endpoint, the token endpoint, and the registration endpoint, with the signed values.
 - The client URI.
 - The callback URL `{origin}/auth/callback`. The registration sends this URL to the authorization server.
-- The scopes, with the stored scopes of that FHIR server, else the start value `openid fhirUser launch/patient patient/*.rs`.
+- The scopes, with the stored scopes of that FHIR server, else the start value `openid fhirUser launch/patient patient/*.cruds`.
 
 The Save button sends the client call with `server`, `method: "udap"`, and `scope` in JSON. The scopes must not be empty, else this server answers 400. The save sets the method and the scopes, and keeps the client id and the secret that the session holds for that FHIR server. So a later save of the method `client` with the same client id and an empty secret field keeps the secret. The frontend stores the scopes and the method `udap` for that FHIR server, and keeps the stored client id.
 
@@ -158,7 +166,7 @@ The page has the heading "Sign in" and the sentence "This FHIR server requires a
 
 - When the FHIR server offers the sign-in of the method `client` and the session holds client values of that method: the authorization endpoint, the token endpoint, the saved client id, and a Sign in button.
 - When the FHIR server offers the UDAP sign-in and the session holds UDAP values: the authorization endpoint, the token endpoint, and the registration endpoint of the signed metadata, and a Sign in button.
-- When the FHIR server offers the UDAP sign-in and the session holds no client values: the three UDAP endpoints, the scopes, and one Sign in button. The scopes are the stored scopes of that FHIR server, else `openid fhirUser launch/patient patient/*.rs`. The button sends the client call with the method `udap` and these scopes, and then the sign-in call. The tester needs no visit to the settings.
+- When the FHIR server offers the UDAP sign-in and the session holds no client values: the three UDAP endpoints, the scopes, and one Sign in button. The scopes are the stored scopes of that FHIR server, else `openid fhirUser launch/patient patient/*.cruds`. The button sends the client call with the method `udap` and these scopes, and then the sign-in call. The tester needs no visit to the settings.
 - When the FHIR server offers only the sign-in of the method `client` and the session holds no client values: the sentence "Save a client id and scopes for this server in the settings." and an Open settings button, which opens the settings dialog. On a page that is not a secure context, the sentence that the sign-in needs `https` replaces the sentence and the button, because the settings dialog then has no form.
 - When the FHIR server offers no sign-in, or `/config.js` has no `login` object: the sentence "The app found no sign-in for this server." When this server refuses the sign-in because of the `http` rule in "Which servers", the page also shows the reason.
 
@@ -245,3 +253,21 @@ WARNING: `X-App-Request` or `*` in `hapi.fhir.cors.allowed_headers`, or in the a
 ## Development mode
 
 The Vite server of the frontend forwards `/auth` to `DEV_SERVER_URL`, together with `/proxy`, `/config.js`, and `/fhir`. The session cookie and the callback then stay on the Vite origin. The callback URL that the settings dialog shows has the Vite origin. For the method `client`, register that URL at the authorization server too. A UDAP registration sends that URL itself.
+<% if (viteHttps) { -%>
+
+With the line `DEV_HTTPS=true` in `.env.development`, the Vite server answers on `https://localhost:3000` with a self-signed certificate. The browser shows a warning for this certificate one time. Without the line, the Vite server uses `http`.
+<% } -%>
+<% if (composeHttps) { -%>
+
+The command `docker compose -f docker-compose.https.yml up --build` builds the image of the `Dockerfile` and starts it as the service `server` behind a Caddy proxy. The app is then on `https://localhost`. The volume `caddy-data` keeps the certificate of Caddy between runs, so the browser shows its warning one time.
+
+For a port other than 443, replace the `command` line of the service `https` with the line below. The single quotes are necessary, because the value has a colon before a space. Then change the port entry to `"<port>:<port>"`.
+
+```yaml
+    command: 'caddy reverse-proxy --from localhost:<port> --to server:8080 --header-up "X-Forwarded-Port: <port>"'
+```
+
+The service `https` and the volume `caddy-data` can move into a different compose file that has a service with the name `server`.
+<% } -%>
+
+For a server on port 8080 with no `https` proxy in front of it, the command `<%= runner %> local-ssl-proxy --source 8443 --target 8080` gives the address `https://localhost:8443`.

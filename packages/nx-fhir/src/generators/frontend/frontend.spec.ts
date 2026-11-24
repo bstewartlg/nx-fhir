@@ -140,6 +140,20 @@ describe('frontend generator', () => {
     expect(tree.exists('test-frontend/vite.config.ts')).toBe(true);
   });
 
+  it.each(['browser', 'clinical'] as const)(
+    'should serve https with DEV_HTTPS and forward the headers in the %s vite.config.ts',
+    async (template) => {
+      const root = 'test-frontend';
+      await frontendGenerator(tree, { ...options, template, navigationLayout: 'sidebar' });
+
+      const viteConfig = tree.read(`${root}/vite.config.ts`, 'utf-8') as string;
+      expect(viteConfig).toContain("import basicSsl from '@vitejs/plugin-basic-ssl';");
+      expect(viteConfig).toContain("devEnv.DEV_HTTPS === 'true'");
+      expect(viteConfig.match(/xfwd: true/g)).toHaveLength(4);
+      expect(readJson(tree, `${root}/package.json`).devDependencies['@vitejs/plugin-basic-ssl']).toBe('^2.3.0');
+    },
+  );
+
   it('should create TanStack router root file', async () => {
     await frontendGenerator(tree, options);
     expect(tree.exists('test-frontend/src/routes/__root.tsx')).toBe(true);
@@ -743,6 +757,25 @@ spring:
           await frontendGenerator(tree, { ...options, server: serverRoot, proxy: true });
 
           expectOnlyTheEnvLine();
+        });
+
+        it.each([
+          ['viteHttps true', { 'auth-login': { version: 1, options: { viteHttps: true } } }, true],
+          ['viteHttps false', { 'auth-login': { version: 1, options: { viteHttps: false } } }, false],
+          ['no auth-login', {}, false],
+        ])('writes DEV_HTTPS=true only when auth-login records viteHttps true: %s', async (_, features, expected) => {
+          vi.stubEnv('NX_INTERACTIVE', 'false');
+          const server = readProjectConfiguration(tree, serverRoot) as ServerProjectConfiguration;
+          updateProjectConfiguration(tree, serverRoot, {
+            ...server,
+            features: { 'frontend-proxy': installed, ...features },
+          } as ServerProjectConfiguration);
+
+          await frontendGenerator(tree, { ...options, server: serverRoot });
+
+          expect(tree.read(envPath, 'utf-8')).toBe(
+            expected ? `${devServerLine}\nDEV_HTTPS=true\n` : `${devServerLine}\n`,
+          );
         });
       });
 

@@ -24,4 +24,20 @@ describe('feature-auth-login generator', () => {
     });
     expect(FEATURES).toContain(authLoginFeature);
   });
+
+  it('passes the https options and drops an undefined value', async () => {
+    const tree = createTreeWithEmptyWorkspace();
+
+    await featureAuthLoginGenerator(tree, {
+      project: 'server',
+      viteHttps: false,
+      composeHttps: undefined,
+    });
+
+    expect(runFeature).toHaveBeenCalledWith(tree, {
+      feature: 'auth-login',
+      project: 'server',
+      options: { viteHttps: false },
+    });
+  });
 });

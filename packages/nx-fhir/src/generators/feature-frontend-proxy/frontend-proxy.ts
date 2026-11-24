@@ -23,10 +23,28 @@ const DEPENDENCY_XML = `
     <artifactId>httpclient5</artifactId>
 </dependency>`;
 
-const DEV_SERVER_LINE = 'DEV_SERVER_URL=http://localhost:8080';
-
 interface FrontendProxyOptions {
   passthrough: boolean;
+}
+
+/**
+ * Adds the line KEY=value to the .env.development file of a frontend. A line
+ * for the key that is already there stays as it is.
+ */
+export function writeDevEnvLine(
+  tree: Tree,
+  frontendRoot: string,
+  key: string,
+  value: string,
+): void {
+  const envPath = path.join(frontendRoot, '.env.development');
+  const content = tree.read(envPath, 'utf-8') ?? '';
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`^${escapedKey}=`, 'm').test(content)) {
+    return;
+  }
+  const separator = content === '' || content.endsWith('\n') ? '' : '\n';
+  tree.write(envPath, `${content}${separator}${key}=${value}\n`);
 }
 
 /**
@@ -34,13 +52,7 @@ interface FrontendProxyOptions {
  * frontend. A DEV_SERVER_URL line that is already there stays as it is.
  */
 export function writeDevServerEnv(tree: Tree, frontendRoot: string): void {
-  const envPath = path.join(frontendRoot, '.env.development');
-  const content = tree.read(envPath, 'utf-8') ?? '';
-  if (/^DEV_SERVER_URL=/m.test(content)) {
-    return;
-  }
-  const separator = content === '' || content.endsWith('\n') ? '' : '\n';
-  tree.write(envPath, `${content}${separator}${DEV_SERVER_LINE}\n`);
+  writeDevEnvLine(tree, frontendRoot, 'DEV_SERVER_URL', 'http://localhost:8080');
 }
 
 /**

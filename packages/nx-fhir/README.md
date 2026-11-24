@@ -399,6 +399,10 @@ Register the callback URL `{origin}/auth/callback` at the authorization server, 
 
 **Options:**
 - `--project`: Name of the Nx server project to add the feature to
+- `--viteHttps`: Serve the Vite dev server of each integrated frontend over `https` with a self-signed certificate (default: `false` when the host of `app.auth.issuer` is `localhost`, else `true`)
+- `--composeHttps`: Write `docker-compose.https.yml`, which runs the server behind an `https` proxy on `https://localhost` (default: `false` when the host of `app.auth.issuer` is `localhost`, else `true`)
+
+An authorization server can refuse a callback URL that uses `http`. The two options put the page on `https` for local work.
 
 The install writes these values to `application.yaml`:
 
@@ -411,7 +415,7 @@ app:
       client-name: <name of the server project>
       contact: mailto:admin@localhost
       logo-uri: https://build.fhir.org/icon-fhir-16.png
-      # scope: openid fhirUser launch/patient patient/*.rs user/*.rs
+      # scope: openid fhirUser launch/patient patient/*.cruds user/*.cruds
 server:
   servlet:
     session:

@@ -183,7 +183,7 @@ describe('auth-people feature', () => {
       (tree.read(yamlPath, 'utf-8') as string).replace('# scope', 'scope'),
     );
     expect(yaml.getIn(['app', 'login', 'udap', 'scope'])).toBe(
-      'openid fhirUser launch/patient patient/*.rs user/*.rs',
+      'openid fhirUser launch/patient patient/*.cruds user/*.cruds',
     );
     expect(yaml.getIn(['app', 'login', 'people', 'enabled'])).toBe(true);
   });

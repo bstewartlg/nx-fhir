@@ -14,6 +14,7 @@ import { parseDocument } from 'yaml';
 import {
   FRONTEND_PROXY_FEATURE,
   frontendProxyFeature,
+  writeDevEnvLine,
   writeDevServerEnv,
 } from './frontend-proxy';
 import { runFeature } from '../feature/run-feature';
@@ -634,6 +635,35 @@ describe('frontend-proxy feature', () => {
       writeDevServerEnv(tree, 'frontend');
 
       expect(tree.read(envPath, 'utf-8')).toBe(`${devServerLine}\n`);
+    });
+  });
+
+  describe('writeDevEnvLine', () => {
+    const envPath = 'frontend/.env.development';
+
+    it('adds the line after an existing DEV_SERVER_URL line', () => {
+      tree.write(envPath, `${devServerLine}\n`);
+
+      writeDevEnvLine(tree, 'frontend', 'DEV_HTTPS', 'true');
+
+      expect(tree.read(envPath, 'utf-8')).toBe(
+        `${devServerLine}\nDEV_HTTPS=true\n`,
+      );
+    });
+
+    it('makes the file when it is absent', () => {
+      writeDevEnvLine(tree, 'frontend', 'DEV_HTTPS', 'true');
+
+      expect(tree.read(envPath, 'utf-8')).toBe('DEV_HTTPS=true\n');
+    });
+
+    it('changes nothing when a DEV_HTTPS=false line is already there', () => {
+      const content = `${devServerLine}\nDEV_HTTPS=false`;
+      tree.write(envPath, content);
+
+      writeDevEnvLine(tree, 'frontend', 'DEV_HTTPS', 'true');
+
+      expect(tree.read(envPath, 'utf-8')).toBe(content);
     });
   });
 

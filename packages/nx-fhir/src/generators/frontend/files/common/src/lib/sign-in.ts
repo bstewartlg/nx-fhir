@@ -2,7 +2,7 @@ import type { FhirError } from "@/hooks/use-fhir-api";
 import { APP_REQUEST_HEADER, readStoredRecord } from "@/lib/fhir-config";
 
 export const DEFAULT_SIGN_IN_SCOPE =
-  "openid fhirUser launch/patient patient/*.rs";
+  "openid fhirUser launch/patient patient/*.cruds";
 
 /** `client` uses a typed client id and secret. `udap` uses the certificate of this app. */
 export type SignInMethod = "client" | "udap";

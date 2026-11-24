@@ -18,7 +18,12 @@ import { execSync } from 'child_process';
 import { confirm, select } from '@inquirer/prompts';
 import path = require('path');
 import { runFeature } from '../feature/run-feature';
-import { FRONTEND_PROXY_FEATURE, writeDevServerEnv } from '../feature-frontend-proxy/frontend-proxy';
+import { AUTH_LOGIN_FEATURE } from '../feature-auth-login/auth-login';
+import {
+  FRONTEND_PROXY_FEATURE,
+  writeDevEnvLine,
+  writeDevServerEnv,
+} from '../feature-frontend-proxy/frontend-proxy';
 import { FrontendProjectConfiguration, ServerProjectConfiguration } from '../../shared/models';
 import { registerNxPlugin, removeTesterSection } from '../../shared/utils';
 import { isInteractive } from '../../shared/utils/interactive';
@@ -89,6 +94,7 @@ export const DEV_DEPENDENCIES: Record<string, string> = {
   '@types/node': '^26.6.6',
   '@types/react': '^19.3.0',
   '@types/react-dom': '^19.3.0',
+  '@vitejs/plugin-basic-ssl': '^2.3.0',
   '@vitejs/plugin-react': '^6.3.0',
   'jsdom': '^29.1.1',
   'typescript': '~6.0.3',
@@ -218,6 +224,10 @@ export async function frontendGenerator(
   const integratedServer = await integrateFrontendWithServer(tree, projectConfig, options);
   if (integratedServer) {
     await addFrontendProxy(tree, integratedServer, projectRoot, options.proxy);
+    const serverProject = readProjectConfiguration(tree, integratedServer) as ServerProjectConfiguration;
+    if (serverProject.features?.[AUTH_LOGIN_FEATURE]?.options?.viteHttps === true) {
+      writeDevEnvLine(tree, projectRoot, 'DEV_HTTPS', 'true');
+    }
   } else if (options.proxy) {
     logger.warn(
       'The proxy option needs a server project that the frontend is integrated with. The generator does not install the proxy.'
