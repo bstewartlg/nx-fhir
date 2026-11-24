@@ -17,17 +17,15 @@ The feature adds `LoginController`, `LoginFilter`, `LoginClients`, `IdTokenCheck
 | --- | --- | --- |
 | `app.login.enabled` | `false` when absent. The install writes `true`. | Master switch. When `false`, the five `/auth` endpoints return 404, `LoginFilter` adds no token to a request, and `/config.js` has no `login` object. |
 | `app.ssl-verify` | `true` when absent. The install writes `true` when the key is absent. | When `false`, the calls for this server, the listed servers, and their authorization servers accept each certificate and each host name. The calls for a typed server always check the certificate and the host name. With `app.login.enabled: true`, this server then writes one WARN line at startup. The auth features of this server read the same key. Read the warning in the section "Which servers". |
-| `app.login.udap.client-name` | None. The install writes the name of the server project. | The `client_name` of the software statement of a UDAP registration. |
-| `app.login.udap.contact` | None. The install writes `mailto:admin@localhost`. | The one entry of `contacts` in the software statement. |
-| `app.login.udap.logo-uri` | None. The install writes `https://build.fhir.org/icon-fhir-16.png`. | The `logo_uri` of the software statement. The authorization server must be able to read the URL. |
+| `app.login.udap.client-name` | Empty when absent. The install writes the name of the server project. | The `client_name` of the software statement of a UDAP registration. |
+| `app.login.udap.contact` | Empty when absent. The install writes `mailto:admin@localhost`. | The one entry of `contacts` in the software statement. |
+| `app.login.udap.logo-uri` | Empty when absent. The install writes `https://build.fhir.org/icon-fhir-16.png`. | The `logo_uri` of the software statement. The authorization server must be able to read the URL. |
 | `app.login.udap.scope` | Empty. The install writes the comment line `# scope: openid fhirUser launch/patient patient/*.rs user/*.rs` after `logo-uri`. | When set, the `scope` of the software statement has the values of the key in their order. This server adds no value and removes no value for the sign-in or for `scopes_supported`. Remove `# ` from the comment line to set the key. When empty, the scope comes from the rule in "UDAP sign-in". |
 | `server.servlet.session.cookie.same-site` | The install writes `lax`. | The browser sends the session cookie with the return from the authorization server, which comes from a different site. |
 | `server.servlet.session.tracking-modes` | The install writes `cookie`. | This server reads the session id from the cookie only. A session id in the URL has no effect. |
 | `app.proxy.passthrough` | `false` | Permits sign-in at a server that the tester types as a custom URL. |
 | `app.proxy.connect-timeout` | `5s` | Connect timeout for each call of the sign-in. |
 | `app.proxy.read-timeout` | `60s` | Read timeout for each call of the sign-in. |
-
-Startup stops when `app.login.udap.client-name`, `app.login.udap.contact`, or `app.login.udap.logo-uri` is absent.
 
 ## Sign-in
 

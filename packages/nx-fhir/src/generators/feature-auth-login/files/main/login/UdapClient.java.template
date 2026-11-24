@@ -104,9 +104,9 @@ public class UdapClient {
 	private final String configuredScope;
 
 	public UdapClient(LoginClients clients, ObjectProvider<KeyStore.PrivateKeyEntry> certificate,
-			@Value("${app.login.udap.client-name}") String clientName,
-			@Value("${app.login.udap.contact}") String contact,
-			@Value("${app.login.udap.logo-uri}") String logoUri,
+			@Value("${app.login.udap.client-name:}") String clientName,
+			@Value("${app.login.udap.contact:}") String contact,
+			@Value("${app.login.udap.logo-uri:}") String logoUri,
 			@Value("${app.login.udap.scope:}") String configuredScope) {
 		this.clients = clients;
 		this.certificate = certificate;
